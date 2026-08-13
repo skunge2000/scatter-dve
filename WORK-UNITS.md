@@ -45,7 +45,7 @@ coefficients; ringing on step edges is present and unclipped.
 (Release+Debug, tile 4+5) and GCC 13 ASan+UBSan. (This status line was stale
 — corrected at WU-05, same doc-sync slip WU-03's status had at WU-04.)
 
-### WU-05 — File I/O and identity passthrough `wip`
+### WU-05 — File I/O and identity passthrough `green`
 Raw `.v210` source and sink, plane descriptors, and an end-to-end identity path.
 **This is the I7 milestone.**
 **Files:** `src/video/raster.hpp`, `src/io/file_source.cpp`,
@@ -59,9 +59,9 @@ Y); chroma on a ramp or excursion pattern is *not* bit-exact through that
 chain — the downsample filter is a deliberately lossy anti-aliasing stage,
 not a perfect-reconstruction pair with the upsample filter — and is checked
 instead for staying within the v210 protocol range (I2).
-*Status:* implemented, 4459 checks green on Clang 18 / GCC 13 (Release+Debug,
-tile 4+5) and under GCC 13 ASan+UBSan. Not yet built with AppleClang or
-tagged — run `./tools/close.sh 05`.
+*Done:* `wu-05-green` tagged. 4459 checks, AppleClang on the M1 Max
+(Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
+(Release+Debug, tile 4+5) and GCC 13 ASan+UBSan.
 
 ### WU-06 — Lattice and Jacobian `todo`
 129×129 control lattice, Catmull-Rom expansion, analytic first derivatives.

@@ -3,36 +3,39 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 5 (in progress)
-**Tag:** none yet. Implemented and sandbox-verified; `./tools/close.sh 05`
-has not yet been run on the M1 Max. If you are reading this, the session
-ended before that happened — run `./tools/close.sh 05` before starting
-WU-06, and see `WORK-UNITS.md`'s WU-05 entry for the (corrected) accept
-criterion first.
+**Session:** 5
+**Tag:** `wu-05-green` — confirmed. `./tools/close.sh 05` ran clean on the
+M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
+tagged it.
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** `test_ramp_roundtrip` (new, 4459 checks) plus the unchanged
-`test_smoke`, `test_v210`, `test_chroma`, `test_testpat` — all green in a
-Linux sandbox (no AppleClang there) under the project's exact warning set
-(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Clang 18
-and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
-configurations total), and under GCC 13
-`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug): clean, no
-ASan or UBSan report. Not yet run on the M1 Max with AppleClang.
+**Tests:** All five green on the M1 Max: `test_smoke`, `test_v210`,
+`test_chroma`, `test_ramp_roundtrip`, `test_testpat`. `test_ramp_roundtrip`
+is new this session (4459 checks); the other four are unchanged (WU-05
+touched none of their files).
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13. AppleClang unverified.
+Before that, this session verified on Clang 18 and GCC 13 in a Linux
+sandbox (no AppleClang there), both under the project's exact warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 (four configurations × two compilers,
+all green — eight total counting both tile sizes) — same practice as prior
+sessions. Also ran the full suite under GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug): clean, no
+ASan or UBSan report anywhere.
+
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on AppleClang
+(M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
-WU-05 implemented, not yet closed. `src/video/raster.hpp` adds
-`Plane`/`ConstPlane` (pointer + stride + width + height, self-describing per
-plane) and two owning frame types, `Raster422` (tight-packed 4:2:2) and
-`Raster444` (tight-packed 4:4:4) — the general-purpose counterpart to
-`tools/testpat.hpp`'s `Frame`, which stays scoped to the tool and its own
-test per ADR-019. `src/io/file_source.cpp` and `src/io/file_sink.cpp`
-implement `readV210File`/`writeV210File` (declared in `raster.hpp` — see
-deviation note below), raw `.v210`, no header, stride always
+WU-05 done and closed green. `src/video/raster.hpp` adds `Plane`/`ConstPlane`
+(pointer + stride + width + height, self-describing per plane) and two owning
+frame types, `Raster422` (tight-packed 4:2:2) and `Raster444` (tight-packed
+4:4:4) — the general-purpose counterpart to `tools/testpat.hpp`'s `Frame`,
+which stays scoped to the tool and its own test per ADR-019.
+`src/io/file_source.cpp` and `src/io/file_sink.cpp` implement
+`readV210File`/`writeV210File` (declared in `raster.hpp` — see deviation
+note below), raw `.v210`, no header, stride always
 `v210::rowBytesMin(width)`. `tests/test_ramp_roundtrip.cpp` checks three
 separate things, not one — see below, this is the session's main finding.
 
@@ -70,17 +73,22 @@ sources (not `scatter` — see ADR-021, appended this session) and
 While reading the current state at session start, `WORK-UNITS.md` still
 marked WU-04 `wip` even though `wu-04-green` already existed as a git tag —
 same doc-sync slip as WU-03 had at the start of session 4. Corrected this
-session, alongside marking WU-05.
+session, alongside marking WU-05 `green`.
+
+**Delivery mechanics note, not a design matter:** the remote-device bridge
+used to get these changes onto this machine still can't unlink files under
+the mounted folder (not just via `git commit`, as session 4 found, but for
+git's own `index.lock`/`HEAD.lock`/temp-object cleanup on any git
+invocation through that bridge). `mv` works where `rm`/`unlink` doesn't, so
+stale lock files got moved into `_to_delete/` rather than removed —
+gitignored this session so it doesn't block `close.sh`'s clean-tree check.
+Safe to `rm -rf _to_delete/` (and a stray `~/leftover_scatter_lockfiles`
+outside the repo) by hand at the real terminal. `./tools/close.sh 05`
+itself was, as before, run at the real terminal, not through the bridge.
 
 ## Next work unit
 
-Run `./tools/close.sh 05` first. If it comes back green (expected, given the
-sandbox results above), update this file's Tag/Tests/Build sections and
-`WORK-UNITS.md`'s WU-05 status to `green` before starting anything else, per
-`SESSION-PROTOCOL.md`. If it fails, record the failure verbatim here instead
-and stop.
-
-Then: **WU-06 — Lattice and Jacobian**, per `WORK-UNITS.md`. 129×129 control
+**WU-06 — Lattice and Jacobian**, per `WORK-UNITS.md`. 129×129 control
 lattice, Catmull-Rom expansion, analytic first derivatives.
 **Files:** `src/core/lattice.hpp`, `src/core/lattice.cpp`,
 `tests/test_jacobian.cpp`.
@@ -94,12 +102,12 @@ Unchanged: Q1 (tile size, WU-09), Q2 (4K Mini program outputs, WU-14), Q3
 
 ## Blocked / red
 
-Nothing red. WU-05 just hasn't been built on the M1 Max yet this session.
+Nothing. WU-05 closed green.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-05/WU-06 and costs no session time.
+independent of WU-06 and costs no session time.
 
 ## Append to DECISIONS.md
 
