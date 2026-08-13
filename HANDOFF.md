@@ -4,124 +4,110 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 2
-**Tag:** `wu-02-green`
+**Session:** 3
+**Tag:** `wu-03-green` (pending — see "Still to do" below)
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
-**Tests:** GREEN — `test_smoke` 2076 checks, `test_v210` 635 checks
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion`, Release and
-Debug, at `SCATTER_TILE_LOG2` 4 and 5
+
+**Tests:** Not yet run on the M1 Max. Verified in a Linux sandbox instead —
+Clang 18 and GCC 13, both under the project's exact warning set (`-Wall
+-Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release and
+Debug, `SCATTER_TILE_LOG2` 4 and 5. All four configurations built clean and
+`ctest` passed all three suites: `test_smoke` 2076 checks, `test_v210` 635
+checks, `test_testpat` 10995 checks (unchanged for the first two — WU-03
+touched neither). Not run under ASan/UBSan anywhere; that check remains
+yours, as it always has been, since it's not wired into `CMakeLists.txt`.
+**Run `./tools/close.sh 03` to get the authoritative result and tag.**
+
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on the two
+compilers available in the sandbox. Not yet built with AppleClang.
 
 ## Where we are
 
-WU-02 done. `src/video/v210.hpp` and `.cpp` hold the scalar v210 unpack and
-pack. Row functions are the primitive — `unpackRow` / `packRow` — with
-`unpackImage` / `packImage` looping over them. Byte strides on the packed side,
-sample strides on the planar side, both taken as parameters. Geometry helpers
-are `constexpr`: `groupsPerRow`, `rowBytesMin`, `rowBytesAligned`,
-`chromaWidth`, `isSupportedWidth`.
+WU-03 done, pending your local confirmation. `tools/testpat.hpp` (new,
+header-only) holds `makeRamp`, `makeZonePlate`, `makeExcursion` and
+`writeV210`. `tools/make_testpat.cpp` is a thin CLI wrapper around it, built
+as its own `add_executable` per the WU-03 scope note. `tests/test_testpat.cpp`
+exercises the header directly.
 
-`scatter-core` is now `STATIC`; every usage requirement moved from `INTERFACE`
-to `PUBLIC`. `scatter_test(test_v210)` registered.
+**Deviation from the WU-03 file list in `WORK-UNITS.md`:** that list named
+only `tools/make_testpat.cpp` and `tests/test_testpat.cpp`. A third file,
+`tools/testpat.hpp`, was added. Reason: `make_testpat` is its own
+`add_executable`, not part of `scatter-core`, and `test_testpat` links only
+`scatter-core` (via `scatter_test()`) — neither links the other's
+translation unit, so the pattern-generation functions have to live
+somewhere both can include directly. A header is that place; it is the same
+interface/implementation split the project already uses for v210, just
+header-only because there is no compiled library boundary between "tool"
+and "test" here. Still well inside the WU sizing rule (2 source files + 1
+test, under the 3-plus-test limit). Logged as ADR-019 below rather than
+treated as a scope violation, since nothing settled was contradicted.
 
-Planes at this stage are 4:2:2 — luma `width` wide, chroma `width / 2`,
-co-sited with even luma. Upsampling to 4:4:4 is WU-04 and happens after unpack,
-never during it.
+Ramp: column 0 and the last column of every plane land on `kCode10Min`
+(4) and `kCode10Max` (1019) exactly, by construction of a rounded-division
+formula, not by approaching them — true regardless of plane width. Verified
+at width 720 and at width 8 (the narrow case).
 
-`packRow` is the single clamp site in the pipeline (I2) and the only place
-`toCode10` is called on the output path. Nothing legalises.
+Zone plate: luma only, a chirp (`cos(k * r^2)`, `k` scaled to 8 cycles
+corner-to-centre) bounded to the nominal legal range
+`[kCode10Black, kCode10WhiteNominal]` (64–940), not the full protocol range —
+this is a resolution stimulus for WU-10, not an I2 excursion test. Chroma
+flat at `kChromaZero`. `kZoneCycles = 8.0` is a starting point, explicitly
+not tuned; WU-10 owns that.
 
-Still nothing reads or writes files; that is WU-05.
+Excursion: Y, Cb and Cr all cycle through six codes — 4, 20 (footroom), 64
+(black), 940 (nominal white), 1000 (super-white), 1019 — column by column.
+Requires plane width ≥ 6 for every code to appear at least once; true for
+every width this project uses. Round-tripped through `v210::packImage` /
+`unpackImage` in the test and confirmed byte-for-byte: none of these codes
+triggers `pack`'s clamp, so I2 holds.
 
-### Measured, this session
+`writeV210` uses `v210::rowBytesMin(width)` as the file stride, per the scope
+note. File size is `rowBytesMin(width) * height`, checked in the test.
 
-- Round trip byte-identical over random legal-code planes at widths 2, 4, 6, 8,
-  10, 12, 14, 16, 18, 22, 720, 1920, and over a full 720×576 frame.
-- Codes 4 and 1019 survive. Sub-black (5, 63) and super-white (941, 1000) pass
-  through untouched. Samples outside the protocol range clamp at pack and
-  nowhere else.
-- **Cross-checked against FFmpeg.** Our packed output is byte-identical to
-  FFmpeg's v210 encoder given the same plane data, at 12×2, 48×3, 720×4 and
-  1920×2. This confirms component order, bit positions, endianness and stride
-  against a third-party implementation rather than only against ourselves.
-  FFmpeg's own stride rule, `ceil(width / 48) × 128`, agrees with
-  `rowBytesAligned(width, 128)` — including 1920 bytes at 720 and 5120 at 1920.
-- Clean under ASan and UBSan.
-- The four-configuration matrix (Release/Debug × tile 4/5) was run under CMake
-  and ctest, not just by hand.
+### Measured, this session (sandbox, not the target machine)
 
-### One decision made that is not yet an ADR
-
-A short final group — any width not a multiple of 6 — is padded on pack with
-luma at `kCode10Black` and chroma at `kCode10ChromaZero`, and the padding is
-discarded on unpack. The values matter only in that they must be deterministic,
-or `unpack → pack` would not be byte-identical at such widths. Exposed as
-`v210::kPadLuma` and `v210::kPadChroma`. Proposed wording if you want it
-recorded:
-
-> **ADR-018 — v210 short-group padding is black, and deterministic.**
-> Widths that are not a multiple of 6 leave unused components in the final
-> 16-byte group. These are packed as `kCode10Black` for luma and
-> `kCode10ChromaZero` for chroma and ignored on unpack. Determinism is the
-> requirement — without it `unpack → pack` is not byte-identical at such widths
-> and I7 could not be stated for them. Black rather than replication of the
-> edge pixel because a decoder that renders the full group should show nothing
-> rather than a smear. Neither 720 nor 1920 exercises this path.
+- Manually ran `make_testpat all <dir> 12 4` and `make_testpat all <dir>`
+  (default 720x576): produced `ramp.v210`, `zoneplate.v210`,
+  `excursion.v210` at the expected sizes (128 bytes and 1,105,920 bytes
+  respectively — `1920 * 576`, matching WU-02's own stride figure for 720).
+- Cross-compiler: identical pass/fail result under Clang 18 and GCC 13.
+- Four-configuration matrix (Release/Debug × tile 4/5): all green.
 
 ## Next work unit
 
-**WU-03 — Test pattern generator.**
-
-Deliver: `tools/make_testpat.cpp`, `tests/test_testpat.cpp`, plus the
-`CMakeLists.txt` edit described below.
-
-Scope notes:
-
-- Three patterns. A full-range ramp sweeping code 4 to 1019 on Y, Cb and Cr;
-  a zone plate; and a pattern with deliberate sub-black and super-white
-  excursions. The ramp must contain codes 4 and 1019 exactly, not merely
-  approach them, so the sweep should be constructed to hit both endpoints
-  regardless of width.
-- Output is raw `.v210`, written via `packImage`. Choose the stride explicitly
-  and record it — `rowBytesMin` is the right default for files, and at 720 it
-  coincides with the aligned figure anyway.
-- The excursion pattern is the interesting one for I2. It must contain codes
-  at 4 and 1019 and codes in the footroom and above nominal white, and those
-  must still be there after a round trip. It is not a legal-signal test
-  pattern and is not meant to be.
-- The zone plate is generated in the planar domain at 4:2:2 for now. Its real
-  use is WU-10's aliasing check.
-
-**`CMakeLists.txt` change:** `tools/make_testpat.cpp` is the first executable
-that is not a test, so it needs its own `add_executable` linking
-`scatter-core`, placed after the `scatter_test` function definition. Add
-`scatter_test(test_testpat)`.
-
-**Session open command:**
-
-```
-./tools/open.sh CMakeLists.txt src/core/types.hpp src/video/v210.hpp
-```
-
-`v210.cpp` is not needed — the interface and the geometry helpers are in the
-header. `harness.hpp` is not needed.
+**WU-04 — Chroma resampling**, per `WORK-UNITS.md`. Unstarted.
 
 ## Open questions
 
-- **Q1.** Tile size 16×16 (32 KB across four banks) versus 32×32 (128 KB).
-  CMake cache variable `SCATTER_TILE_LOG2`, default 5, both configurations
-  verified. Benchmark at WU-09. Do not resolve before then.
-- **Q2.** Whether the 4K Mini's two program outputs are genuinely mirrored.
-  Blocks nothing before WU-14.
-- **Q3.** macOS version and matching Desktop Video release. Blocks WU-14.
+Unchanged: Q1 (tile size, WU-09), Q2 (4K Mini program outputs, WU-14), Q3
+(macOS/Desktop Video version, WU-14).
 
 ## Blocked / red
 
-Nothing.
+Nothing, pending your `./tools/close.sh 03` run. If it comes back red,
+overwrite this file's Tests section with the failure verbatim before the
+next session, per `docs/workflow.md` section 3.
 
 ## Environment check still outstanding
 
-Phase 0 from `docs/architecture.md` section 10: install Desktop Video, approve
-the system extension, confirm the UltraStudio 4K Mini enumerates with both
-input and output, capture and play a clip in Media Express. Independent of the
-next several work units — can be done in parallel and costs no session time.
-Resolves Q3.
+Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
+independent of WU-04 and costs no session time.
+
+## Append to DECISIONS.md
+
+```
+**ADR-019 — Test pattern generation logic is header-only
+(tools/testpat.hpp), shared by the tool and its test.**
+`tools/make_testpat.cpp` is its own `add_executable`, not part of
+`scatter-core`, and `tests/test_testpat.cpp` links only `scatter-core` (via
+`scatter_test()`). Neither links the other's translation unit, so
+`makeRamp`, `makeZonePlate`, `makeExcursion` and `writeV210` live in a
+header both include, rather than being duplicated or exposed only through
+the executable. Same interface/implementation split the project already
+uses for v210 (WU-02); header-only here specifically because there is no
+compiled library boundary between "tool" and "test" for this unit.
+```
+
+## Append to CORRECTIONS.md
+
+Nothing this session.

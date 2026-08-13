@@ -4,7 +4,6 @@ project(scatter-dve LANGUAGES CXX)
 # ---------------------------------------------------------------------------
 # Standard and defaults
 # ---------------------------------------------------------------------------
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -22,7 +21,6 @@ endif()
 # and the usage requirements are unchanged from WU-01; only the keyword on each
 # of them moved from INTERFACE to PUBLIC.
 # ---------------------------------------------------------------------------
-
 add_library(scatter-core STATIC
     src/video/v210.cpp)
 
@@ -36,7 +34,6 @@ target_compile_features(scatter-core PUBLIC cxx_std_20)
 # invariant is being bent — narrowing conversions in the colour path
 # especially.
 # ---------------------------------------------------------------------------
-
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(scatter-core PUBLIC
         -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
@@ -58,7 +55,6 @@ endif()
 #
 # WU-09 benchmarks both. Do not resolve Q1 before then.
 # ---------------------------------------------------------------------------
-
 set(SCATTER_TILE_LOG2 "5" CACHE STRING "log2 of tile edge in pixels (4 or 5)")
 target_compile_definitions(scatter-core PUBLIC
     SCATTER_TILE_LOG2=${SCATTER_TILE_LOG2})
@@ -66,7 +62,6 @@ target_compile_definitions(scatter-core PUBLIC
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
 include(CTest)
 enable_testing()
 
@@ -79,6 +74,20 @@ endfunction()
 
 scatter_test(test_smoke)
 scatter_test(test_v210)
+
+# ---------------------------------------------------------------------------
+# make_testpat — WU-03. First executable that is not a test: it writes raw
+# .v210 test patterns to disk rather than asserting anything itself, so it
+# is its own add_executable rather than going through scatter_test(). Its
+# pattern-generation logic lives in tools/testpat.hpp (header-only) so that
+# tests/test_testpat.cpp can exercise it directly without linking this
+# executable's translation unit.
+# ---------------------------------------------------------------------------
+add_executable(make_testpat tools/make_testpat.cpp)
+target_link_libraries(make_testpat PRIVATE scatter-core)
+
+scatter_test(test_testpat)
+target_include_directories(test_testpat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # scatter — the application. Adds src/io, src/diag, src/app and links
