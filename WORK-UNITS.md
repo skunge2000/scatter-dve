@@ -9,14 +9,18 @@ Status: `todo` / `wip` / `green` / `red`
 
 ## Phase 1 — Portable core, file to file, 576p25, single-threaded
 
-### WU-01 — Repo skeleton `todo`
+### WU-01 — Repo skeleton `green`
 CMake, test harness, `types.hpp` with fixed-point aliases and `Frag`. No
-algorithm. Builds on both machines.
-**Files:** `CMakeLists.txt`, `src/core/types.hpp`, `tests/test_smoke.cpp`
-**Accept:** `cmake --build build && ctest` green.
+algorithm.
+**Files:** `CMakeLists.txt`, `src/core/types.hpp`, `tests/harness.hpp`,
+`tests/test_smoke.cpp`
+**Accept:** `cmake --build build && ctest` green. *Done:* 2076 checks pass in
+Release and Debug at both candidate tile sizes, under `-Werror -Wconversion
+-Wsign-conversion`.
 
 ### WU-02 — v210 unpack and pack, scalar reference `todo`
-**Files:** `src/video/v210.hpp`, `src/video/v210.cpp`, `tests/test_v210.cpp`
+**Files:** `CMakeLists.txt`, `src/video/v210.hpp`, `src/video/v210.cpp`,
+`tests/test_v210.cpp`
 **Accept:** random-buffer round trip byte-identical; codes 4 and 1019 survive;
 row-stride handling matches the 6-pixels-per-16-bytes packing for 720 and 1920.
 

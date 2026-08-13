@@ -100,3 +100,17 @@ I6 survives ADR-013 intact and matters more without a second platform to diff
 against. The reference is `--threads 1`: any multi-threaded run must produce
 byte-identical output to it on the same input. This is checked in-suite rather
 than by hand.
+
+**ADR-016 — Hand-rolled test harness, not `assert()` and not a framework.**
+Release builds define `NDEBUG`, which compiles `assert()` to nothing, so an
+assert-based suite passes silently in exactly the configuration that ships.
+`tests/harness.hpp` provides `CHECK` and `CHECK_ONCE`, always evaluated,
+counted, and reported with a non-zero exit code. No external dependency:
+nothing needs one yet and a dependency is a thing that breaks between sessions.
+
+**ADR-017 — Warnings are errors, including `-Wconversion` and
+`-Wsign-conversion`.**
+The colour path is full of narrowing between 10-bit codes, 16-bit samples,
+32-bit weights and 64-bit accumulators. An implicit conversion there is
+usually an invariant being bent, so the compiler is configured to refuse it.
+Verified achievable at WU-01: the full suite builds clean under this set.
