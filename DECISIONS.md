@@ -326,3 +326,61 @@ Does not reopen `docs/architecture.md`, ADR-022 or ADR-023 — same
 relationship ADR-020 has to the document itself; the pixel-space-Jacobian
 distinction uses ADR-023's `densityCompensation()` unchanged, just with a
 correctly-scaled input.
+
+**ADR-025 — Four-bank splat: bilinear corner weights, tile-edge corner
+handling, and the SubPos decode, frozen at WU-09.**
+architecture.md 4.5 fixes the bank/corner addressing scheme itself — bank A
+the base cell, B base+1, C base+stride, D base+stride+1; "each fragment
+performs exactly one read-modify-write per bank"; on resolve, all four
+banks addressed identically and summed — without fixing:
+
+- **How a fragment's weight is distributed across its four corners.** 4.5
+  alone is silent on this; section 13's provenance note fixes it instead —
+  "forward scatter with fractional addresses supplying splat weights".
+  Chosen: bilinear, using the fragment's own sub-pixel fractional position
+  (`SubPos`'s low 4 bits per axis, already defined by ADR-024) as the two
+  axis weights, integer fixed-point throughout (I6), never floating point.
+  A corner's raw weight is the product of its two axis weights (0..16
+  each), so 0..256 (`kSubPixelOne^2`); a corner's contribution to
+  `AccumCell::Y`/`Cb`/`Cr`/`w` is `(colour or w) * frag.w * rawWeight`,
+  right-shifted by 8 (`2 * kSubPixelBits`). This is the standard bilinear-
+  splat formula for a fractional destination position, not an invented
+  number the way ADR-023's `maxK` or ADR-024's supersampling thresholds
+  are — there was only one geometrically sensible choice once "fractional
+  addresses supplying splat weights" is taken literally. Truncation from
+  the right shift is per-corner and deterministic, so a fragment's four
+  corner contributions do not always sum back to exactly its own weight
+  (up to 3 parts in 256 can be lost) — acceptable, since I6 requires
+  determinism and order-independence, not exact weight conservation across
+  one fragment's own footprint.
+- **What happens when a corner falls outside the tile being splatted.**
+  Not an independent choice: the necessary consequence of WU-08's already-
+  frozen replication scheme (ADR-024). A fragment's footprint reaches at
+  most one pixel past its base cell per axis, and `core/binner.cpp`
+  already replicates any fragment whose footprint crosses a tile boundary
+  into the neighbouring tile's own bin, with tile-local coordinates
+  recomputed relative to it. So of the up to four physical copies one
+  source-level fragment can become, spread across up to four tiles' bins,
+  each copy's own out-of-range corners either belong to a *different*
+  copy in a *different* tile's bin, or — at the destination raster's own
+  edge, where there was no neighbour to replicate into — correspond to no
+  real destination pixel at all. `splat.cpp`'s internal `splatCorners()`
+  simply skips a corner whose computed cell address falls outside
+  `[0, kTileSize)` on either axis: not a clamp, not a wraparound, not a
+  fabricated destination (the same "do not fabricate a destination the
+  warp never produced" reasoning ADR-024's off-raster-drop choice uses).
+- **Decoding `SubPos` back to a signed (base, fraction) pair.** ADR-024
+  biases every stored coordinate by `+kSubPixelOne` so an unsigned field
+  can hold a replica's up-to-one-pixel-negative position; WU-09 needs the
+  inverse. Chosen: widen to `int32_t`, subtract `kSubPixelOne`, then use
+  C++20's guaranteed two's-complement, floor-rounding signed right shift
+  (`>> kSubPixelBits`) together with the matching bitwise-and mask to
+  split into a (possibly negative) integer base cell and a non-negative
+  fraction in one step — the standard fixed-point decode technique,
+  applied to a signed range for the first time in this codebase because
+  ADR-024's bias is exactly what makes that range signed.
+
+Does not reopen `docs/architecture.md` or ADR-024 — same relationship
+ADR-020/022/023/024 have to the document and to each other: this fills a
+gap architecture.md leaves open on purpose, and treats ADR-024's biased
+encoding as a fixed input, not something to revisit.

@@ -67,3 +67,36 @@ never touches Y. `WORK-UNITS.md`'s WU-05 accept line is corrected to state
 these three properties. No ADR is reopened — ADR-020's filters are
 unchanged; this corrects a planning-time assumption in `WORK-UNITS.md`, not
 a design decision in `DECISIONS.md`.
+
+**C-007 — `AccumCell::w` (int32, I4) does not share `AccumCell::Y`/`Cb`/`Cr`
+(int64)'s headroom at the same synthetic scale.**
+*Claimed (implicitly, going into WU-09's worst-case test):* the "int64
+headroom... at synthetic worst case" WORK-UNITS.md's WU-09 accept line asks
+for could be checked by routing a million full-weight fragments (`Y = Cb =
+Cr = 65535`, `w = kWeightMax = 65535`), all landing on one cell, through
+the real splat path (`Frag` -> `accumulateCorner()` -> `AccumCell`).
+*Correct:* doing so overflows `AccumCell::w` — signed integer overflow,
+undefined behaviour — long before `AccumCell::Y`/`Cb`/`Cr` are anywhere
+near their own limit. A full-weight fragment's colour contribution is
+`kMaxFragContribution` (~4.29e9) but its weight contribution is only `w`
+itself (up to 65535), so `AccumCell::w`'s int32 capacity (~2.147e9) is
+exhausted at roughly 32768 such fragments landing in one cell, versus
+`AccumCell::Y`'s int64 capacity (~9.22e18) only being exhausted at roughly
+2.15 billion — a difference of exactly `kWeightMax + 1`, dimensionally,
+since colour is weight times a 16-bit sample. `tests/test_splat.cpp`
+splits the worst-case coverage in two instead:
+`test_int64_headroom_full_pipeline()` drives 25000 full-weight fragments
+through the real `splatTile()`/`splatTileReference()` path — safely under
+`AccumCell::w`'s ~32768-fragment ceiling, while already far beyond what a
+hypothetical 32-bit colour accumulator could hold — and
+`test_int64_headroom_million_fragment_arithmetic()` checks the literal "a
+million" claim `core/types.hpp`'s own `kMaxFragContribution` comment makes,
+directly against `ColourAccum`'s arithmetic in isolation, not routed
+through the shared `Frag`/weight code path. Not a defect in `splat.cpp` or
+in I4 itself — I4 only ever claims int32 "may be" sufficient for weight,
+never that it shares colour's synthetic million-fragment ceiling — but
+worth recording so a future session does not assume `AccumCell::w` has
+headroom it does not have. Under architecture.md 4.4's own bin-traffic
+table, realistic per-cell fragment counts (order 1000 under 32:1
+compression) stay nowhere near either ceiling; this only matters for
+deliberately synthetic stress tests, or if some future unit changes that.
