@@ -3,3 +3,7 @@ build*/
 compile_commands.json
 *.v210
 session-context.txt
+
+# Stray lock/temp files a remote-device bridge session could not unlink
+# (see HANDOFF.md session 4 and 5 notes); safe to delete by hand.
+_to_delete/
