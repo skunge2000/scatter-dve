@@ -20,10 +20,12 @@ endif()
 # STATIC as of WU-02, which brings the first translation unit. The target name
 # and the usage requirements are unchanged from WU-01; only the keyword on each
 # of them moved from INTERFACE to PUBLIC.
+#
+# WU-04 adds src/video/chroma.cpp: same target, no new build-graph shape.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
-    src/video/v210.cpp)
-
+    src/video/v210.cpp
+    src/video/chroma.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
 
@@ -74,6 +76,7 @@ endfunction()
 
 scatter_test(test_smoke)
 scatter_test(test_v210)
+scatter_test(test_chroma)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw
@@ -85,7 +88,6 @@ scatter_test(test_v210)
 # ---------------------------------------------------------------------------
 add_executable(make_testpat tools/make_testpat.cpp)
 target_link_libraries(make_testpat PRIVATE scatter-core)
-
 scatter_test(test_testpat)
 target_include_directories(test_testpat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
@@ -93,5 +95,4 @@ target_include_directories(test_testpat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tool
 # scatter — the application. Adds src/io, src/diag, src/app and links
 # DeckLink. Arrives at WU-14; nothing to build yet.
 # ---------------------------------------------------------------------------
-
 message(STATUS "scatter-dve: ${CMAKE_BUILD_TYPE}, tile 2^${SCATTER_TILE_LOG2}")

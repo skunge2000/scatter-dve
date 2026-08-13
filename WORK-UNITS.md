@@ -1,5 +1,4 @@
 # Work units
-
 One session, one unit. Each lists the files to pass to `context.sh` and the
 acceptance criterion. Units are ordered; do not skip.
 
@@ -27,18 +26,23 @@ row-stride handling matches the 6-pixels-per-16-bytes packing for 720 and 1920.
 clean under ASan and UBSan. Packed output verified byte-identical to FFmpeg's
 v210 encoder at 12x2, 48x3, 720x4 and 1920x2.
 
-### WU-03 — Test pattern generator `todo`
+### WU-03 — Test pattern generator `green`
 Full-range ramp (code 4 to 1019 on Y, Cb, Cr), zone plate, and a pattern with
 deliberate sub-black and super-white excursions.
 **Files:** `tools/make_testpat.cpp`, `tests/test_testpat.cpp`
 **Accept:** patterns written as raw `.v210`; ramp contains codes 4 and 1019.
+*Done:* `wu-03-green` tagged (this status line was stale — corrected at
+WU-04). 10995 checks; see session 3's history in git log for detail.
 
-### WU-04 — Chroma resampling `todo`
+### WU-04 — Chroma resampling `wip`
 4:2:2 → 4:4:4 polyphase interpolator (co-sited), 4:4:4 → 4:2:2 with half-band
 low-pass before decimation.
 **Files:** `src/video/chroma.hpp`, `src/video/chroma.cpp`, `tests/test_chroma.cpp`
 **Accept:** flat fields preserved exactly; impulse response matches designed
 coefficients; ringing on step edges is present and unclipped.
+*Status:* implemented, coefficients fixed (ADR-020), 21342 checks green on
+Clang 18 / GCC 13 (Release+Debug, tile 4+5) and under GCC 13 ASan+UBSan.
+Not yet built with AppleClang or tagged — run `./tools/close.sh 04`.
 
 ### WU-05 — File I/O and identity passthrough `todo`
 Raw `.v210` source and sink, plane descriptors, and an end-to-end identity path.
