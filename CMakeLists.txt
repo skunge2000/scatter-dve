@@ -92,6 +92,7 @@ scatter_test(test_v210)
 scatter_test(test_chroma)
 scatter_test(test_ramp_roundtrip)
 scatter_test(test_jacobian)
+scatter_test(test_ewa)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

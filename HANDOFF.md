@@ -3,96 +3,103 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 6
-**Tag:** `wu-06-green` — confirmed. `./tools/close.sh 06` ran clean on the
-M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
-tagged it.
+**Session:** 7
+**Tag:** none yet. WU-07 is `wip`, not `wu-07-green` — this session could
+not run `./tools/close.sh`, which needs AppleClang on the M1 Max,
+unreachable from here. **Run `./tools/close.sh 07` at the Mac terminal to
+finish this work unit and tag it.**
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** All six green on the M1 Max: `test_smoke`, `test_v210`,
-`test_chroma`, `test_ramp_roundtrip`, `test_testpat` (all five unchanged
-from WU-05, none of their files touched) and `test_jacobian`, new this
-session (411 checks).
+**Tests:** All seven green in the Linux cloud sandbox this session ran in:
+`test_smoke`, `test_v210`, `test_chroma`, `test_ramp_roundtrip`,
+`test_jacobian`, `test_testpat` (six unchanged from WU-06, none of their
+files touched) and `test_ewa`, new this session (69 checks).
 
-Before that, this session verified in a Linux sandbox (no AppleClang
-there), on Clang 18 and GCC 13, under the project's exact warning set
+Verified there on Clang 18 and GCC 13, under the project's exact warning set
 (`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
-and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all green),
-plus the full suite under GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` (Debug): clean, no ASan or UBSan report anywhere
-— same practice as prior sessions.
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all green,
+zero warnings — checked explicitly in the build logs, not just a successful
+exit code), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` (Debug): clean, no ASan or UBSan report anywhere.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
-AppleClang (M1 Max), Clang 18 and GCC 13.
+**Not yet done, and the reason this session is wip, not green:** none of the
+above ran on the M1 Max with AppleClang, and `./tools/close.sh` was not run
+— this session had no access to a real terminal on that machine, only the
+device-bridge file tools. **Next step for you: run `./tools/close.sh 07` at
+the Mac terminal.** If it comes back green, tag as usual (`wu-07-green`)
+and WU-08 is current. If AppleClang finds something Clang 18/GCC 13 didn't
+(hasn't happened in six prior sessions, but WU-07 introduces `<algorithm>`'s
+`std::min` and floating trig it hasn't used before), treat `close.sh`'s
+result as the one that matters and report back here rather than trusting
+this session's sandbox run over it.
+
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
+and GCC 13. Not yet checked on AppleClang.
 
 ## Where we are
 
-WU-06 done and closed green. `src/core/lattice.hpp`/`lattice.cpp` add
-`Lattice`: a 129×129 grid of `Vec3` control vertices (`x`, `y`, `z`,
-`double`), `eval(u, v)` (bicubic Catmull-Rom expansion) and `jacobian(u, v)`
-(analytic `dx/du`, `dx/dv`, `dy/du`, `dy/dv`, differentiating the identical
-basis polynomials `eval()` uses, term by term — not a separate
-approximation). `tests/test_jacobian.cpp` checks the analytic Jacobian
-against central differences of `eval()` to 1e-6 relative, across the
-lattice interior, its four edges, its four corners, and interior integer
-coordinates (cell knots) — the WU-06 accept criterion — plus two sanity
-checks: `eval()` reproduces control vertices exactly at integer
-coordinates, and both `eval()`/`jacobian()` clamp rather than misbehave on
-out-of-range input. `CMakeLists.txt`: `src/core/lattice.cpp` added to
-`scatter-core`'s sources, `test_jacobian` registered via `scatter_test()`.
-Matches WU-06's file list in `WORK-UNITS.md` exactly — no deviation, unlike
-WU-05.
+WU-07 implemented, not yet closed. `src/core/jacobian.hpp` adds two pure
+functions operating on the `Jacobian` struct `src/core/lattice.hpp` already
+defines (unchanged this session): `densityCompensation(j, maxK)` —
+`K = 1/|det J|`, clamped to a caller-supplied `maxK` — and `ewaFootprint(j)`
+— the elliptical filter footprint architecture.md 4.2 describes, returned
+as `EwaFootprint{majorAxis, minorAxis, majorAngle}`, from the closed-form
+eigen-decomposition of the symmetric 2x2 matrix `J*J^T`. Header-only, no
+`.cpp`: both functions are small, `noexcept`, pure functions of their
+argument — the same doubles-throughout shape as `Lattice::eval()`/
+`jacobian()` — and `WORK-UNITS.md`'s WU-07 file list itself only names the
+header. `CMakeLists.txt`: `test_ewa` registered via `scatter_test()`; no new
+file added to `scatter-core`'s sources, since `jacobian.hpp` is header-only
+and `scatter-core`'s existing include path already covers it.
+`tests/test_ewa.cpp` checks `K` and the footprint's axes against pure
+scale, pure rotation and shear cases with known closed-form values — a
+second, independently-derived closed form written into the test file
+itself (trace/determinant of `J^T J`, not the `J*J^T` decomposition
+`jacobian.hpp` uses — see the test's own comment), the same relationship
+`test_jacobian.cpp`'s `numericDeriv()` has to `lattice.cpp`'s analytic
+differentiation — plus `K`'s clamp at a configured `maxK`, including the
+degenerate `det J == 0` fold and a negative-determinant fold. 69 checks.
+Matches WU-07's file list in `WORK-UNITS.md` exactly.
 
-**Design choices this session had to make that `docs/architecture.md`
-left open — now ADR-022 in `DECISIONS.md`:** uniform (not
-centripetal/chordal) Catmull-Rom parametrisation, chosen because the
-lattice's own indexing is uniform; edge replication for control-vertex
-lookups outside the lattice, the same choice ADR-020 makes for chroma's
-filter taps; and that `jacobian()` stays 2×2 (`x`, `y` only) even though
-`eval()` carries `z` too, per architecture.md 4.2's own stated definition
-of `J` — `dz/du`/`dz/dv` are deferred to WU-26's surface normals. None of
-this reopens architecture.md, which left these open on purpose.
-
-**A real finding, not just a design choice — worth reading before writing
-more finite-difference tests against anything in `src/core/`:** a Catmull-
-Rom spline is C1 at its knots (value and first derivative agree from
-either side — provable directly from the basis polynomials) but generally
-**not** C2. A symmetric central difference straddling a knot mixes two
-cells with different second derivatives, degrading the usual O(h²) central-
-difference truncation error to O(h) — about four orders of magnitude worse
-at `h = 1e-4`, comfortably enough to blow through a 1e-6 relative
-tolerance. This surfaced as `test_jacobian.cpp` failing at exactly the
-points you'd least expect a bug to hide (integer lattice coordinates).
-Confirmed by hand that it is not a bug in `jacobian()`: both cells'
-formulas reduce to the identical expression `(P[i+1] - P[i-1]) / 2` at a
-shared knot. `tests/test_jacobian.cpp`'s `numericDeriv()` now detects an
-interior-knot input and switches to forward differencing, staying inside
-the same cell `Lattice::eval()`'s own convention (`locate()` in
-`lattice.cpp`) picks for that point, rather than working around a symptom
-of the seam.
+**Design choices this session had to make that `docs/architecture.md` left
+open — now ADR-023 in `DECISIONS.md`:** the compression clamp (`maxK`) is a
+caller-supplied parameter rather than a project-wide constant, since
+architecture.md fixes neither its numeric value nor whether it's
+compile-time or runtime, and nothing in WU-07 has grounds to invent an
+operating point that properly belongs to a later work unit's
+accumulation-stage configuration (WU-09 onward); and the concrete
+representation of "the elliptical filter kernel" as `{majorAxis, minorAxis,
+majorAngle}`, obtained from `J*J^T`'s eigen-decomposition rather than
+`J^T*J`'s — the two have identical eigenvalues, but only `J*J^T`'s
+eigenvectors describe directions in destination `(x, y)` space, which is
+what a filter footprint needs, not source `(u, v)` space. Neither reopens
+architecture.md, which left both open on purpose — same relationship
+ADR-020 and ADR-022 have to it.
 
 **Delivery mechanics, not a design matter:** this session ran remotely, via
-the device-bridge tools connecting to this machine, no separate laptop
-session open for most of it. Files were written directly, and `git add -A
-&& git commit` ran through that same bridge; as in prior sessions it still
-cannot clean up its own `index.lock`/`HEAD.lock`/temp-object files
-afterward (unlink fails on this mount), so stale ones — including one left
-over from the end of session 5, present before this session touched
+the device-bridge tools connecting to this machine, same as session 6. All
+implementation and the full verification matrix above ran first in a
+disposable Linux cloud sandbox, never on this machine directly — nothing
+was written here until it was already green there. Files were then written
+to this machine via the bridge, and `git add -A && git commit` ran through
+that same bridge; as in prior sessions it still cannot clean up its own
+`index.lock`/`HEAD.lock`/temp-object files afterward (unlink fails on this
+mount), so stale ones — including one left over before this session touched
 anything — were moved into `_to_delete/` rather than removed. Safe to
-`rm -rf _to_delete/` by hand. This session also had to set a *local* (not
-`--global`) git identity on the bridge's sandboxed VM, which had none
-configured — separate from the normal Terminal environment, where
-`./tools/close.sh 06` was, as before, run by hand; that is the one step
-this session could not do itself, having no access to a real terminal on
-this machine.
+`rm -rf _to_delete/` by hand. Git identity was already set locally on this
+mount from a prior session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`,
+confirmed against `git log` before committing), so nothing needed
+reconfiguring this time.
 
 ## Next work unit
 
-**WU-07 — K and EWA footprint from J**, per `WORK-UNITS.md`.
-**Files:** `src/core/jacobian.hpp`, `tests/test_ewa.cpp`.
-**Accept:** `K = 1/|det J|` correct for known affine cases; ellipse axes
-match analytic values for pure scale, pure rotation and shear; clamping at
-the configured maximum compression behaves. Unstarted.
+Still **WU-07** until `./tools/close.sh 07` is run at the Mac terminal and
+comes back green. Only then does **WU-08 — Fragment generation and tile
+binning** become current, per `WORK-UNITS.md`.
+**Files:** `src/core/binner.hpp`, `src/core/binner.cpp`, `tests/test_binner.cpp`.
+**Accept:** fragment count equals source samples under compression; boundary
+straddling replicates into exactly the right neighbours; no fragment lost
+or duplicated within a tile.
 
 ## Open questions
 
@@ -101,21 +108,18 @@ Unchanged: Q1 (tile size, WU-09), Q2 (4K Mini program outputs, WU-14), Q3
 
 ## Blocked / red
 
-Nothing. WU-06 closed green.
+Not red, but not closed: WU-07 needs `./tools/close.sh 07` run at your
+terminal before it can tag `wu-07-green`. Nothing else outstanding.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-07 and costs no session time.
+independent of WU-07/WU-08 and costs no session time.
 
 ## Append to DECISIONS.md
 
-ADR-022 was appended in full this session; see `DECISIONS.md`.
+ADR-023 was appended in full this session; see `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session. (Two bugs surfaced while writing `test_jacobian.cpp`
-— a row/col-vs-u/v transposition and the knot central-difference issue
-above — but both were caught and fixed before anything was committed, so
-neither reached a state file or a claim anyone believed; see prior
-session's note in git history if useful, not repeated here.)
+Nothing this session.

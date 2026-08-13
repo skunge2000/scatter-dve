@@ -221,3 +221,37 @@ ADR-020 filled for chroma's filter taps:
 Does not reopen `docs/architecture.md` — a reference document, not an ADR —
 it fixes what that document left open, the same relationship ADR-020 has to
 architecture.md section 5.
+
+**ADR-023 — EWA footprint representation and K's compression clamp, frozen
+at WU-07.**
+architecture.md 4.2 gives K's formula (`K = 1/|det J|`) and says it is
+"clamped to a configured maximum compression", and separately states "J is
+the elliptical filter kernel" for anisotropic minification, without fixing:
+
+- The clamp's value or where it lives. Chosen as a caller-supplied
+  parameter to `densityCompensation()`, `maxK`, not a project-wide constant
+  like `kLatticeSize` or the tile size: unlike those, it is not a property
+  of a data structure this project fixes once — it belongs to whichever
+  accumulation-stage configuration (WU-09 onward) actually chooses an
+  operating point, and nothing in WU-07 has grounds to pick a number
+  nobody has decided yet. `densityCompensation()` clamps via
+  `std::min(rawK, maxK)`; `|det J| == 0` (a fold collapsing area to a
+  point or line, permitted by I1) produces IEEE 754 `+inf` for `rawK`,
+  well-defined and not UB, and clamps identically to any other extreme
+  compression.
+- The concrete representation of "the elliptical filter kernel". Chosen as
+  `EwaFootprint{majorAxis, minorAxis, majorAngle}`: the image of the unit
+  circle in source-parameter space `(du, dv)` under `J` is an ellipse
+  whose semi-axes are `J`'s singular values and whose major-axis direction
+  (in destination `(x, y)` space) is the corresponding left singular
+  vector, both obtained in closed form from the eigen-decomposition of the
+  symmetric 2x2 matrix `J*J^T` — not `J^T*J`, whose eigenvalues are
+  identical but whose eigenvectors describe directions in source `(u, v)`
+  space instead, not what a destination-raster filter footprint needs.
+  Exact for 2x2, so no iterative SVD is needed anywhere in this path. When
+  the footprint is a circle (pure rotation, or any `J` with equal singular
+  values) `majorAngle` is left at 0 rather than computed from a degenerate
+  eigenvector problem, since every direction is then a major axis.
+
+Does not reopen `docs/architecture.md` — same relationship ADR-020 and
+ADR-022 have to it, filling gaps the document leaves open on purpose.
