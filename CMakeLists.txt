@@ -32,13 +32,19 @@ endif()
 # WU-06 adds src/core/lattice.cpp: control lattice, Catmull-Rom expansion,
 # analytic Jacobian. Portable — no platform dependency, same as every other
 # src/core/ and src/video/ file — so it goes in scatter-core like the rest.
+#
+# WU-08 adds src/core/binner.cpp: fragment generation and tile binning.
+# core/jacobian.hpp (WU-07) stayed header-only; this unit needs a .cpp of
+# its own since TileBins carries per-tile storage state, not just pure
+# functions of their arguments.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
     src/video/chroma.cpp
     src/io/file_source.cpp
     src/io/file_sink.cpp
-    src/core/lattice.cpp)
+    src/core/lattice.cpp
+    src/core/binner.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
 
@@ -93,6 +99,7 @@ scatter_test(test_chroma)
 scatter_test(test_ramp_roundtrip)
 scatter_test(test_jacobian)
 scatter_test(test_ewa)
+scatter_test(test_binner)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

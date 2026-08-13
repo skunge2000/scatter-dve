@@ -255,3 +255,74 @@ the elliptical filter kernel" for anisotropic minification, without fixing:
 
 Does not reopen `docs/architecture.md` — same relationship ADR-020 and
 ADR-022 have to it, filling gaps the document leaves open on purpose.
+
+**ADR-024 — Fragment generation and tile binning: pixel/lattice-parameter
+mapping, pixel-space Jacobian, tile-local coordinate encoding, and
+supersampling thresholds, frozen at WU-08.**
+architecture.md 4.1, 4.4 and 4.6 fix the shape of pass 1 without fixing
+several concrete numbers or representations, the same kind of gap
+ADR-020/022/023 filled for earlier units:
+
+- **Source pixel -> lattice parameter.** 4.1 says only that the lattice
+  "covers the source raster"; `core/lattice.hpp`'s `(u, v)` range over the
+  fixed `[0, kLatticeMax]` (128) control-vertex index space regardless of
+  the source raster's actual resolution. Chosen: linear across the whole
+  range, `u = px * kLatticeMax / (width - 1)` (`v` likewise), so the
+  source raster's corners land exactly on the lattice's corners for any
+  resolution — the only mapping that does not privilege one raster size
+  over another.
+- **K and supersampling use the pixel-space Jacobian, not the raw
+  lattice-parameter one.** 4.2 names `J` directly as `core/lattice.hpp`'s
+  `jacobian()` output, in units of "per unit of `(u, v)`". "The local
+  compression ratio" (4.2) is a statement about source pixels per
+  destination pixel, not about the 129-vertex control mesh, and the two
+  differ by a constant per-axis scale factor that grows with resolution
+  (`kLatticeMax / (dim - 1)` — at 1920 pixels wide, `128 / 1919`, roughly
+  0.0667 per axis and 0.00445 on the determinant). Using the raw
+  lattice-parameter Jacobian directly would make K and the supersampling
+  decision depend on source resolution rather than on the warp itself.
+  `core/binner.cpp`'s `pixelJacobian()` applies the chain rule — scaling
+  `jacobian()`'s output by that same constant, the inverse of the first
+  bullet's mapping — with no extra lattice evaluation.
+- **Tile-local coordinate encoding for a replicated fragment.** 4.4's
+  fragments "whose footprint straddles a tile boundary are replicated
+  into the neighbour". `Frag::x`/`y` (`core/types.hpp`'s `SubPos`, 12.4
+  fixed) are documented as tile-local, but unsigned — and the four-bank
+  splat's footprint (4.5's base, base+1, base+stride, base+stride+1) can
+  reach up to one whole pixel outside a fragment's home tile, which is
+  negative relative to the neighbour tile it's replicated into. Chosen:
+  every stored coordinate is biased by exactly one pixel
+  (`kSubPixelOne`, already defined in `core/types.hpp`) — `stored =
+  (position_relative_to_this_tile + 1px)` in 12.4 fixed — applied
+  uniformly to every fragment, home or replica, so one decode rule
+  applies to a tile's whole bin. A home-tile fragment's stored value
+  therefore ranges over `[1px, (kTileSize+1)px)`; a replica's over
+  `[0px, 1px)`. WU-09's splat un-biases by subtracting `kSubPixelOne`
+  before taking the integer base cell. `core/types.hpp`'s existing
+  `kTileSize <= 4096` static assert already gives more headroom than
+  this needs at either compile-time tile size (16 or 32).
+- **Supersampling thresholds and cap.** 4.6 fixes the shape ("2x2 or
+  4x4... when det J exceeds a threshold... cap the subdivision factor")
+  without fixing the numbers. Chosen: `threshold2x2 = 1.0`, anchored to
+  4.6's own literal "det J > 1" rather than an invented number;
+  `threshold4x4 = 4.0`, the point where 2x2's linear-per-axis rate
+  (`sqrt` of the area factor) would itself reach 2 pixels of gap; both
+  configurable per caller (`SupersampleConfig`), with `maxSupersample`
+  the hard cap 4.6 requires. All strict `>`, so a boundary value (`det J
+  == 1` or `== 4` exactly) does not subdivide.
+- **Off-raster samples are dropped, not clamped.** Neither 4.1 nor 4.4
+  says what happens to a source sample whose destination falls outside
+  the raster being resolved. Chosen: no fragment is emitted (counted in
+  `BinStats::droppedOffRaster`) rather than clamping its position into
+  range, which would fabricate a destination the warp never produced.
+
+Not yet fixed, and deliberately not an ADR: `Frag::z`'s quantisation from
+`Vec3::z`'s double. Nothing downstream reads it before WU-28's k-buffer,
+and WU-08's accept criteria do not exercise it; `core/binner.cpp` rounds
+and saturates to the `uint16_t` range as the simplest placeholder, to be
+revisited when something actually depends on it.
+
+Does not reopen `docs/architecture.md`, ADR-022 or ADR-023 — same
+relationship ADR-020 has to the document itself; the pixel-space-Jacobian
+distinction uses ADR-023's `densityCompensation()` unchanged, just with a
+correctly-scaled input.
