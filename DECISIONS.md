@@ -171,3 +171,22 @@ already has to WU-17), so this session picked and froze them:
 Both filters sum to an exact power of two, so a flat field survives with
 zero rounding error in either direction — the property `tests/test_chroma.cpp`
 checks first, before the coefficients are checked individually.
+
+**ADR-021 — `file_source.cpp`/`file_sink.cpp` compile into `scatter-core`,
+not `scatter`, despite living under `src/io/`.**
+`docs/architecture.md` section 8's module-layout sketch places all of
+`src/io/` under the `scatter` application target, which links the Blackmagic
+DeckLink SDK. Read literally, that would put this unit's raw `.v210`
+reader/writer — needed now, at WU-05, five units before DeckLink arrives at
+WU-14 — behind an SDK dependency it does not have: `file_source.cpp` and
+`file_sink.cpp` use only `<fstream>` and `v210::pack/unpackImage`. Compiled
+into `scatter-core` instead, alongside `src/video/`, so
+`tests/test_ramp_roundtrip.cpp` — and everything after it that reads or
+writes a file — keeps running with no hardware connected and no driver
+installed, the same property ADR-013 states for that target. When WU-14
+adds `com_ptr.hpp` and the `decklink_*.cpp` files, those alone define the
+`scatter` target's actual DeckLink dependency; `file_source.cpp` and
+`file_sink.cpp` do not move. Does not reopen ADR-013: the `src/core`/
+`src/video` split ADR-013 describes is untouched, this only clarifies which
+CMake target a `src/io/` file lands in, which ADR-013 did not itself
+address.

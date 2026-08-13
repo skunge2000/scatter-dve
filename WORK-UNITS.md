@@ -34,23 +34,34 @@ deliberate sub-black and super-white excursions.
 *Done:* `wu-03-green` tagged (this status line was stale — corrected at
 WU-04). 10995 checks; see session 3's history in git log for detail.
 
-### WU-04 — Chroma resampling `wip`
+### WU-04 — Chroma resampling `green`
 4:2:2 → 4:4:4 polyphase interpolator (co-sited), 4:4:4 → 4:2:2 with half-band
 low-pass before decimation.
 **Files:** `src/video/chroma.hpp`, `src/video/chroma.cpp`, `tests/test_chroma.cpp`
 **Accept:** flat fields preserved exactly; impulse response matches designed
 coefficients; ringing on step edges is present and unclipped.
-*Status:* implemented, coefficients fixed (ADR-020), 21342 checks green on
-Clang 18 / GCC 13 (Release+Debug, tile 4+5) and under GCC 13 ASan+UBSan.
-Not yet built with AppleClang or tagged — run `./tools/close.sh 04`.
+*Done:* `wu-04-green` tagged. 21342 checks, AppleClang on the M1 Max
+(Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
+(Release+Debug, tile 4+5) and GCC 13 ASan+UBSan. (This status line was stale
+— corrected at WU-05, same doc-sync slip WU-03's status had at WU-04.)
 
-### WU-05 — File I/O and identity passthrough `todo`
+### WU-05 — File I/O and identity passthrough `wip`
 Raw `.v210` source and sink, plane descriptors, and an end-to-end identity path.
 **This is the I7 milestone.**
 **Files:** `src/video/raster.hpp`, `src/io/file_source.cpp`,
 `src/io/file_sink.cpp`, `tests/test_ramp_roundtrip.cpp`
-**Accept:** ramp and excursion patterns round-trip bit-exactly through
-unpack → upsample → downsample → pack.
+**Accept (corrected this session — see CORRECTIONS.md C-006):** v210 file
+I/O (`writeV210File`/`readV210File`) round-trips bit-exactly for any
+pattern, isolated from chroma resampling; the full chain (unpack → upsample
+→ downsample → pack), run file-to-file, round-trips bit-exactly for a flat
+chroma field (ADR-020) and for luma always (chroma resampling never touches
+Y); chroma on a ramp or excursion pattern is *not* bit-exact through that
+chain — the downsample filter is a deliberately lossy anti-aliasing stage,
+not a perfect-reconstruction pair with the upsample filter — and is checked
+instead for staying within the v210 protocol range (I2).
+*Status:* implemented, 4459 checks green on Clang 18 / GCC 13 (Release+Debug,
+tile 4+5) and under GCC 13 ASan+UBSan. Not yet built with AppleClang or
+tagged — run `./tools/close.sh 05`.
 
 ### WU-06 — Lattice and Jacobian `todo`
 129×129 control lattice, Catmull-Rom expansion, analytic first derivatives.

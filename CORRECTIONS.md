@@ -44,3 +44,26 @@ the space below is footroom. Terminology note now in I3.
 *Correct:* 33.2 MB per frame at 50 fps is 1.66 GB/s write plus 1.66 GB/s read,
 3.3 GB/s total. The conclusion — negligible against M1 Max bandwidth — is
 unaffected, but the figure is now correct in `docs/architecture.md`.
+
+**C-006 — WU-05's stated accept criterion for chroma was unachievable as
+written.**
+*Claimed (`WORK-UNITS.md`):* "ramp and excursion patterns round-trip
+bit-exactly through unpack → upsample → downsample → pack."
+*Correct:* worked through with the actual coefficients ADR-020 froze at
+WU-04 — not yet decided when this WU-05 line was drafted — a non-flat
+chroma signal does not survive `chroma::upsampleImage` followed by
+`chroma::downsampleImage` unchanged. Verified by direct computation (see
+`tests/test_ramp_roundtrip.cpp`'s file header) for both the ramp and the
+excursion pattern: deviations range from single-code rounding differences up
+to several hundred codes at the excursion pattern's sharp transitions,
+including intermediate sums that go negative before `Sample`'s
+modulo-65536 narrowing. This is intended, not a bug: ADR-020's downsample
+filter is a half-band low-pass, chosen as an anti-aliasing stage, not
+designed as a perfect-reconstruction pair with the upsample filter. What
+*is* exact, and is what this unit now actually tests: v210 file I/O in
+isolation, for any pattern; the full chain for a flat chroma field, per
+ADR-020; and luma through the full chain, always, since chroma resampling
+never touches Y. `WORK-UNITS.md`'s WU-05 accept line is corrected to state
+these three properties. No ADR is reopened — ADR-020's filters are
+unchanged; this corrects a planning-time assumption in `WORK-UNITS.md`, not
+a design decision in `DECISIONS.md`.
