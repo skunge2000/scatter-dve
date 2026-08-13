@@ -4,53 +4,52 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 9
-**Tag:** none yet. WU-09 is `wip` — verified in a Linux cloud sandbox only.
-`./tools/close.sh 09` has not been run on the M1 Max; that is the next
-action, at your terminal, not this session's.
+**Tag:** `wu-09-green` — confirmed. `./tools/close.sh 09` ran clean on the
+M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
+tagged it.
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** All nine green in the Linux cloud sandbox: `test_smoke`,
-`test_v210`, `test_chroma`, `test_ramp_roundtrip`, `test_jacobian`,
+**Tests:** All nine green on the M1 Max: `test_smoke`, `test_v210`,
+`test_chroma`, `test_ramp_roundtrip`, `test_testpat`, `test_jacobian`,
 `test_ewa`, `test_binner` (eight unchanged from WU-08, none of their files
 touched) and `test_splat`, new this session (6179 checks at tile 2^5, 1571
 at tile 2^4 — the difference is the random-equivalence test's and
 `test_clear_zeroes_all_banks`'s per-cell loops, both `O(kTilePixels)`, the
 same reason WU-08's check count differed by tile size, not a bug).
 
-Verified on Clang 18 and GCC 13, under the project's exact warning set
+Before that, this session verified in a Linux cloud sandbox (no AppleClang
+there), on Clang 18 and GCC 13, under the project's exact warning set
 (`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
 and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all green,
 zero warnings — checked explicitly in the build logs, not just a successful
 exit code), plus GCC 13 with `-fsanitize=address,undefined
 -fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
-UBSan report anywhere — same practice as WU-06 through WU-08. Not yet run
-on the M1 Max with AppleClang; that is what `./tools/close.sh 09` still
-needs to confirm.
+UBSan report anywhere — same practice as prior sessions.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13. AppleClang (M1 Max) not yet checked this session.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
+AppleClang (M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
-WU-09 implemented and verified in the sandbox, not yet closed.
-`src/core/splat.hpp`/`.cpp` are pass 2's first half (architecture.md
-section 3, "PASS 2: tile resolve" -> "four-bank splat"): `TileAccum` holds
-one `kTileSize` x `kTileSize` grid of `AccumCell` per bank, four banks;
-`splatTile()` takes one tile's `std::vector<Frag>` (exactly what WU-08's
-`TileBins::tile()` produces) and, per fragment, bilinearly splats its
-weight across the (up to four) corners of its 2x2 footprint that fall
-inside this tile, one read-modify-write per bank per corner
-(architecture.md 4.5); `sumBanks()` is 4.5's own "resolve" step — summing
-all four banks, identically addressed, into one final `AccumCell` grid.
-`splatTileReference()` is the accept line's oracle: identical fragment ->
-corner-contribution arithmetic (both paths call the same internal helper,
-so they cannot drift apart by accident), but against one unbanked
-accumulator — proven bit-identical to `splatTile()` + `sumBanks()` by
-`tests/test_splat.cpp`'s randomised equivalence test, satisfying WU-09's
-first accept criterion. `CMakeLists.txt`: `src/core/splat.cpp` added to
-`scatter-core`'s sources (the same "needs its own `.cpp` because it carries
-per-tile storage state" reasoning `binner.cpp` already established);
-`test_splat` registered via `scatter_test()`.
+WU-09 done and closed green. `src/core/splat.hpp`/`.cpp` are pass 2's
+first half (architecture.md section 3, "PASS 2: tile resolve" -> "four-bank
+splat"): `TileAccum` holds one `kTileSize` x `kTileSize` grid of
+`AccumCell` per bank, four banks; `splatTile()` takes one tile's
+`std::vector<Frag>` (exactly what WU-08's `TileBins::tile()` produces) and,
+per fragment, bilinearly splats its weight across the (up to four) corners
+of its 2x2 footprint that fall inside this tile, one read-modify-write per
+bank per corner (architecture.md 4.5); `sumBanks()` is 4.5's own "resolve"
+step — summing all four banks, identically addressed, into one final
+`AccumCell` grid. `splatTileReference()` is the accept line's oracle:
+identical fragment -> corner-contribution arithmetic (both paths call the
+same internal helper, so they cannot drift apart by accident), but against
+one unbanked accumulator — proven bit-identical to `splatTile()` +
+`sumBanks()` by `tests/test_splat.cpp`'s randomised equivalence test,
+satisfying WU-09's first accept criterion. `CMakeLists.txt`:
+`src/core/splat.cpp` added to `scatter-core`'s sources (the same "needs its
+own `.cpp` because it carries per-tile storage state" reasoning
+`binner.cpp` already established); `test_splat` registered via
+`scatter_test()`.
 
 Note that WU-10's own `core/resolve.hpp`/`.cpp` (normalise, composite) is a
 *different* "resolve" than `sumBanks()` here — architecture.md's signal
@@ -101,17 +100,16 @@ through that same bridge; as in prior sessions it still cannot clean up its
 own `index.lock`/`HEAD.lock`/temp-object files afterward (unlink fails on
 this mount), so stale ones were moved into `_to_delete/` rather than
 removed — safe to `rm -rf _to_delete/` by hand. Git identity was already
-set locally on this mount from a prior session (confirmed against `git
-log`/`git config` before committing), so nothing needed reconfiguring.
+set locally on this mount from a prior session (`Stephen Neal
+<stephenneal@Stephens-MacBook-Pro.local>`, confirmed against `git log`
+before committing), so nothing needed reconfiguring. `./tools/close.sh 09`
+was, as before, run by hand at the real terminal, in two steps this
+session: an initial commit left WU-09 `wip` with everything above already
+verified in the sandbox, then this closing update (`WORK-UNITS.md` to
+`green`, this file) followed your pasted `close.sh` output confirming the
+M1 Max/AppleClang build and tag.
 
-## Next action (yours, not a session)
-
-Run `./tools/close.sh 09` at the real terminal on the M1 Max. If it comes
-back green, the next session updates `WORK-UNITS.md` to `green`, tags
-`wu-09-green`, and starts WU-10. If it comes back red, paste the failure
-here and the next session starts from that.
-
-## Next work unit (after WU-09 closes)
+## Next work unit
 
 **WU-10 — Normalise, composite, first affine warp**, per `WORK-UNITS.md`.
 **Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`,
@@ -131,8 +129,8 @@ which is what its accept line's zone-plate and identity-map checks are for.
 
 Unchanged: Q1 (tile size — still open; WU-09 implemented the mechanism at
 both compile-time tile sizes as CMakeLists.txt's comment asked, but did not
-benchmark them against each other. Benchmarking felt out of this session's
-scope — WU-09's accept line is about correctness, not performance, and
+benchmark them against each other. Benchmarking felt out of that session's
+scope — WU-09's accept line was about correctness, not performance, and
 nothing later than WU-10 needs Q1 resolved. Flagging it as worth doing once
 there's a real warp to benchmark through, rather than an isolated splat
 microbenchmark, which risks measuring something that doesn't match the
@@ -141,21 +139,19 @@ WU-14), Q3 (macOS/Desktop Video version, WU-14).
 
 ## Blocked / red
 
-Nothing. WU-09's own criteria are green in the sandbox; only the M1
-Max/AppleClang close is outstanding, and that is expected, not a failure —
-see "Next action" above.
+Nothing. WU-09 closed green.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-09/WU-10 and costs no session time.
+independent of WU-10 and costs no session time.
 
 ## Append to DECISIONS.md
 
-ADR-025 was appended in full earlier this session; see `DECISIONS.md`. Not
-reopened or amended now.
+Nothing this update — ADR-025 was appended in full earlier this session; see
+`DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
 
 ## Append to CORRECTIONS.md
 
-C-007 was appended in full earlier this session; see `CORRECTIONS.md`. Not
-reopened or amended now.
+Nothing this update — C-007 was appended in full earlier this session; see
+`CORRECTIONS.md`. Not reopened or amended now that the tag is confirmed.

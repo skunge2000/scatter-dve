@@ -92,25 +92,21 @@ tilesY), hence the difference — not a bug), AppleClang on the M1 Max
 (Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
 (Release+Debug, tile 4+5) and GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
-### WU-09 — Four-bank splat `wip`
+### WU-09 — Four-bank splat `green`
 **Files:** `src/core/splat.hpp`, `src/core/splat.cpp`, `tests/test_splat.cpp`
 **Accept:** four-bank result identical to a single-accumulator reference
 implementation; int64 headroom verified at synthetic worst case.
-*So far:* both accept criteria pass — `test_splatTile_matches_reference_random`
-(50000 randomised fragments, positions spanning interior/tile-edge/replica
-base cells, every cell of `Y`/`Cb`/`Cr`/`w` checked exactly against
-`splatTileReference()`) and the two int64-headroom tests (see C-007 for why
-they're split at two scales rather than one). 6179 checks at tile 2^5, 1571
-at tile 2^4 (the difference is `test_clear_zeroes_all_banks`' and the
-random-equivalence test's per-cell loops, both `O(kTilePixels)`, same
-reason WU-08's check count differs by tile size). Verified in a Linux cloud
-sandbox only, same as WU-06 through WU-08 at this point in their own
-sessions: Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and
-5 (eight configurations, all green, zero warnings under the project's full
-`-Werror -Wconversion -Wsign-conversion` set, checked explicitly in the
-build logs), plus GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` at both tile sizes, clean. *Not yet verified:*
-AppleClang on the M1 Max — `./tools/close.sh 09` has not been run.
+*Done:* `wu-09-green` tagged. Both accept criteria checked directly —
+`test_splatTile_matches_reference_random` (50000 randomised fragments,
+positions spanning interior/tile-edge/replica base cells, every cell of
+`Y`/`Cb`/`Cr`/`w` checked exactly against `splatTileReference()`) and the
+two int64-headroom tests (see C-007 for why they're split at two scales
+rather than one). 6179 checks at tile 2^5, 1571 at tile 2^4 (the difference
+is `test_clear_zeroes_all_banks`' and the random-equivalence test's
+per-cell loops, both `O(kTilePixels)`, same reason WU-08's check count
+differed by tile size), AppleClang on the M1 Max (Release, tile 2^5,
+`close.sh`'s config) plus Clang 18 / GCC 13 (Release+Debug, tile 4+5) and
+GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
 ### WU-10 — Normalise, composite, first affine warp `todo`
 **Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`,
