@@ -63,18 +63,14 @@ instead for staying within the v210 protocol range (I2).
 (Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
 (Release+Debug, tile 4+5) and GCC 13 ASan+UBSan.
 
-### WU-06 — Lattice and Jacobian `wip`
+### WU-06 — Lattice and Jacobian `green`
 129×129 control lattice, Catmull-Rom expansion, analytic first derivatives.
 **Files:** `src/core/lattice.hpp`, `src/core/lattice.cpp`, `tests/test_jacobian.cpp`
 **Accept:** analytic derivatives agree with central differences to 1e-6
 relative across the lattice interior and at edges.
-*So far:* implemented and committed. 411 checks, clean under
-`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` on Clang 18
-and GCC 13 (Release+Debug, tile 4+5) and GCC 13 ASan+UBSan, all in a Linux
-sandbox. **Not yet run on the M1 Max / AppleClang, and not yet tagged** —
-this session had no access to a real terminal on that machine. Run
-`./tools/close.sh 06` there to finish: on a clean green build it tags
-`wu-06-green` and this line moves to `green`. See HANDOFF.md.
+*Done:* `wu-06-green` tagged. 411 checks, AppleClang on the M1 Max
+(Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
+(Release+Debug, tile 4+5) and GCC 13 ASan+UBSan in a Linux sandbox.
 
 ### WU-07 — K and EWA footprint from J `todo`
 **Files:** `src/core/jacobian.hpp`, `tests/test_ewa.cpp`
