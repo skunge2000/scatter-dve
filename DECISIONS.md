@@ -114,3 +114,12 @@ The colour path is full of narrowing between 10-bit codes, 16-bit samples,
 32-bit weights and 64-bit accumulators. An implicit conversion there is
 usually an invariant being bent, so the compiler is configured to refuse it.
 Verified achievable at WU-01: the full suite builds clean under this set.
+
+**ADR-018 — v210 short-group padding is black, and deterministic.**
+Widths that are not a multiple of 6 leave unused components in the final
+16-byte group. These are packed as `kCode10Black` for luma and
+`kCode10ChromaZero` for chroma, and ignored on unpack. Determinism is the
+requirement: without it `unpack -> pack` is not byte-identical at such widths
+and I7 could not be stated for them. Black rather than replication of the edge
+pixel because a decoder that renders the full group should show nothing rather
+than a smear. Neither 720 nor 1920 exercises this path.

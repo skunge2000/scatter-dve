@@ -18,11 +18,14 @@ algorithm.
 Release and Debug at both candidate tile sizes, under `-Werror -Wconversion
 -Wsign-conversion`.
 
-### WU-02 — v210 unpack and pack, scalar reference `todo`
+### WU-02 — v210 unpack and pack, scalar reference `green`
 **Files:** `CMakeLists.txt`, `src/video/v210.hpp`, `src/video/v210.cpp`,
 `tests/test_v210.cpp`
 **Accept:** random-buffer round trip byte-identical; codes 4 and 1019 survive;
 row-stride handling matches the 6-pixels-per-16-bytes packing for 720 and 1920.
+*Done:* 635 checks in Release and Debug at both tile sizes, AppleClang 17,
+clean under ASan and UBSan. Packed output verified byte-identical to FFmpeg's
+v210 encoder at 12x2, 48x3, 720x4 and 1920x2.
 
 ### WU-03 — Test pattern generator `todo`
 Full-range ramp (code 4 to 1019 on Y, Cb, Cr), zone plate, and a pattern with

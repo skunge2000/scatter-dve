@@ -18,14 +18,16 @@ endif()
 # scatter-core — portable core. Links no Blackmagic SDK, so the bulk of the
 # test suite runs with no hardware connected and no driver installed.
 #
-# INTERFACE for now because WU-01 adds no translation units. WU-02 converts
-# this to a STATIC library when v210.cpp arrives; the target name and the
-# usage requirements below do not change.
+# STATIC as of WU-02, which brings the first translation unit. The target name
+# and the usage requirements are unchanged from WU-01; only the keyword on each
+# of them moved from INTERFACE to PUBLIC.
 # ---------------------------------------------------------------------------
 
-add_library(scatter-core INTERFACE)
-target_include_directories(scatter-core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_features(scatter-core INTERFACE cxx_std_20)
+add_library(scatter-core STATIC
+    src/video/v210.cpp)
+
+target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_features(scatter-core PUBLIC cxx_std_20)
 
 # ---------------------------------------------------------------------------
 # Warnings and architecture flags
@@ -36,7 +38,7 @@ target_compile_features(scatter-core INTERFACE cxx_std_20)
 # ---------------------------------------------------------------------------
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(scatter-core INTERFACE
+    target_compile_options(scatter-core PUBLIC
         -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
 endif()
 
@@ -44,7 +46,7 @@ include(CheckCXXCompilerFlag)
 if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     check_cxx_compiler_flag("-mcpu=apple-m1" HAVE_MCPU_APPLE_M1)
     if(HAVE_MCPU_APPLE_M1)
-        target_compile_options(scatter-core INTERFACE -mcpu=apple-m1)
+        target_compile_options(scatter-core PUBLIC -mcpu=apple-m1)
     endif()
 endif()
 
@@ -58,7 +60,7 @@ endif()
 # ---------------------------------------------------------------------------
 
 set(SCATTER_TILE_LOG2 "5" CACHE STRING "log2 of tile edge in pixels (4 or 5)")
-target_compile_definitions(scatter-core INTERFACE
+target_compile_definitions(scatter-core PUBLIC
     SCATTER_TILE_LOG2=${SCATTER_TILE_LOG2})
 
 # ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ function(scatter_test name)
 endfunction()
 
 scatter_test(test_smoke)
+scatter_test(test_v210)
 
 # ---------------------------------------------------------------------------
 # scatter — the application. Adds src/io, src/diag, src/app and links
