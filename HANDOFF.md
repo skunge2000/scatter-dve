@@ -3,97 +3,116 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 5
-**Tag:** `wu-05-green` — confirmed. `./tools/close.sh 05` ran clean on the
-M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
-tagged it.
+**Session:** 6
+**Tag:** none yet. `wu-06-green` is **not** created — this session ran
+without access to a real terminal on the M1 Max (remote, via the
+device-bridge tools described below), so `./tools/close.sh 06` has not run.
+Do that first, at the real terminal: `cd ~/src/scatter-dve && ./tools/close.sh 06`.
+On a clean AppleClang build and green `ctest` it tags `wu-06-green`; then
+flip `WORK-UNITS.md`'s WU-06 line from `wip` to `green` and replace its
+`*So far:*` note with a `*Done:*` one, same as every prior unit.
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** All five green on the M1 Max: `test_smoke`, `test_v210`,
-`test_chroma`, `test_ramp_roundtrip`, `test_testpat`. `test_ramp_roundtrip`
-is new this session (4459 checks); the other four are unchanged (WU-05
-touched none of their files).
+**Tests:** Not run on the M1 Max / AppleClang this session — see above. In a
+Linux sandbox (Clang 18, GCC 13), all six green: `test_smoke`, `test_v210`,
+`test_chroma`, `test_ramp_roundtrip`, `test_testpat` (all five unchanged
+from WU-05, none of their files touched) and `test_jacobian`, new this
+session, 411 checks. Verified Release and Debug, `SCATTER_TILE_LOG2` 4 and 5
+(four configurations × two compilers, all green — eight total), all under
+the project's exact warning set (`-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror`), same practice as prior sessions. Also ran the
+full suite under GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` (Debug): clean, no ASan or UBSan report anywhere.
 
-Before that, this session verified on Clang 18 and GCC 13 in a Linux
-sandbox (no AppleClang there), both under the project's exact warning set
-(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
-and Debug, `SCATTER_TILE_LOG2` 4 and 5 (four configurations × two compilers,
-all green — eight total counting both tile sizes) — same practice as prior
-sessions. Also ran the full suite under GCC 13 with
-`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug): clean, no
-ASan or UBSan report anywhere.
-
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on AppleClang
-(M1 Max), Clang 18 and GCC 13.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
+and GCC 13. Not yet built with AppleClang this session.
 
 ## Where we are
 
-WU-05 done and closed green. `src/video/raster.hpp` adds `Plane`/`ConstPlane`
-(pointer + stride + width + height, self-describing per plane) and two owning
-frame types, `Raster422` (tight-packed 4:2:2) and `Raster444` (tight-packed
-4:4:4) — the general-purpose counterpart to `tools/testpat.hpp`'s `Frame`,
-which stays scoped to the tool and its own test per ADR-019.
-`src/io/file_source.cpp` and `src/io/file_sink.cpp` implement
-`readV210File`/`writeV210File` (declared in `raster.hpp` — see deviation
-note below), raw `.v210`, no header, stride always
-`v210::rowBytesMin(width)`. `tests/test_ramp_roundtrip.cpp` checks three
-separate things, not one — see below, this is the session's main finding.
+WU-06 implemented and verified everywhere available to this session, but
+**not closed** — see Tag, above. `src/core/lattice.hpp`/`lattice.cpp` add
+`Lattice`: a 129×129 grid of `Vec3` control vertices (`x`, `y`, `z`,
+`double`), `eval(u, v)` (bicubic Catmull-Rom expansion) and `jacobian(u, v)`
+(analytic `dx/du`, `dx/dv`, `dy/du`, `dy/dv`, differentiating the identical
+basis polynomials `eval()` uses, term by term — not a separate
+approximation). `tests/test_jacobian.cpp` checks the analytic Jacobian
+against central differences of `eval()` to 1e-6 relative, across the
+lattice interior, at its four edges, at the four corners, and at interior
+integer coordinates (cell knots) — the WU-06 accept criterion, plus two
+sanity checks: `eval()` reproduces control vertices exactly at integer
+coordinates, and both `eval()`/`jacobian()` clamp rather than misbehave on
+out-of-range input. `CMakeLists.txt`: `src/core/lattice.cpp` added to
+`scatter-core`'s sources, `test_jacobian` registered via `scatter_test()`.
+No headers/tests outside this list touched; matches WU-06's file list in
+`WORK-UNITS.md` exactly, unlike WU-05's declared deviation.
 
-**The WU-05 accept criterion in `WORK-UNITS.md` was wrong, and is corrected
-this session (CORRECTIONS.md C-006).** It read: "ramp and excursion patterns
-round-trip bit-exactly through unpack → upsample → downsample → pack."
-Multiplied out with the actual coefficients ADR-020 froze at WU-04 — which
-postdates whenever that line was drafted — this is false for non-flat
-chroma: `chroma::downsampleImage(chroma::upsampleImage(x))` does not
-recover `x` except for a flat field. The downsample filter is a half-band
-low-pass chosen for anti-aliasing, not built as a perfect-reconstruction
-pair with the upsample filter, and ADR-020 says as much (ringing, overshoot)
-without ever claiming round-trip identity. Deviations on the excursion
-pattern reach several hundred codes at its sharp transitions. This is
-correct filter behaviour, not a bug — nothing about it violates I2 or
-reopens ADR-020. `tests/test_ramp_roundtrip.cpp` now checks what is
-actually true: (1) `writeV210File`→`readV210File` alone is bit-exact for any
-pattern; (2) the full chain, file to file, is bit-exact for a flat field
-(ADR-020) and (3) for luma always, on any pattern, since chroma resampling
-never touches Y; chroma on ramp/excursion is checked only for staying
-within the v210 protocol range (I2), not for equality. `WORK-UNITS.md`'s
-WU-05 accept line is rewritten to state these three properties instead of
-blanket bit-exactness.
+**Design choices this session had to make that `docs/architecture.md`
+left open — now ADR-022, appended in full to `DECISIONS.md`:** which
+Catmull-Rom parametrisation (uniform — the lattice's own indexing is
+uniform, so this is the variant that's actually well-behaved here), how
+control-vertex lookups outside the lattice behave (edge replication, same
+choice ADR-020 makes for chroma), and that `jacobian()` is 2×2 (`x`, `y`
+only) even though `eval()` carries `z` too, per architecture.md 4.2's own
+stated definition of `J`. None of this reopens architecture.md, which left
+these open on purpose (reference document, not an ADR) — same relationship
+ADR-020 already has to it for chroma's filter taps.
 
-**Deviation from the WU-05 file list in `WORK-UNITS.md`:** that list named
-`src/video/raster.hpp`, `src/io/file_source.cpp`, `src/io/file_sink.cpp`,
-`tests/test_ramp_roundtrip.cpp` — no headers for the two `.cpp` files.
-`readV210File`/`writeV210File` are declared in `raster.hpp` instead of two
-new near-empty headers; see the comment at the top of `raster.hpp`.
-`CMakeLists.txt` was also touched, same mechanical registration as every
-prior unit: `file_source.cpp`/`file_sink.cpp` added to `scatter-core`'s
-sources (not `scatter` — see ADR-021, appended this session) and
-`test_ramp_roundtrip` registered via `scatter_test()`.
+**A real finding, not just a design choice — worth reading before writing
+more finite-difference tests against anything in `src/core/`:** a Catmull-
+Rom spline is C1 at its knots (value and first derivative agree from either
+side — provable directly from the basis polynomials, and `lattice.cpp`'s
+header comment now says so) but generally **not** C2. A symmetric central
+difference straddling a knot mixes two cells with different second
+derivatives, which degrades the usual O(h²) central-difference truncation
+error to O(h) — about four orders of magnitude worse at `h = 1e-4`, comfortably
+enough to blow through a 1e-6 relative tolerance. This first showed up as
+`test_jacobian.cpp` failing at exactly the points you'd least expect a
+subtle bug to hide (integer lattice coordinates), which is what made it
+worth writing down. Not a bug in `jacobian()` — confirmed by hand, both
+cells' formulas reduce to the identical expression `(P[i+1] - P[i-1]) / 2`
+at a shared knot — purely a property of finite-differencing a C1-only
+function across the seam. `tests/test_jacobian.cpp`'s `numericDeriv()`
+detects an interior-knot input and switches to forward differencing, which
+stays inside the same cell `Lattice::eval()`'s own convention (`locate()`
+in `lattice.cpp`) picks for that point, avoiding the seam rather than
+working around a symptom of it.
 
-While reading the current state at session start, `WORK-UNITS.md` still
-marked WU-04 `wip` even though `wu-04-green` already existed as a git tag —
-same doc-sync slip as WU-03 had at the start of session 4. Corrected this
-session, alongside marking WU-05 `green`.
+A second issue, unrelated: the first draft of `test_jacobian.cpp`'s
+control-vertex-reproduction check called `eval(row, col)` where it should
+have called `eval(col, row)` — `Lattice::at(row, col)` documents `row` as
+the *v* index and `col` as the *u* index, and `eval` takes `(u, v)`. Caught
+by the same central-difference failure investigation above (both bugs
+surfaced in the same first test run); fixed before anything was written to
+the Mac or committed, so it never reached a state file and isn't a
+`CORRECTIONS.md` entry — flagging it here only because it's exactly the
+kind of transposition a future session extending this file should watch
+for.
 
-**Delivery mechanics note, not a design matter:** the remote-device bridge
-used to get these changes onto this machine still can't unlink files under
-the mounted folder (not just via `git commit`, as session 4 found, but for
-git's own `index.lock`/`HEAD.lock`/temp-object cleanup on any git
-invocation through that bridge). `mv` works where `rm`/`unlink` doesn't, so
-stale lock files got moved into `_to_delete/` rather than removed —
-gitignored this session so it doesn't block `close.sh`'s clean-tree check.
-Safe to `rm -rf _to_delete/` (and a stray `~/leftover_scatter_lockfiles`
-outside the repo) by hand at the real terminal. `./tools/close.sh 05`
-itself was, as before, run at the real terminal, not through the bridge.
+**Delivery mechanics, not a design matter:** this session ran remotely, via
+the device-bridge tools connecting to this machine (no separate laptop
+session was open). Files were written directly, and `git add -A && git
+commit` was run through that same bridge — same as prior sessions, this
+still cannot clean up its own `index.lock`/`HEAD.lock`/temp-object files
+afterward (unlink still fails on this mount), so `mv` into `_to_delete/`
+was used again, both for a stale `index.lock` left over from end of session
+5 (present at the start of this session, before anything here touched the
+tree) and for what this session's own commit left behind. Safe to `rm -rf
+_to_delete/` by hand at the real terminal, as before. Unlike prior
+sessions, this one could not reach a real terminal at all — no build, no
+`ctest`, no `close.sh`, no tag came from this machine; everything under
+Tests/Build above ran in a separate Linux sandbox, and the M1 Max /
+AppleClang leg that every previous session's Handoff reports is simply
+missing this time. Do that first next session, or before, at the terminal.
 
 ## Next work unit
 
-**WU-06 — Lattice and Jacobian**, per `WORK-UNITS.md`. 129×129 control
-lattice, Catmull-Rom expansion, analytic first derivatives.
-**Files:** `src/core/lattice.hpp`, `src/core/lattice.cpp`,
-`tests/test_jacobian.cpp`.
-**Accept:** analytic derivatives agree with central differences to 1e-6
-relative across the lattice interior and at edges. Unstarted.
+Do not start WU-07 until WU-06 is tagged `wu-06-green`. Once it is:
+
+**WU-07 — K and EWA footprint from J**, per `WORK-UNITS.md`.
+**Files:** `src/core/jacobian.hpp`, `tests/test_ewa.cpp`.
+**Accept:** `K = 1/|det J|` correct for known affine cases; ellipse axes
+match analytic values for pure scale, pure rotation and shear; clamping at
+the configured maximum compression behaves. Unstarted.
 
 ## Open questions
 
@@ -102,17 +121,20 @@ Unchanged: Q1 (tile size, WU-09), Q2 (4K Mini program outputs, WU-14), Q3
 
 ## Blocked / red
 
-Nothing. WU-05 closed green.
+Nothing red. WU-06 is implemented and verified short of the M1/AppleClang
+leg and the tag — see Tag, above; that is the one blocking step before
+WU-07 can start.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-06 and costs no session time.
+independent of WU-06/WU-07 and costs no session time.
 
 ## Append to DECISIONS.md
 
-ADR-021 was appended in full during this session; see `DECISIONS.md`.
+ADR-022 was appended in full during this session; see `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-C-006 was appended in full during this session; see `CORRECTIONS.md`.
+Nothing this session — see the transposition note above under "Where we
+are": caught and fixed before it reached any state file or commit.

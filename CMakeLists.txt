@@ -28,12 +28,17 @@ endif()
 # which docs/architecture.md section 8's module-layout sketch places under
 # the `scatter` application target alongside the DeckLink-linking files
 # arriving at WU-14. See ADR-021.
+#
+# WU-06 adds src/core/lattice.cpp: control lattice, Catmull-Rom expansion,
+# analytic Jacobian. Portable — no platform dependency, same as every other
+# src/core/ and src/video/ file — so it goes in scatter-core like the rest.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
     src/video/chroma.cpp
     src/io/file_source.cpp
-    src/io/file_sink.cpp)
+    src/io/file_sink.cpp
+    src/core/lattice.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
 
@@ -86,6 +91,7 @@ scatter_test(test_smoke)
 scatter_test(test_v210)
 scatter_test(test_chroma)
 scatter_test(test_ramp_roundtrip)
+scatter_test(test_jacobian)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

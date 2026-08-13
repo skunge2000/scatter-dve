@@ -190,3 +190,34 @@ adds `com_ptr.hpp` and the `decklink_*.cpp` files, those alone define the
 `src/video` split ADR-013 describes is untouched, this only clarifies which
 CMake target a `src/io/` file lands in, which ADR-013 did not itself
 address.
+
+**ADR-022 — Lattice Catmull-Rom basis, edge handling and Jacobian scope,
+frozen at WU-06.**
+`docs/architecture.md` sections 4.1/4.2 specify the shape — "129×129 control
+lattice... Catmull-Rom (cubic) interpolant... `J = [∂x/∂u ∂x/∂v; ∂y/∂u
+∂y/∂v]`" — without fixing three implementation choices, the same kind of gap
+ADR-020 filled for chroma's filter taps:
+
+- Basis: uniform (not centripetal or chordal) Catmull-Rom, tangent at each
+  control vertex `(next - prev) / 2` — the standard 4-point Hermite matrix
+  form, `q(0) = p1`, `q(1) = p2`. Chosen because the lattice's own
+  parametrisation is uniform (`u`, `v` are lattice-vertex indices, not
+  arc-length), exactly where the uniform variant is well-behaved and the
+  other two exist to fix problems — cusps, overshoot on non-uniform
+  spacing — that do not arise here.
+- Edge handling: control-vertex lookups outside `[0, kLatticeMax]` replicate
+  the nearest edge vertex — the same choice ADR-020 makes for chroma's
+  filter taps, applied here to the lattice's 4-point stencil instead of a
+  sample row.
+- Jacobian scope: `eval()` carries `(x, y, z)` per section 4.1's "producing
+  (x, y, z)", but `jacobian()` is deliberately 2×2 (`dx/du`, `dx/dv`,
+  `dy/du`, `dy/dv`) per section 4.2's stated definition — it drives
+  `K = 1/|det J|` and the destination-raster filter footprint, both
+  properties of the 2D output raster alone. `dz/du`/`dz/dv` are not
+  computed; WU-26's surface normals (cross product of the two tangent
+  vectors, section 4.2) will need them and can add them to this interface
+  without changing `eval()` or the existing `Jacobian` struct.
+
+Does not reopen `docs/architecture.md` — a reference document, not an ADR —
+it fixes what that document left open, the same relationship ADR-020 has to
+architecture.md section 5.
