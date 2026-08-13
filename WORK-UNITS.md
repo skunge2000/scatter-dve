@@ -72,19 +72,14 @@ relative across the lattice interior and at edges.
 (Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
 (Release+Debug, tile 4+5) and GCC 13 ASan+UBSan in a Linux sandbox.
 
-### WU-07 — K and EWA footprint from J `wip`
+### WU-07 — K and EWA footprint from J `green`
 **Files:** `src/core/jacobian.hpp`, `tests/test_ewa.cpp`
 **Accept:** `K = 1/|det J|` correct for known affine cases; ellipse axes match
 analytic values for pure scale, pure rotation and shear; clamping at the
 configured maximum compression behaves.
-*Wip:* implemented and committed. Verified in a Linux cloud sandbox only —
-Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
-configurations, all green, zero warnings under the full `-Werror` set,
-checked explicitly in the build logs), plus GCC 13 with
-`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug): clean, no
-ASan or UBSan report. 69 checks. Not yet built or run on the M1 Max with
-AppleClang — `./tools/close.sh 07` still needed there before tagging
-`wu-07-green`. See HANDOFF.md.
+*Done:* `wu-07-green` tagged. 69 checks, AppleClang on the M1 Max (Release,
+tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13 (Release+Debug, tile
+4+5) and GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
 ### WU-08 — Fragment generation and tile binning `todo`
 **Files:** `src/core/binner.hpp`, `src/core/binner.cpp`, `tests/test_binner.cpp`
