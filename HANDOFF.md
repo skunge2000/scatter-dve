@@ -4,43 +4,44 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 4
-**Tag:** `wu-04-green` (pending — see "Still to do" below)
+**Tag:** `wu-04-green` — confirmed. `./tools/close.sh 04` ran clean on the
+M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
+tagged it.
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** Not yet run on the M1 Max with AppleClang. Verified instead on
-Clang 18 and GCC 13, both under the project's exact warning set (`-Wall
--Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release and
-Debug, `SCATTER_TILE_LOG2` 4 and 5 (four configurations × two compilers, all
-green). `test_chroma` passes 21342 checks; `test_smoke` and `test_v210` are
-unchanged at 2076 and 635 (WU-04 touched neither).
+**Tests:** All four green on the M1 Max: `test_smoke`, `test_v210`,
+`test_chroma`, `test_testpat`. `test_chroma` is new this session (21342
+checks); `test_smoke` and `test_v210` are unchanged (WU-04 touched neither).
 
-New this session: also built and ran the full suite under GCC 13 with
-`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug). Clean —
-no ASan or UBSan report anywhere in `scatter-core` or the three test
-binaries. This is the first time any session has actually run the suite
-under a sanitizer; every prior HANDOFF listed it as outstanding because it
-isn't wired into `CMakeLists.txt` and nobody had run it by hand. Still
-outstanding: the equivalent run with AppleClang's sanitizers on the M1 Max
-itself, and a permanent `-DSCATTER_SANITIZE=ON` CMake option so this stops
-depending on someone remembering the flags — worth a future work unit if it
-keeps being useful.
+Before that, this session verified on Clang 18 and GCC 13 in a Linux
+sandbox (no AppleClang there), both under the project's exact warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 (four configurations × two compilers,
+all green) — those extra configurations (Debug, tile 2^4) are still only
+sandbox-verified, not run on the M1 Max, same as prior sessions' practice.
+Also ran the full suite under GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug): clean, no
+ASan or UBSan report anywhere. First time any session has actually run a
+sanitizer rather than just listing it as outstanding. Still outstanding: the
+equivalent sanitizer run with AppleClang on the M1 Max itself, and a
+permanent `-DSCATTER_SANITIZE=ON` CMake option so this stops depending on
+someone remembering the flags — worth a future work unit if it keeps being
+useful.
 
-**Run `./tools/close.sh 04` to get the authoritative result and tag.**
-
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13. Not yet built with AppleClang.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on AppleClang
+(M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
-WU-04 done, pending your local confirmation. `src/video/chroma.hpp` and
-`src/video/chroma.cpp` (new) hold horizontal-only 4:2:2↔4:4:4 resampling:
-`upsampleRow`/`upsampleImage` (4-tap, co-sited-exact) and
-`downsampleRow`/`downsampleImage` (11-tap half-band low-pass, 7 nonzero
-taps). `tests/test_chroma.cpp` checks flat-field exactness, two hand-worked
-impulse-response vectors (the real proof the coefficients and their signs
-are right, not just their sum), hand-worked step-edge ringing magnitudes,
-and image-wrapper stride/row-independence — see ADR-020 below for the exact
-filter numbers and the reasoning behind them.
+WU-04 done and closed green. `src/video/chroma.hpp` and `src/video/chroma.cpp`
+hold horizontal-only 4:2:2↔4:4:4 resampling: `upsampleRow`/`upsampleImage`
+(4-tap, co-sited-exact) and `downsampleRow`/`downsampleImage` (11-tap
+half-band low-pass, 7 nonzero taps). `tests/test_chroma.cpp` checks
+flat-field exactness, two hand-worked impulse-response vectors (the real
+proof the coefficients and their signs are right, not just their sum),
+hand-worked step-edge ringing magnitudes, and image-wrapper stride/row-
+independence. Filter numbers and the reasoning behind them are ADR-020 in
+`DECISIONS.md` (already appended, not just proposed here).
 
 **Deviation from the WU-04 file list in `WORK-UNITS.md`:** that list named
 only `src/video/chroma.hpp`, `src/video/chroma.cpp`, `tests/test_chroma.cpp`.
@@ -51,16 +52,18 @@ WU-02 handled by listing `CMakeLists.txt` explicitly and WU-03 handled
 without listing it; not logged as a new ADR, since it's the same mechanical
 registration both those units already normalised.
 
-Design choices fixed this session, and why, are in the new ADR-020 below —
-the short version: the architecture doc left the exact tap count and
-coefficients open ("4- or 6-tap", "9- or 11-tap"), and WU-18's NEON path
-needs concrete numbers to diff against, so this session picked them.
+While reading the current state at session start, `WORK-UNITS.md` still
+marked WU-03 `todo` even though `wu-03-green` already existed as a git tag —
+a previous session's doc update evidently got missed. Corrected this
+session, alongside marking WU-04 `green`.
 
-While reading the current state I noticed `WORK-UNITS.md` still marked
-WU-03 `todo` even though `wu-03-green` exists as a git tag — a previous
-session's doc update evidently got missed. Corrected in this session's
-`WORK-UNITS.md`, alongside marking WU-04 `wip` (not `green`: that still
-needs your local `close.sh` run).
+**Delivery mechanics note, not a design matter:** getting these changes
+from the assistant onto this machine went through a remote file bridge, and
+`git commit` run *through that bridge* reliably left a stale
+`.git/index.lock` it couldn't clean up — a bridge-side unlink restriction,
+not anything wrong with git or this repo. Committing directly at this
+terminal, as you just did, doesn't have that problem. Noted here only so a
+future session doesn't mistake it for a repository issue.
 
 ## Next work unit
 
@@ -74,29 +77,7 @@ Unchanged: Q1 (tile size, WU-09), Q2 (4K Mini program outputs, WU-14), Q3
 
 ## Blocked / red
 
-Nothing, pending your `./tools/close.sh 04` run. If it comes back red,
-overwrite this file's Tests section with the failure verbatim before the
-next session, per `docs/workflow.md` section 3.
-
-**One local cleanup needed before your `git commit`:** this session wrote
-the new files and the `CMakeLists.txt` change straight to your working tree
-and ran `git add -A` successfully, but every attempt to run `git commit`
-through the remote bridge left a stale `.git/index.lock` behind (the bridge
-can create files but can't unlink them, and git's own lock cleanup needs
-to). Each stale lock was renamed out of the way — `.git/index.lock`
-doesn't exist right now — but you'll find
-`.git/index.lock.leftover-please-delete`,
-`.git/index.lock.leftover-please-delete2` and `...delete3` sitting in
-`.git/`. Delete those three, confirm `git status` shows the four files
-staged (`CMakeLists.txt` modified; `chroma.hpp`, `chroma.cpp`,
-`test_chroma.cpp` new), then commit normally:
-
-```
-rm .git/index.lock.leftover-please-delete*
-git status
-git commit -m "WU-04: chroma resampling, 4:2:2 <-> 4:4:4"
-./tools/close.sh 04
-```
+Nothing. WU-04 closed green.
 
 ## Environment check still outstanding
 
@@ -105,45 +86,8 @@ independent of WU-05 and costs no session time.
 
 ## Append to DECISIONS.md
 
-```
-**ADR-020 — Chroma resampling filter coefficients, fixed at WU-04.**
-`docs/architecture.md` section 5 specified filter *shape* only — "4- or
-6-tap" for the 422->444 upsampler, "9- or 11-tap" half-band for the 444->422
-downsampler — and left the concrete taps open. WU-18's NEON path needs
-something byte-exact to diff against (the same relationship v210.hpp/.cpp
-already has to WU-17), so this session picked and froze them:
-
-- Upsample (co-sited-exact, one filtered tap per pair): `out[2i] = in[i]`
-  exactly; `out[2i+1] = (-in[i-1] + 9in[i] + 9in[i+1] - in[i+2] + 8) >> 4`.
-  Coefficients (-1, 9, 9, -1)/16 — the standard 4-tap half-sample
-  interpolator, symmetric, unity DC gain, negative outer lobes.
-- Downsample: `out[i] = (3in[2i-5] - 25in[2i-3] + 150in[2i-1] + 256in[2i] +
-  150in[2i+1] - 25in[2i+3] + 3in[2i+5] + 256) >> 9`. Coefficients (3, -25,
-  150, 256, 150, -25, 3)/512 — a standard truncated half-band low-pass; the
-  half-band property means every tap at a nonzero even offset from centre
-  is exactly zero, so nominally "11-tap" is 7 nonzero multiplies.
-- Edge handling: index clamped to the plane (replicate the boundary
-  sample), same choice both directions.
-- Rounding: round-half-up via "add half the divisor, then arithmetic
-  shift" — the same convention `core/types.hpp`'s `toCode10` uses. C++20's
-  guaranteed-arithmetic signed right shift makes this round correctly for
-  the negative partial sums the outer lobes produce, not just positive
-  ones.
-- No clamp on the numeric result beyond what a 16-bit unsigned `Sample` can
-  hold. I2 forbids clamping to any legal-range value, and a
-  representational-range wrap (well-defined modulo-65536 narrowing, not
-  UB) is not that — it is not pulling anything toward a legal range, the
-  container is just finite. Worst-case overshoot on a step is 1/16 of the
-  step (upsample) or 22/512 (downsample), both worked by direct
-  computation in `tests/test_chroma.cpp`; this does not reach the
-  representable boundary for chroma content with any reasonable headroom
-  around `kChromaZero`, and has not been exercised at the v210 protocol
-  limits themselves.
-
-Both filters sum to an exact power of two, so a flat field survives with
-zero rounding error in either direction — the property `tests/test_chroma.cpp`
-checks first, before the coefficients are checked individually.
-```
+Nothing further — ADR-020 was appended in full during this session; see
+`DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
