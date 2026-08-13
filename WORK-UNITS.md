@@ -81,21 +81,16 @@ configured maximum compression behaves.
 tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13 (Release+Debug, tile
 4+5) and GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
-### WU-08 — Fragment generation and tile binning `wip`
+### WU-08 — Fragment generation and tile binning `green`
 **Files:** `src/core/binner.hpp`, `src/core/binner.cpp`, `tests/test_binner.cpp`
 **Accept:** fragment count equals source samples under compression; boundary
 straddling replicates into exactly the right neighbours; no fragment lost or
 duplicated within a tile.
-*So far:* implemented and verified in a Linux cloud sandbox — Clang 18 /
-GCC 13, Release+Debug, tile 4+5 (eight configurations, all green, zero
-warnings checked explicitly in the build logs) plus GCC 13
-`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
-sizes (Debug): clean, no ASan or UBSan report anywhere. 38348 checks at
-tile 2^5, 10124 at tile 2^4 (test_binner's boundary-replication check is
-O(width × height × tilesX × tilesY), hence the difference — not a bug).
-*Not yet verified:* AppleClang on the M1 Max (`close.sh`'s config) — this
-session ran entirely in the cloud sandbox, per SESSION-PROTOCOL.md's
-delivery mechanics, same as WU-06 and WU-07.
+*Done:* `wu-08-green` tagged. 38348 checks at tile 2^5, 10124 at tile 2^4
+(test_binner's boundary-replication check is O(width × height × tilesX ×
+tilesY), hence the difference — not a bug), AppleClang on the M1 Max
+(Release, tile 2^5, `close.sh`'s config) plus Clang 18 / GCC 13
+(Release+Debug, tile 4+5) and GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
 ### WU-09 — Four-bank splat `todo`
 **Files:** `src/core/splat.hpp`, `src/core/splat.cpp`, `tests/test_splat.cpp`
