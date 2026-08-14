@@ -131,7 +131,7 @@ within this unit's own files without touching `core/lattice.cpp` or
 
 ## Phase 2 — Shapes
 
-### WU-11 — Cylinder and sphere `wip`
+### WU-11 — Cylinder and sphere `green`
 **Files:** `src/core/shapes/shapes.hpp`, `src/core/shapes/cylinder.cpp`,
 `src/core/shapes/sphere.cpp`, `tests/test_shapes.cpp`
 **Accept:** every control vertex `buildCylinderLattice()`/
@@ -149,6 +149,18 @@ already-established rounding margin. Explicitly not testing self-occlusion
 or back-face correctness — that is Phase 2's k-buffer (WU-28) to resolve
 (architecture.md 4.7; see HANDOFF.md), and overlapping surface points are
 expected to simply accumulate at this phase, not be sorted or culled.
+*Done:* `wu-11-green` tagged. All three accept criteria checked directly
+— the on-the-surface algebraic identity for every control vertex, the
+Jacobian-vs-central-difference check reused from WU-06, and the three
+`runFrame()` pipeline checks (cylinder, a self-overlapping/folded
+cylinder, sphere) — AppleClang on the M1 Max (Release, tile 2^5,
+`close.sh`'s config) plus Clang 18/GCC 13 (Release+Debug, tile 4+5) and
+GCC 13 ASan+UBSan in a Linux cloud sandbox, all clean, zero warnings.
+First `close.sh 11` attempt was red on AppleClang — one bit-exact
+floating-point comparison (`CORRECTIONS.md` C-012) that the cloud sandbox
+hadn't caught; fixed within `tests/test_shapes.cpp` alone (tight tolerance
+in place of `==`, no production code touched), re-verified across the
+full matrix, and confirmed green on the second `close.sh 11` run.
 ### WU-12 — Page turn, transparent and priority-tag opaque `todo`
 **Accept:** reproduces US 4,563,703 FIG. 5 in both modes.
 ### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`
