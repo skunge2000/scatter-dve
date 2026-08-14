@@ -286,3 +286,57 @@ magnification/supersampling behaviour is architecture.md's own
 already-frozen design (4.6), working exactly as specified; this only
 corrects a mistaken assumption in this session's own test-writing, caught
 before WU-11 shipped.
+
+**C-012 — bit-exact (`==`) comparison of two independently-computed
+floating-point expressions is not portable across compilers/platforms,
+even when the algebra says they must be equal.**
+*Claimed (`tests/test_shapes.cpp`'s first draft of
+`test_sphere_reduces_to_cylinder_cross_section_at_zero_vertical_span()`,
+same session as C-011):* since `cos(0) == 1.0` exactly in IEEE 754, and
+multiplying any finite value by exactly `1.0` cannot introduce rounding,
+`buildSphereLattice()`'s `x`/`z` with `angleSpanV == 0` should equal
+`buildCylinderLattice()`'s `x`/`z` bit-for-bit, checked with `==` across
+all 16641 control vertices — reasoning correct about that one
+multiplication step in isolation, wrongly generalised to the *whole*
+expression.
+*Correct:* `./tools/close.sh 11`, run on the M1 Max with AppleClang, failed
+at exactly one of those checks (one grid point out of 16641) —
+`tests/test_shapes.cpp:230`, `c.x == s.x`. `core/shapes/cylinder.cpp`
+computes `x` as `centerX + radius * sin(theta)` (one multiply, one add);
+`core/shapes/sphere.cpp` computes the same value as `centerX + radius *
+sin(phi) * cosPsi` (two multiplies, one add) — two different expressions
+that are algebraically identical when `cosPsi == 1.0` but are not
+guaranteed to be *computed* identically by every compiler on every
+platform: fused-multiply-add contraction, operation reassociation, and
+transcendental-function rounding can all legally differ between a
+single-multiply and a double-multiply expression, or between architectures
+with and without native FMA hardware, without violating IEEE 754 (a
+compiler is free to contract `a + b*c` into one rounding via FMA, and not
+required to make the same choice for an expression with an extra factor).
+This session attempted to reproduce the exact mechanism in the Linux cloud
+sandbox — Clang 18 on x86_64, forcing `-mfma -ffp-contract=fast` to
+simulate ARM64's native FMA availability — and could not: all 129 sampled
+points matched bit-for-bit there. The precise trigger on AppleClang/ARM64
+is therefore not conclusively identified (candidates include FMA
+contraction, operation reassociation under `-O3`, or a 1-ULP difference in
+Apple's `libm` `sin`/`cos` versus glibc's for the specific angles this
+test's constants happen to produce), and pinning it down further is not
+necessary: the lesson generalises regardless of mechanism. Fixed within
+this unit's own test file: the `x`/`z` comparison uses a tight relative
+tolerance (`1e-12`, roughly 4000x a double's ~1-ULP relative noise floor of
+~2e-16) instead of `==`. The `y` comparison in the same test stays exact —
+`radius * sin(psi)` with `psi` identically `0.0` for every row involves no
+rounding to differ on, on any platform, since multiplying by an exact zero
+is exact regardless of contraction or reassociation; only the
+non-trivial-angle terms needed loosening. Not a defect in
+`core/shapes/cylinder.cpp` or `sphere.cpp` — both compute the geometrically
+correct surface; this only corrects an unsafe assumption in this session's
+own test assertion. **General lesson for future units:** when a test
+compares two *differently-shaped* floating-point expressions for equality
+(not literally the same expression evaluated twice), even where the
+algebra guarantees they compute the same real number, use a tight relative
+tolerance, not `==` — bit-exactness across compilers/platforms is only
+safe to assert for values that provably involve no rounding at all (exact
+zeros, exact powers of two, values read back without arithmetic), the same
+distinction this correction's own fix draws between the `x`/`z` checks
+(loosened) and the `y` check (left exact).

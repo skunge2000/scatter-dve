@@ -196,16 +196,28 @@ static void test_sphere_vertices_lie_on_sphere() {
     CHECK(p.z == 0.0);
 }
 
-// ADR-027: angleSpanV == 0 collapses the sphere's x/z formulas exactly to
-// the cylinder's own (psi == 0 uniformly, cos psi == 1, sin psi == 0) —
-// verified bit-exactly here, not just algebraically, since the two are
-// independent implementations (cylinder.cpp, sphere.cpp) that should still
-// agree at this degenerate point. y does not collapse the same way — the
-// sphere has no heightSpan, so its y sits at centerY uniformly here.
+// ADR-027: angleSpanV == 0 collapses the sphere's x/z formulas to the
+// cylinder's own (psi == 0 uniformly, cos psi == 1, sin psi == 0). Checked
+// with a tight relative tolerance (kUltraTight below), not bit-exact
+// equality — see CORRECTIONS.md C-012: this session's first draft asserted
+// `==` here on the reasoning that multiplying by an exactly-1.0 cos(0)
+// cannot introduce rounding, which is true of that one step in isolation
+// but is not a safe assumption about two *independently compiled*
+// multi-operation expressions (cylinder.cpp's single radius*sin(theta)
+// versus sphere.cpp's radius*sin(phi)*cosPsi) agreeing to the very last
+// bit on every platform — confirmed by `./tools/close.sh 11` failing on
+// AppleClang/ARM64 at one specific grid point out of 16641, not reproduced
+// in this session's own Clang 18/GCC 13 x86_64 sandbox even when forcing
+// FMA contraction explicitly. y does not collapse the same way — the
+// sphere has no heightSpan, so its y sits at centerY uniformly here; that
+// comparison stays bit-exact (`radius * sin(psi)` with psi identically
+// zero has no rounding to differ on, on any platform: multiplying by an
+// exact zero is exact regardless of contraction).
 static void test_sphere_reduces_to_cylinder_cross_section_at_zero_vertical_span() {
     constexpr double kRadius = 120.0;
     constexpr double kAngle  = 1.4;
     constexpr double kCx     = 12.0;
+    constexpr double kUltraTight = 1e-12;  // C-012: platform rounding noise is ~1 ULP (~2e-16 relative); this is ~4000x that, not a real disagreement
 
     CylinderParams cp;
     cp.radius = kRadius;
@@ -227,8 +239,8 @@ static void test_sphere_reduces_to_cylinder_cross_section_at_zero_vertical_span(
         for (int col = 0; col < kLatticeSize; ++col) {
             const Vec3& c = cyl.at(row, col);
             const Vec3& s = sph.at(row, col);
-            CHECK_ONCE(c.x == s.x);
-            CHECK_ONCE(c.z == s.z);
+            CHECK_ONCE(relClose(c.x, s.x, kUltraTight));
+            CHECK_ONCE(relClose(c.z, s.z, kUltraTight));
             CHECK_ONCE(s.y == sp.centerY);
         }
     }
