@@ -384,3 +384,67 @@ Does not reopen `docs/architecture.md` or ADR-024 — same relationship
 ADR-020/022/023/024 have to the document and to each other: this fills a
 gap architecture.md leaves open on purpose, and treats ADR-024's biased
 encoding as a fixed input, not something to revisit.
+
+**ADR-026 — Composite background is a caller-supplied flat colour; WU-10's
+own orchestration entry points live in `core/resolve.hpp`, not a new
+`pipeline.hpp`.**
+architecture.md 4.8 fixes normalise-then-composite's arithmetic ("out =
+Σ(w·colour)/Σw... composite against the background using Σw as alpha")
+without saying what "the background" is — nothing upstream of WU-10
+produces a second image to composite against; that is Phase 2's k-buffer
+(WU-28, 4.7). Two things this session had to decide that architecture.md
+leaves open:
+
+- **What the background is.** Chosen: a caller-supplied constant colour
+  (`Background{Y, Cb, Cr}`, `core/resolve.hpp`), default legal black (I3's
+  `kBlack`/`kChromaZero`), not a second raster. A second raster is what
+  4.7's phase-1 transparency (pure weighted accumulation, in scope this
+  session per WORK-UNITS.md) would composite *the whole output* onto in a
+  multi-layer pipeline, but nothing between WU-01 and WU-10 defines what
+  that second raster would even be for a single-frame, single-surface
+  pipeline — inventing one now would be answering a question WU-28's own
+  k-buffer design (4.7's phase 2) has not been reached yet to ask, let
+  alone answer. A flat colour is the smallest thing that satisfies 4.8's
+  literal requirement (something to composite zero-weight and
+  partially-covered cells against) without prejudging that later design.
+  `runFrame()`/`runFrameFile()`'s `PipelineParams::background` defaults to
+  black so an identity-map, fully-covered frame (this unit's own I7 check)
+  never has occasion to composite against anything else.
+- **`alpha`'s range.** 4.8 says "using Σw as alpha" without saying whether
+  Σw is already a `[0, 1]`-scale fraction. It is not: `core/types.hpp`'s
+  own `Weight` comment already notes a single, non-overlapping surface's
+  weight legitimately exceeds `kWeightUnity` wherever many source samples
+  land in one destination cell, and this unit's own zone-plate accept
+  criterion routinely accumulates Σw far above `kWeightUnity` in a single
+  cell under compression (order 1000x at 32:1, C-007). Chosen: alpha is
+  Σw clamped to `[0, kWeightUnity]` — coverage saturates at "fully
+  covered" rather than growing without bound (which would give the
+  background a *negative* contribution once alpha exceeds 1, not what
+  "coverage" means) or inverting the blend. A cell with Σw == 0
+  (`normaliseCell()`'s flagged case, 4.8's "zero-weight case flagged
+  rather than silently producing black") composites as pure background
+  without ever reading its meaningless colour fields.
+
+A third thing this session had to decide, unrelated to 4.8's own gap but
+forced by the same file-layout question ADR-021 already answered once:
+**where `core/pipeline.cpp`'s orchestration functions (`runFrame()`,
+`runFrameFile()`) are declared.** `docs/architecture.md` section 8's
+module-layout sketch names `pipeline.hpp/.cpp # orchestration, thread
+pool, barriers` as a pair, the same way it names every other `core/`
+module. Chosen: declare them in `core/resolve.hpp` instead, with no
+`pipeline.hpp` at all yet. The thread pool and barriers section 8's own
+comment describes are WU-16's (Phase 4), not built yet; this unit's own
+orchestration is one function with no state of its own to expose beyond
+it; and SESSION-PROTOCOL.md's work-unit cap ("touch at most 3 source files
+plus its test") is already spent by `resolve.hpp`, `resolve.cpp` and
+`pipeline.cpp` — a fourth header has nowhere to go without exceeding it.
+ADR-021 already established the precedent for exactly this situation —
+declaring a new `.cpp`'s public entry points in an existing, related
+header instead of a header of its own, for `file_source.cpp`/
+`file_sink.cpp` in `video/raster.hpp` — applied here the same way. When
+WU-16 actually adds thread-pool state, `pipeline.hpp` arrives with it and
+these declarations move there; nothing about `runFrame()`/`runFrameFile()`'s
+own signatures is expected to change when that happens.
+
+Does not reopen `docs/architecture.md` or ADR-021 — extends ADR-021's
+precedent to a second, later case rather than revisiting it.

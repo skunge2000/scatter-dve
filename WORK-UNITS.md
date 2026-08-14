@@ -108,12 +108,25 @@ differed by tile size), AppleClang on the M1 Max (Release, tile 2^5,
 `close.sh`'s config) plus Clang 18 / GCC 13 (Release+Debug, tile 4+5) and
 GCC 13 ASan+UBSan in a Linux cloud sandbox.
 
-### WU-10 — Normalise, composite, first affine warp `todo`
+### WU-10 — Normalise, composite, first affine warp `wip`
 **Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`,
 `src/core/pipeline.cpp`, `tests/test_zoneplate.cpp`
 **Accept:** identity map still bit-exact (I7 holds through the full path); zone
 plate through 4:1 and 32:1 compression shows no aliasing; no green fringing on
 partial coverage (I5).
+*Status:* all three accept criteria checked directly and passing —
+`test_i7_identity_full_pipeline()`, `test_zoneplate_4to1_matches_reference()`
++ `test_zoneplate_32to1_matches_reference()`,
+`test_composite_partial_coverage_no_green_fringe()` +
+`test_pipeline_partial_coverage_no_fringe()` — in a Linux cloud sandbox:
+Clang 18 / GCC 13, Release+Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, zero warnings under the project's full set, checked in the
+build logs directly), plus GCC 13 ASan+UBSan (Debug, both tile sizes),
+clean. Not yet run on the M1 Max with AppleClang — `./tools/close.sh 10`
+still needs to be run by hand at the real terminal. See `HANDOFF.md` for
+the two lattice-edge floating-point issues this unit's own full-pipeline
+tests were the first to expose (CORRECTIONS.md C-008), both worked around
+within this unit's own files without touching `core/lattice.cpp`.
 
 ---
 

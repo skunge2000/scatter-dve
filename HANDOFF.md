@@ -3,143 +3,167 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 9
-**Tag:** `wu-09-green` — confirmed. `./tools/close.sh 09` ran clean on the
-M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
-tagged it.
+**Session:** 10
+**Tag:** none yet. WU-10 is `wip` in `WORK-UNITS.md`, not `green` — everything
+below is verified in a Linux cloud sandbox only. `./tools/close.sh 10` still
+needs to run at the real terminal on the M1 Max (AppleClang, Release, tile
+2^5) before it can be tagged; this session could not run it (no AppleClang
+reachable from the sandbox this session used).
 **Phase:** 1 — portable core, file to file, 576p25, single-threaded
 
-**Tests:** All nine green on the M1 Max: `test_smoke`, `test_v210`,
-`test_chroma`, `test_ramp_roundtrip`, `test_testpat`, `test_jacobian`,
-`test_ewa`, `test_binner` (eight unchanged from WU-08, none of their files
-touched) and `test_splat`, new this session (6179 checks at tile 2^5, 1571
-at tile 2^4 — the difference is the random-equivalence test's and
-`test_clear_zeroes_all_banks`'s per-cell loops, both `O(kTilePixels)`, the
-same reason WU-08's check count differed by tile size, not a bug).
+**Tests:** All ten green in the sandbox: the nine carried over unchanged from
+WU-09 (`test_smoke`, `test_v210`, `test_chroma`, `test_ramp_roundtrip`,
+`test_testpat`, `test_jacobian`, `test_ewa`, `test_binner`, `test_splat`,
+none of their files touched) and `test_zoneplate`, new this session, checking
+all three of WU-10's own accept criteria directly:
+`test_i7_identity_full_pipeline()` (I7, full pipeline, file to file — flat,
+ramp and excursion patterns, two source sizes), `test_zoneplate_4to1_matches_reference()`
+and `test_zoneplate_32to1_matches_reference()` (the anti-aliasing accept
+line), and `test_composite_partial_coverage_no_green_fringe()` plus
+`test_pipeline_partial_coverage_no_fringe()` (I5).
 
-Before that, this session verified in a Linux cloud sandbox (no AppleClang
-there), on Clang 18 and GCC 13, under the project's exact warning set
-(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
-and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all green,
-zero warnings — checked explicitly in the build logs, not just a successful
-exit code), plus GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
-UBSan report anywhere — same practice as prior sessions.
+Verified: Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and
+5 (eight configurations, all green, zero warnings under the project's exact
+warning set — `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` — checked directly in the build logs, not just a successful exit
+code), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` (Debug, both tile sizes): clean, no ASan or UBSan
+report anywhere. Not yet run on the M1 Max with AppleClang.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
-AppleClang (M1 Max), Clang 18 and GCC 13.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
+and GCC 13. Not yet confirmed on AppleClang.
 
 ## Where we are
 
-WU-09 done and closed green. `src/core/splat.hpp`/`.cpp` are pass 2's
-first half (architecture.md section 3, "PASS 2: tile resolve" -> "four-bank
-splat"): `TileAccum` holds one `kTileSize` x `kTileSize` grid of
-`AccumCell` per bank, four banks; `splatTile()` takes one tile's
-`std::vector<Frag>` (exactly what WU-08's `TileBins::tile()` produces) and,
-per fragment, bilinearly splats its weight across the (up to four) corners
-of its 2x2 footprint that fall inside this tile, one read-modify-write per
-bank per corner (architecture.md 4.5); `sumBanks()` is 4.5's own "resolve"
-step — summing all four banks, identically addressed, into one final
-`AccumCell` grid. `splatTileReference()` is the accept line's oracle:
-identical fragment -> corner-contribution arithmetic (both paths call the
-same internal helper, so they cannot drift apart by accident), but against
-one unbanked accumulator — proven bit-identical to `splatTile()` +
-`sumBanks()` by `tests/test_splat.cpp`'s randomised equivalence test,
-satisfying WU-09's first accept criterion. `CMakeLists.txt`:
-`src/core/splat.cpp` added to `scatter-core`'s sources (the same "needs its
-own `.cpp` because it carries per-tile storage state" reasoning
-`binner.cpp` already established); `test_splat` registered via
-`scatter_test()`.
+WU-10 assembles the full pipeline end to end for the first time —
+architecture.md section 3's whole signal path, v210 unpack through v210
+pack, spliced together in `src/core/pipeline.cpp`'s `runFrame()` (pass 1 +
+pass 2 over already-4:4:4 rasters) and `runFrameFile()` (adds the v210/chroma
+stages either side). `src/core/resolve.hpp`/`.cpp` is 4.8's own half of pass
+2 — `normaliseCell()` divides `AccumCell`'s premultiplied `Σ(w·colour)` by
+`Σw` (int64, rounded, flagging `Σw <= 0` rather than dividing by zero); and
+`composite()` calls it, then blends the result against a background using
+`Σw` (clamped to `[0, kWeightUnity]`) as alpha — never the other order, so
+I5's green-fringe bug (compositing the *premultiplied* fields directly
+against zero) cannot happen by construction, only by regression, which is
+what `test_composite_partial_coverage_no_green_fringe()` exists to catch.
 
-Note that WU-10's own `core/resolve.hpp`/`.cpp` (normalise, composite) is a
-*different* "resolve" than `sumBanks()` here — architecture.md's signal
-path (section 3) uses "resolve" for the whole of pass 2, but WORK-UNITS.md
-splits it: WU-09 is the bank-summing step 4.5 itself calls "resolve";
-WU-10's normalise/composite is 4.8. `sumBanks()` is named to keep the two
-apart, deliberately not `resolve()`.
+**Design choices this session had to make that `docs/architecture.md` left
+open — now ADR-026 in `DECISIONS.md`:** what "the background" 4.8 composites
+against actually is (a caller-supplied flat colour, default black — not a
+second raster, which is Phase 2's k-buffer question, WU-28, not this unit's
+to answer); alpha's range (Σw clamped to `[0, kWeightUnity]`, since Σw is
+coverage, not already a `[0, 1]` fraction — a single surface's weight
+routinely exceeds unity under compression); and where `core/pipeline.cpp`'s
+`runFrame()`/`runFrameFile()` are declared (`core/resolve.hpp`, not a new
+`pipeline.hpp` — the thread pool/barriers section 8 associates with that
+name are WU-16's, not built yet, and SESSION-PROTOCOL.md's 3-file cap is
+already spent; same precedent ADR-021 already set for `file_source.cpp`/
+`file_sink.cpp` in `video/raster.hpp`).
 
-**Design choices this session had to make that `docs/architecture.md`
-left open — now ADR-025 in `DECISIONS.md`:** the bilinear per-corner
-weight formula (anchored to section 13's "fractional addresses supplying
-splat weights", not invented — see ADR-025 for why this one had only one
-geometrically sensible answer, unlike ADR-023's `maxK` or ADR-024's
-supersampling thresholds); what happens when a splat corner falls outside
-the tile being resolved (not an independent choice — the necessary
-consequence of WU-08/ADR-024's already-frozen replication scheme, simply
-skipped rather than clamped); and the signed decode of `SubPos` back to a
-(base cell, fraction) pair, undoing ADR-024's one-pixel bias with a
-widen-then-floor-shift technique applied to a signed range for the first
-time in this codebase.
+**Three corrections found this session, in `CORRECTIONS.md` as C-008,
+C-009, C-010** — all found and fixed within WU-10's own files, none of them
+defects in earlier, already-frozen units' own code:
 
-**A correction found this session, in `CORRECTIONS.md` as C-007:**
-`AccumCell::w` (`WeightAccum`, int32 per I4) does not have the same
-headroom at the literal "a million full-weight fragments" synthetic scale
-that `AccumCell::Y`/`Cb`/`Cr` (`ColourAccum`, int64) do — routing a million
-full-weight fragments through the real splat path onto one cell overflows
-`AccumCell::w` (undefined behaviour) tens of thousands of fragments before
-`AccumCell::Y` would be at any risk, since a fragment's weight contribution
-is `w` alone while its colour contribution is `Y * w`. Not a defect in I4
-(which only ever claimed int32 "may be" sufficient for weight, not that it
-matches colour's synthetic ceiling) or in `splat.cpp`. `tests/test_splat.cpp`
-splits its worst-case coverage accordingly:
-`test_int64_headroom_full_pipeline()` drives 25000 full-weight fragments
-through the real code path (safely under `AccumCell::w`'s own ~32768-count
-ceiling, already far beyond a hypothetical 32-bit colour accumulator's
-range), and `test_int64_headroom_million_fragment_arithmetic()` checks the
-literal million-fragment claim directly against `ColourAccum`'s own
-arithmetic, decoupled from the shared weight accumulator. See C-007 for the
-full arithmetic.
+- **C-008** — two distinct floating-point issues in `core/lattice.cpp`,
+  both invisible until WU-10 finally ran an affine map through the whole
+  chain. *(a)* ADR-022's edge-replication clamp, correct for `eval()`, damps
+  `jacobian()`'s derivative by up to 50% for any source pixel within one
+  lattice cell of an edge — i.e. always including a raster's own first/last
+  row and column, any raster size. Genuine, already-frozen (ADR-022), not
+  fixable from this unit's files; worked around in `tests/test_zoneplate.cpp`
+  by keeping the I7 check's rasters within `kLatticeSize` and by using a
+  coverage/hull check (robust to the weight distortion) rather than an exact
+  value for the I5 full-pipeline check's own edge-adjacent columns, which
+  cannot avoid the raster's real edge by construction. Flagged below as Q4
+  for a future `core/lattice.cpp` fix. *(b)* an identity map's *computed*
+  pixel-space determinant lands on either side of exactly `1.0` from
+  ordinary floating-point rounding (measured: ~47% of one test frame's
+  interior pixels, noise below `1e-10`), spuriously triggering
+  `chooseSupersample()`'s 2x2 path for roughly half of them. Fixed with a
+  `1e-6` margin on `PipelineParams`' default supersample thresholds
+  (`core/resolve.hpp`'s `defaultPipelineSupersample()`) — far above the
+  measured noise, far below any real determinant difference. `core/binner.cpp`
+  itself is unchanged.
+- **C-009** — the zone-plate test's first draft compared `runFrame()`'s
+  output against an independent *box-average* reference. Wrong reference:
+  architecture.md 4.5's splat always spreads a source sample across exactly
+  a 2x2 destination neighbourhood regardless of compression ratio, so the
+  algorithm's actual implicit reconstruction filter is triangular ("tent"),
+  not box — the two agree on energy but not shape, and diverged by up to
+  236 code values at a single pixel on an otherwise-correct, non-aliased
+  4:1 frame. `referenceCode()` now computes the triangular-kernel reference
+  instead (independent of `core/binner.cpp`/`core/splat.cpp`, using only
+  `Lattice::eval()` and a hand-written hat-weight function), matching the
+  real pipeline to within 0.54 code (4:1) and 6.71 code (32:1) — both
+  explained by ordinary fixed-point rounding. No production code changed.
+- **C-010** — the I5 full-pipeline test's first draft assumed a flat
+  source's fully-covered destination columns resolve to *exactly* the
+  source colour. Not quite true in fixed point: ADR-025 already documents
+  that the four-bank splat truncates each of a fragment's corner
+  contributions separately rather than conserving weight exactly across
+  them, and summed across many overlapping fragments this can leave a
+  code value or two of drift even at full coverage (measured: a consistent
+  +1 on Y and Cr). Fixed with a small (`kRoundingMargin = 4`), well-bounded
+  tolerance in place of exact equality for composited columns; pure-
+  background columns (no accumulation math at all) stay exact.
 
 **Delivery mechanics, not a design matter:** this session ran remotely, via
-the device-bridge tools connecting to this machine, same as sessions 6
-through 8. All implementation and the full verification matrix above ran
-first in a disposable Linux cloud sandbox, never on this machine directly —
-nothing was written here until it was already green there. Files were then
-written to this machine via the bridge, and `git add -A && git commit` ran
-through that same bridge; as in prior sessions it still cannot clean up its
-own `index.lock`/`HEAD.lock`/temp-object files afterward (unlink fails on
-this mount), so stale ones were moved into `_to_delete/` rather than
-removed — safe to `rm -rf _to_delete/` by hand. Git identity was already
-set locally on this mount from a prior session (`Stephen Neal
-<stephenneal@Stephens-MacBook-Pro.local>`, confirmed against `git log`
-before committing), so nothing needed reconfiguring. `./tools/close.sh 09`
-was, as before, run by hand at the real terminal, in two steps this
-session: an initial commit left WU-09 `wip` with everything above already
-verified in the sandbox, then this closing update (`WORK-UNITS.md` to
-`green`, this file) followed your pasted `close.sh` output confirming the
-M1 Max/AppleClang build and tag.
+the device-bridge tools connecting to this machine. All implementation and
+the full verification matrix above ran first in a disposable Linux cloud
+sandbox, never on this machine directly — nothing was written here until it
+was already green there. Files were then written to this machine via the
+bridge, and `git add -A && git commit` ran through that same bridge; as in
+prior sessions it still cannot clean up its own `index.lock`/`HEAD.lock`/
+temp-object files afterward (unlink fails on this mount), so stale ones were
+moved into `_to_delete/` rather than removed — safe to `rm -rf _to_delete/`
+by hand. Git identity was already set locally on this mount from a prior
+session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
+against `git log` before committing), so nothing needed reconfiguring.
 
-## Next work unit
+## Next step — yours
 
-**WU-10 — Normalise, composite, first affine warp**, per `WORK-UNITS.md`.
-**Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`,
-`src/core/pipeline.cpp`, `tests/test_zoneplate.cpp`.
-**Accept:** identity map still bit-exact (I7 holds through the full path);
-zone plate through 4:1 and 32:1 compression shows no aliasing; no green
-fringing on partial coverage (I5). Unstarted.
-
-WU-10 is the consumer of WU-09's `sumBanks()` output — one `AccumCell` per
-destination cell, per tile — dividing accumulated colour by accumulated
-weight (I5, 4.8) and compositing. It is also the unit that finally
-exercises `TileBins`/`generateFragments()` (WU-08) and `splatTile()`/
-`sumBanks()` (WU-09) end to end against a real (if still affine-only) warp,
-which is what its accept line's zone-plate and identity-map checks are for.
+Run `./tools/close.sh 10` at the real terminal. If it builds and tests green
+on AppleClang, it tags `wu-10-green`; paste the output back (or just say it
+passed) and the next session will flip `WORK-UNITS.md` to `green` and update
+this file for WU-11, the same two-step pattern WU-06 through WU-09 used. If
+it fails on AppleClang specifically (nothing in this session's own testing
+suggests it would, but this session had no way to check), the failure output
+is the most useful thing to bring back.
 
 ## Open questions
 
-Unchanged: Q1 (tile size — still open; WU-09 implemented the mechanism at
-both compile-time tile sizes as CMakeLists.txt's comment asked, but did not
-benchmark them against each other. Benchmarking felt out of that session's
-scope — WU-09's accept line was about correctness, not performance, and
-nothing later than WU-10 needs Q1 resolved. Flagging it as worth doing once
-there's a real warp to benchmark through, rather than an isolated splat
-microbenchmark, which risks measuring something that doesn't match the
-full pipeline's actual cache behaviour), Q2 (4K Mini program outputs,
-WU-14), Q3 (macOS/Desktop Video version, WU-14).
+Q1 (tile size, WU-14 originally, still open): WU-10 now has a real warp to
+benchmark both tile sizes through, but WU-10's own accept line is about
+correctness, not performance, and benchmarking felt like a second task
+riding along on this one rather than part of it — left undone again,
+deliberately, not an oversight. Still worth doing once there's a
+motivating reason to look at performance at all (WU-16 or WU-19 are the
+more natural point). Q2 (4K Mini program outputs, WU-14), Q3 (macOS/Desktop
+Video version, WU-14) — both unchanged. New this session:
+
+**Q4 — `core/lattice.cpp`'s `jacobian()` damps the analytic derivative near
+the lattice's own edges (CORRECTIONS.md C-008(a)), a real limitation for any
+production-scale raster, not just this session's small test cases.** Every
+source raster's own first/last row and column falls in the damaged region,
+regardless of raster size — at 720x576 or 1920x1080 this is a one-pixel-wide
+border, not a large fraction of the frame, but it is a real, measurable
+(up to 50%) density-compensation error right at the frame edge, and nothing
+in WU-10's own file scope can fix it (it lives in `core/lattice.cpp`, frozen
+at WU-06/ADR-022). A real fix likely means computing `jacobian()`'s edge
+case from a true extrapolated tangent instead of ADR-022's duplicated-point
+stencil, without changing `eval()`'s own edge behaviour (which is correct
+as is). Not urgent — nothing has hit this in practice, no accept line has
+failed because of it, and this session's own two full-pipeline tests both
+worked around it without needing the fix — but worth a small, focused
+future work unit rather than being rediscovered from scratch. Whoever picks
+this up should re-read C-008(a) in full first, including the exact
+`basisDeriv(0)`/`basisDeriv(1)` mechanism, before touching `core/lattice.cpp`.
 
 ## Blocked / red
 
-Nothing. WU-09 closed green.
+Nothing red. WU-10 is `wip`, verified in the sandbox, awaiting the M1 Max
+close.
 
 ## Environment check still outstanding
 
@@ -148,10 +172,10 @@ independent of WU-10 and costs no session time.
 
 ## Append to DECISIONS.md
 
-Nothing this update — ADR-025 was appended in full earlier this session; see
-`DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
+Nothing further this update — ADR-026 was appended in full earlier this
+session; see `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — C-007 was appended in full earlier this session; see
-`CORRECTIONS.md`. Not reopened or amended now that the tag is confirmed.
+Nothing further this update — C-008, C-009 and C-010 were appended in full
+earlier this session; see `CORRECTIONS.md`.

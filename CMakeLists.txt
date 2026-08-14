@@ -42,6 +42,14 @@ endif()
 # Needs a .cpp of its own for the same reason binner.cpp does -- TileAccum
 # carries per-tile bank storage state, not just pure functions of Frag
 # arguments.
+#
+# WU-10 adds src/core/resolve.cpp (normalise, composite -- architecture.md
+# 4.8) and src/core/pipeline.cpp (single-frame orchestration, this unit's
+# own runFrame()/runFrameFile(), declared in core/resolve.hpp rather than a
+# separate pipeline.hpp -- see that header and DECISIONS.md ADR-026).
+# pipeline.cpp needs no header of its own to compile into scatter-core;
+# every scatter-core object file is reachable from tests/test_zoneplate.cpp
+# and any future src/app/ caller via #include "core/resolve.hpp" alone.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
@@ -50,7 +58,9 @@ add_library(scatter-core STATIC
     src/io/file_sink.cpp
     src/core/lattice.cpp
     src/core/binner.cpp
-    src/core/splat.cpp)
+    src/core/splat.cpp
+    src/core/resolve.cpp
+    src/core/pipeline.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
 
@@ -107,6 +117,8 @@ scatter_test(test_jacobian)
 scatter_test(test_ewa)
 scatter_test(test_binner)
 scatter_test(test_splat)
+scatter_test(test_zoneplate)
+target_include_directories(test_zoneplate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw
