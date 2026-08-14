@@ -4,14 +4,15 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 10
-**Tag:** none yet. WU-10 is `wip` in `WORK-UNITS.md`, not `green` — everything
-below is verified in a Linux cloud sandbox only. `./tools/close.sh 10` still
-needs to run at the real terminal on the M1 Max (AppleClang, Release, tile
-2^5) before it can be tagged; this session could not run it (no AppleClang
-reachable from the sandbox this session used).
-**Phase:** 1 — portable core, file to file, 576p25, single-threaded
+**Tag:** `wu-10-green` — confirmed. `./tools/close.sh 10` ran clean on the
+M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) and
+tagged it.
+**Phase:** 1 — portable core, file to file, 576p25, single-threaded — **done**.
+Both of Phase 1's own done-when tests (`docs/architecture.md` section 10)
+are now green: the ramp round-trip (WU-05) and the zone plate (WU-10, this
+session). Phase 2 — Shapes (WU-11 onward) starts next; see below.
 
-**Tests:** All ten green in the sandbox: the nine carried over unchanged from
+**Tests:** All ten green on the M1 Max: the nine carried over unchanged from
 WU-09 (`test_smoke`, `test_v210`, `test_chroma`, `test_ramp_roundtrip`,
 `test_testpat`, `test_jacobian`, `test_ewa`, `test_binner`, `test_splat`,
 none of their files touched) and `test_zoneplate`, new this session, checking
@@ -22,16 +23,17 @@ and `test_zoneplate_32to1_matches_reference()` (the anti-aliasing accept
 line), and `test_composite_partial_coverage_no_green_fringe()` plus
 `test_pipeline_partial_coverage_no_fringe()` (I5).
 
-Verified: Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and
-5 (eight configurations, all green, zero warnings under the project's exact
-warning set — `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
--Werror` — checked directly in the build logs, not just a successful exit
-code), plus GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` (Debug, both tile sizes): clean, no ASan or UBSan
-report anywhere. Not yet run on the M1 Max with AppleClang.
+Before that, this session verified in a Linux cloud sandbox (no AppleClang
+there), on Clang 18 and GCC 13, under the project's exact warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`), Release
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all green,
+zero warnings — checked explicitly in the build logs, not just a successful
+exit code), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
+UBSan report anywhere — same practice as prior sessions.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13. Not yet confirmed on AppleClang.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
+AppleClang (M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
@@ -109,27 +111,52 @@ defects in earlier, already-frozen units' own code:
   background columns (no accumulation math at all) stay exact.
 
 **Delivery mechanics, not a design matter:** this session ran remotely, via
-the device-bridge tools connecting to this machine. All implementation and
-the full verification matrix above ran first in a disposable Linux cloud
-sandbox, never on this machine directly — nothing was written here until it
-was already green there. Files were then written to this machine via the
-bridge, and `git add -A && git commit` ran through that same bridge; as in
-prior sessions it still cannot clean up its own `index.lock`/`HEAD.lock`/
-temp-object files afterward (unlink fails on this mount), so stale ones were
-moved into `_to_delete/` rather than removed — safe to `rm -rf _to_delete/`
-by hand. Git identity was already set locally on this mount from a prior
-session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
-against `git log` before committing), so nothing needed reconfiguring.
+the device-bridge tools connecting to this machine, same as sessions 6
+through 9. All implementation and the full verification matrix above ran
+first in a disposable Linux cloud sandbox, never on this machine directly —
+nothing was written here until it was already green there. Files were then
+written to this machine via the bridge, and `git add -A && git commit` ran
+through that same bridge; as in prior sessions it still cannot clean up its
+own `index.lock`/`HEAD.lock`/temp-object files afterward (unlink fails on
+this mount), so stale ones were moved into `_to_delete/` rather than
+removed — safe to `rm -rf _to_delete/` by hand. Git identity was already
+set locally on this mount from a prior session (`Stephen Neal
+<stephenneal@Stephens-MacBook-Pro.local>`, confirmed against `git log`
+before committing), so nothing needed reconfiguring. `./tools/close.sh 10`
+was, as before, run by hand at the real terminal, in two steps this
+session: an initial commit left WU-10 `wip` with everything above already
+verified in the sandbox, then this closing update (`WORK-UNITS.md` to
+`green`, this file) followed your pasted `close.sh` output confirming the
+M1 Max/AppleClang build and tag.
 
-## Next step — yours
+## Next work unit
 
-Run `./tools/close.sh 10` at the real terminal. If it builds and tests green
-on AppleClang, it tags `wu-10-green`; paste the output back (or just say it
-passed) and the next session will flip `WORK-UNITS.md` to `green` and update
-this file for WU-11, the same two-step pattern WU-06 through WU-09 used. If
-it fails on AppleClang specifically (nothing in this session's own testing
-suggests it would, but this session had no way to check), the failure output
-is the most useful thing to bring back.
+**WU-11 — Cylinder and sphere**, per `WORK-UNITS.md`'s Phase 2 — Shapes.
+**Files/Accept:** not yet scoped — `WORK-UNITS.md`'s WU-11 entry is
+currently a bare heading, unlike WU-02 through WU-10's, which all had
+**Files:**/**Accept:** filled in before their session started. Per
+SESSION-PROTOCOL.md ("`WORK-UNITS.md`, edited as scope firms up"), the next
+session should read `docs/architecture.md` section 8's module layout
+(`src/core/shapes/plane.cpp cylinder.cpp sphere.cpp pageturn.cpp
+explode.cpp` — cylinder and sphere are two of five, `plane.cpp` likely
+already covered implicitly by the affine-map path WU-01 through WU-10 built
+and tested, `pageturn.cpp`/`explode.cpp` later WU-12/Phase-7 units) and
+whatever earlier section defines each shape's lattice-generation formula,
+fill in WU-11's own **Files:**/**Accept:** lines, and only then start
+implementing — the same "read every exact signature before designing"
+discipline this session's own brief asked for going into WU-10.
+
+WU-11 is Phase 2's first unit: the first non-affine lattice this project
+builds. Everything WU-06 through WU-10 built — `Lattice::eval()`/
+`jacobian()`, the fragment generator, the four-bank splat, resolve/composite,
+`runFrame()`/`runFrameFile()` — is shape-agnostic; it consumes whatever
+`Lattice` a caller hands it, built by `makeAffineLattice()`-equivalent
+helpers so far (test-local, never shipped in `core/`). WU-11 is the first
+unit that populates a `Lattice`'s control vertices from a genuinely curved
+surface instead of a plane, exercising that whole already-built chain
+against a non-planar warp for the first time — nothing about `runFrame()`'s
+own contract should need to change for it, since it never assumed the
+lattice was affine.
 
 ## Open questions
 
@@ -162,20 +189,20 @@ this up should re-read C-008(a) in full first, including the exact
 
 ## Blocked / red
 
-Nothing red. WU-10 is `wip`, verified in the sandbox, awaiting the M1 Max
-close.
+Nothing. WU-10 closed green.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-10 and costs no session time.
+independent of WU-11 and costs no session time.
 
 ## Append to DECISIONS.md
 
-Nothing further this update — ADR-026 was appended in full earlier this
-session; see `DECISIONS.md`.
+Nothing this update — ADR-026 was appended in full earlier this session; see
+`DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
 
 ## Append to CORRECTIONS.md
 
-Nothing further this update — C-008, C-009 and C-010 were appended in full
-earlier this session; see `CORRECTIONS.md`.
+Nothing this update — C-008, C-009 and C-010 were appended in full earlier
+this session; see `CORRECTIONS.md`. Not reopened or amended now that the tag
+is confirmed.
