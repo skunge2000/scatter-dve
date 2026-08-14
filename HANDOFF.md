@@ -4,22 +4,22 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 12
-**Tag:** none yet. WU-12a is implemented and verified in a Linux cloud
-sandbox only — `./tools/close.sh 12a` has not run on the M1 Max with
-AppleClang. **That is the immediate next action, at the real terminal, not
-from this session.**
+**Tag:** `wu-12a-green` — confirmed. `./tools/close.sh 12a` ran clean on
+the M1 Max with AppleClang (Release, tile 2^5, the config `close.sh`
+builds) on the first attempt — no cloud/AppleClang divergence this time,
+unlike WU-11's own C-012.
 **Phase:** 2 — Shapes. WU-12 split into WU-12a (this session, page-turn
-shape + transparent mode — implemented, cloud-verified, not yet
-`close.sh`'d) and WU-12b (priority-tag opaque mode — designed, not
-implemented). See `DECISIONS.md` ADR-028 for why it split and the design
-sketch WU-12b starts from.
+shape + transparent mode — done) and WU-12b (priority-tag opaque mode —
+designed, not yet implemented; starts next). See `DECISIONS.md` ADR-028
+for why it split and the design sketch WU-12b starts from.
 
-**Tests:** All twelve green in the cloud sandbox: the ten carried over
-unchanged from WU-10/WU-11 plus `test_shapes` (WU-11's own, untouched this
-session) and `test_pageturn`, new this session — 126512 checks (Clang 18,
-Release, tile 2^5), checking WU-12a's own accept criteria directly: every
-`buildPageTurnLattice()` control vertex is exactly flat or exactly on the
-configured curl cylinder per the `turnProgress` split
+**Tests:** All twelve green on the M1 Max: the ten carried over unchanged
+from WU-10/WU-11 plus `test_shapes` (WU-11's own, untouched this session)
+and `test_pageturn`, new this session — 126512 checks (Clang 18, Release,
+tile 2^5, in the cloud sandbox; `close.sh`'s own run reports pass/fail per
+executable, not a check count), checking WU-12a's own accept criteria
+directly: every `buildPageTurnLattice()` control vertex is exactly flat or
+exactly on the configured curl cylinder per the `turnProgress` split
 (`test_pageturn_flat_or_on_curl_cylinder`); the spine never moves, any
 `turnProgress` (`test_pageturn_spine_never_moves`); `turnProgress == 0`
 reduces exactly to the flat/affine case
@@ -39,18 +39,17 @@ note, that the pipeline built by WU-06 through WU-11 is shape-agnostic
 *and* handles two independently generated surfaces sharing one frame
 correctly, not just one shape at a time.
 
-Verified in a Linux cloud sandbox (no AppleClang there — same limitation
-every session since WU-06 has had) on Clang 18 and GCC 13, under the
-project's exact warning set (`-Wall -Wextra -Wpedantic -Wconversion
--Wsign-conversion -Werror`), Release and Debug, `SCATTER_TILE_LOG2` 4 and
-5 (eight configurations, all green, zero warnings — checked explicitly in
-the build logs, not just exit codes), plus GCC 13 with
-`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug) at both
-tile sizes: clean, no ASan or UBSan report anywhere — same practice as
-every session since WU-06.
+Before that, this session verified in a Linux cloud sandbox (no AppleClang
+there) on Clang 18 and GCC 13, under the project's exact warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`),
+Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all
+green, zero warnings — checked explicitly in the build logs, not just exit
+codes), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
+UBSan report anywhere — same practice as every session since WU-06.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13 in the cloud sandbox. Not yet built with AppleClang.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
+AppleClang (M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
@@ -61,10 +60,10 @@ cylinder (arc-length parametrised, so position and tangent match exactly
 at the flat/curl seam for any `turnProgress`) for the portion that has
 turned. No change to `Lattice`, `core/binner.cpp`, `core/splat.cpp` or
 `core/resolve.cpp` — transparent-mode compositing of two surfaces (this
-unit's flap plus a "page behind") works by calling
-`generateFragments()` twice into one `TileBins` and splatting once, which
-`tests/test_pageturn.cpp` proves sums exactly right, not merely assumed
-from WU-11's "shape-agnostic" note.
+unit's flap plus a "page behind") works by calling `generateFragments()`
+twice into one `TileBins` and splatting once, which `tests/
+test_pageturn.cpp` proves sums exactly right, not merely assumed from
+WU-11's "shape-agnostic" note.
 
 **Design choices this session had to make that `docs/architecture.md` and
 last session's own open question left open — now ADR-028 in
@@ -90,20 +89,33 @@ fit).
 writing `tests/test_pageturn.cpp` turned out wrong the way C-011/C-012 did
 at WU-11 — the accumulation-sums identity check in particular was designed
 to be exact (bit-for-bit, via I6) from the start, specifically to avoid
-needing a tolerance-based colour comparison of the kind C-012 warns about;
-see `tests/test_pageturn.cpp`'s own header comment for why it's checked
-that way. Two ordinary compile-time fixes during this session's own
-sandbox iteration (a `-Wvexing-parse` false-function-declaration on
-`std::vector<AccumCell> tileCells(std::size_t(kTilePixels))`, fixed by
-brace-initialising instead; an unused-`kPi`-constant warning after that
-constant turned out not to be needed in this file) were caught and fixed
-before the first successful build — not shipped, not a design error,
-nothing to log here.
+needing a tolerance-based colour comparison of the kind C-012 warns about.
+`close.sh 12a` itself also came back green on the first attempt — no
+platform-specific floating-point divergence this session, unlike WU-11's
+own experience with C-012.
+
+**Delivery mechanics, not a design matter:** this session ran remotely, via
+the device-bridge tools connecting to this machine, same as sessions 6
+through 11. All implementation and the full verification matrix above ran
+first in a disposable Linux cloud sandbox, never on this machine directly.
+Files were then written to this machine via the bridge, and `git add -A &&
+git commit` ran through that same bridge; as in prior sessions it still
+cannot clean up its own `index.lock`/`HEAD.lock`/temp-object files
+afterward (unlink fails on this mount), so stale ones (13
+`tmp_obj_*` files, `HEAD.lock`, `index.lock` recreated a second time by
+`git status` itself, and a stray `objects/maintenance.lock`) were moved
+into `_to_delete/` rather than removed — safe to `rm -rf _to_delete/` by
+hand; it now holds accumulated debris from several sessions, not just this
+one. Git identity was already set locally on this mount from a prior
+session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
+against `git log`/`git config` before committing), so nothing needed
+reconfiguring. `./tools/close.sh 12a` was, as before, run by hand at the
+real terminal.
 
 ## Next work unit
 
-**WU-12b — Page turn, priority-tag opaque.** `WORK-UNITS.md` now has its
-own **Files:**/**Accept:** lines, and `DECISIONS.md` ADR-028 already
+**WU-12b — Page turn, priority-tag opaque.** `WORK-UNITS.md` already has
+its own **Files:**/**Accept:** lines, and `DECISIONS.md` ADR-028 already
 sketches the mechanism (read the whole of ADR-028's own "priority-tag
 opacity" section before starting, not just the `WORK-UNITS.md` summary).
 Concretely, next session should:
@@ -120,39 +132,27 @@ Concretely, next session should:
   `AccumCell`s component-wise first (WU-12a's own accumulation-sums
   identity, exact per I6), then `composite()` once — WU-12a's own default,
   reused rather than reimplemented.
-- Write `compositeLayered()`'s own test (new file — do not extend
-  `tests/test_pageturn.cpp`, which is WU-12a's) reusing WU-12a's own
-  two-layer construction (a page-turn flap over a full-canvas page behind)
-  from `tests/test_pageturn.cpp`, duplicated locally per
-  `SESSION-PROTOCOL.md` rule 2, but this time checking the *opaque* tag
-  path specifically: at the flap's own well-covered pixels, the composited
-  result should resolve close to the flap's own colour (the page behind is
-  hidden there, not blended in) while at pixels where only the page behind
-  has coverage it is unaffected — the literal "opaque with priority tag
-  set" contrast against WU-12a's own already-proven transparent default.
+- Write `compositeLayered()`'s own test (new file — do not extend `tests/
+  test_pageturn.cpp`, which is WU-12a's) reusing WU-12a's own two-layer
+  construction (a page-turn flap over a full-canvas page behind) from
+  `tests/test_pageturn.cpp`, duplicated locally per `SESSION-PROTOCOL.md`
+  rule 2, but this time checking the *opaque* tag path specifically: at
+  the flap's own well-covered pixels, the composited result should
+  resolve close to the flap's own colour (the page behind is hidden
+  there, not blended in) while at pixels where only the page behind has
+  coverage it is unaffected — the literal "opaque with priority tag set"
+  contrast against WU-12a's own already-proven transparent default.
 - No `core/shapes/*`, `core/binner.cpp` or `core/splat.cpp` change is
   expected — if one turns out to be needed, treat that as a reason to stop
   and reconsider the design before writing more code, not push through it,
   per `SESSION-PROTOCOL.md`'s anti-drift rule 3 ("never reopen an ADR...
   propose a superseding ADR instead").
-- Once WU-12b is itself green (cloud-verified, then `close.sh 12b`'d),
-  WU-12 as a whole (the parent entry `HANDOFF.md`'s session-11 note and
-  the original task both referred to) is done: both of US 4,563,703 FIG.
-  5's modes reproduced. `WORK-UNITS.md`'s WU-12a/WU-12b split does not need
-  reconciling back into a single WU-12 entry — the split itself is
-  permanent record, matching how WU-03's original stale status line was
-  corrected in place rather than erased (WU-04's own session).
-
-**Before that, at the real terminal:** run `./tools/close.sh 12a`. Tags
-`wu-12a-green` on success (the tag format `close.sh` produces from
-whatever string is passed — `12a` here, not just a bare number — is
-untested by any earlier session but nothing in `tools/close.sh` assumes
-`NN` is numeric; it only uses it to build the tag name and the commit
-message). If it comes back red, the same discipline every session since
-WU-06 uses: isolate the failure, fix within the smallest possible file
-scope, re-verify the full cloud-sandbox matrix, ship the fix as its own
-commit, ask for `close.sh 12a` again — don't guess at a fix without seeing
-the actual failure output first.
+- Once WU-12b is itself green (cloud-verified, then `close.sh 12b`'d), WU-12
+  as a whole is done: both of US 4,563,703 FIG. 5's modes reproduced.
+  `WORK-UNITS.md`'s WU-12a/WU-12b split does not need reconciling back into
+  a single WU-12 entry — the split itself is permanent record, matching
+  how WU-03's original stale status line was corrected in place rather
+  than erased (WU-04's own session).
 
 ## Open questions
 
@@ -171,19 +171,19 @@ next unit instead.
 
 ## Blocked / red
 
-Nothing red. WU-12a is cloud-green, awaiting `close.sh 12a` on real
-hardware before it can be tagged.
+Nothing. WU-12a closed green.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-12a/WU-12b and costs no session time.
+independent of WU-12b and costs no session time.
 
 ## Append to DECISIONS.md
 
 Nothing this update — ADR-028 was appended in full earlier this session;
-see `DECISIONS.md`. Not reopened or amended now.
+see `DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — see "Corrections this session" above.
+Nothing this update — see "Corrections this session" above; nothing to
+log, and the tag is confirmed clean, not reopened or amended now.

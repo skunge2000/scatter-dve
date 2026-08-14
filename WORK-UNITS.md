@@ -161,7 +161,7 @@ floating-point comparison (`CORRECTIONS.md` C-012) that the cloud sandbox
 hadn't caught; fixed within `tests/test_shapes.cpp` alone (tight tolerance
 in place of `==`, no production code touched), re-verified across the
 full matrix, and confirmed green on the second `close.sh 11` run.
-### WU-12a — Page turn, transparent mode `wip`
+### WU-12a — Page turn, transparent mode `green`
 **Files:** `src/core/shapes/shapes.hpp`, `src/core/shapes/pageturn.cpp`,
 `tests/test_pageturn.cpp`
 **Accept:** reproduces US 4,563,703 FIG. 5's transparent default
@@ -185,14 +185,16 @@ accumulation transparency actually happens for two real surfaces sharing
 one frame. See `DECISIONS.md` ADR-028. Priority-tag opaque mode is WU-12b,
 below — does not fit this unit's own file scope; see ADR-028's own scoping
 note.
-*Status:* implemented and verified in a Linux cloud sandbox — Clang 18 and
-GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
-configurations, all green, zero warnings, checked explicitly in the build
-logs), plus GCC 13 with `-fsanitize=address,undefined
+*Done:* `wu-12a-green` tagged. Implemented and verified in a Linux cloud
+sandbox first — Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2`
+4 and 5 (eight configurations, all green, zero warnings, checked explicitly
+in the build logs), plus GCC 13 with `-fsanitize=address,undefined
 -fno-sanitize-recover=all` at both tile sizes: clean, no ASan or UBSan
 report. `tests/test_pageturn.cpp`: 126512 checks (Clang 18, Release, tile
-2^5). Not yet run on the M1 Max with AppleClang — `./tools/close.sh 12a`
-still to run at the real terminal; see `HANDOFF.md`.
+2^5). `./tools/close.sh 12a` then ran clean on the M1 Max with AppleClang
+(Release, tile 2^5, the config `close.sh` builds) on the first attempt —
+all twelve tests passed, no cloud/AppleClang divergence this time (unlike
+WU-11's own C-012).
 
 ### WU-12b — Page turn, priority-tag opaque `todo`
 **Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`, plus a new test
