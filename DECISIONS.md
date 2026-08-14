@@ -565,3 +565,223 @@ variant, not exercised or required by WU-11's own accept criteria).
 
 Does not reopen `docs/architecture.md` — same relationship every ADR since
 ADR-020 has to it, filling a gap the document leaves open on purpose.
+
+**ADR-028 — Page turn (WU-12a): the shape-function `t` scoping question,
+the flat/curl parametrisation, and the scope split with WU-12b's
+priority-tag opacity, frozen at WU-12a.**
+`docs/architecture.md` 4.1 names a page turn only implicitly (`shapes/
+plane.cpp cylinder.cpp sphere.cpp pageturn.cpp explode.cpp`, section 8) and
+4.7/section 9 fix what a page turn must ultimately *do* ("Transparent flap
+by default; opaque with priority tag set") without fixing its geometry or
+how opacity can work without WU-28's k-buffer — the same kind of gap
+ADR-020 through ADR-027 filled for earlier units, but this session's own
+`HANDOFF.md` (end of WU-11) flagged two things to decide deliberately
+before scoping the unit at all, not just the usual "work out the
+parametrisation" gap. Both are below, along with why this splits into
+WU-12a (this session, transparent mode — shape only) and WU-12b (next
+session, priority-tag opacity — `core/resolve.hpp`/`.cpp` only).
+
+- **The shape-function `t` question.** `docs/architecture.md` 4.1: "a
+  shape is a function of `(u, v, t)`... Optionally keyframed, with
+  temporal interpolation between shape lattices. This is Mirage's morph."
+  WU-13 is "Keyframed lattices, temporal interpolation (morph)"
+  (`WORK-UNITS.md`). A page turn's own "how far turned" fraction looks, at
+  first glance, like it could be that `t` — it is the first shape whose
+  look genuinely changes over the course of an effect, unlike WU-11's
+  static cylinder/sphere. **Chosen: it is not.** `docs/architecture.md`
+  4.1's `t` and WU-13's own accept criterion both describe one specific
+  mechanism — temporal interpolation *between two whole, independently
+  authored lattices* (Mirage's morph: dissolve/interpolate control-vertex
+  positions from lattice A to lattice B over N frames), a capability that
+  has nothing to do with any one shape's own parametrisation and applies
+  equally to any pair of lattices, curved or affine. A page turn's "how
+  far turned" fraction is instead exactly the same kind of thing
+  `CylinderParams::angleSpan` or `SphereParams::angleSpanH` already are
+  (ADR-027): one scalar field on that shape's own params struct, read once
+  per `buildXLattice()` call, with no dependency on any interpolation
+  mechanism existing. Naming it `turnProgress`, not `t`, is deliberate —
+  avoiding the collision with 4.1's own name for a different, not-yet-built
+  thing. This unit adds no keyframing, no lattice-to-lattice interpolation
+  and no change to `Lattice`, `Lattice::eval()` or `Lattice::jacobian()`'s
+  signatures; a page turn animated over many frames is simply many calls to
+  `buildPageTurnLattice()` with different `turnProgress` values, one per
+  frame, exactly as a cylinder animated over many frames would be many
+  calls with different `angleSpan` — WU-13's own keyframe/morph mechanism,
+  whenever built, is orthogonal to this and could in principle interpolate
+  *between* two page-turn lattices (or a page-turn and a sphere) the same
+  way it interpolates between any other pair, without either shape
+  function needing to change.
+
+- **The flat/curl parametrisation.** Modelled as a rolling sheet, per
+  `HANDOFF.md`'s own "the obvious starting point": a flat portion nearest
+  a fixed spine (hinge), and a curled portion — the part that has turned —
+  wrapping a partial cylinder of a configured radius, arc-length
+  parametrised so the sheet does not stretch as more of it feeds into the
+  curl. `PageTurnParams::turnProgress` (`[0, 1]`) sets `flatLen = (1 -
+  turnProgress) * width`, the distance from the spine, measured along the
+  flat sheet, at which the split falls; a control vertex at distance `sx`
+  from the spine is flat (`x = spineX + sx`, `z = 0`) if `sx <= flatLen`,
+  or curled (`a = sx - flatLen`, `theta = a / radius`, `x = spineX +
+  flatLen + radius*sin(theta)`, `z = radius*(1 - cos(theta))`) otherwise —
+  the curled branch reusing ADR-027's own cylinder cross-section formula
+  verbatim, parametrised by arc length instead of a fixed angular span.
+  Three properties this derivation gives, each checked directly in
+  `tests/test_pageturn.cpp` rather than only asserted:
+  - **Position- and tangent-continuous at the flat/curl boundary, for any
+    `turnProgress`.** At `theta == 0` (the boundary itself), the curled
+    branch gives `x = spineX + flatLen`, `z = 0` — exactly the flat
+    branch's own value there. Differentiating both branches with respect
+    to `sx`: the flat branch has `dx/dsx = 1`, `dz/dsx = 0` everywhere;
+    the curled branch's `dx/da = cos(theta)`, `dz/da = sin(theta)`, and
+    `da/dsx = 1`, so at `theta == 0` (`a == 0`) it gives `dx/dsx =
+    cos(0) = 1`, `dz/dsx = sin(0) = 0` — identical to the flat branch's
+    own derivative. No kink at the seam, for any `radius`/`width`/
+    `turnProgress` combination, not just ones this session happened to
+    test.
+  - **The spine never moves.** `sx == 0` (`s == 0`, control-vertex column
+    0) is always `<= flatLen` (`flatLen >= 0` for `turnProgress` in its
+    documented `[0, 1]` range), so the spine column is always on the flat
+    branch, `x == spineX` and `z == 0` exactly, regardless of
+    `turnProgress` — `radius` never enters the calculation there at all.
+    `tests/test_pageturn.cpp`'s `test_pageturn_spine_never_moves()`
+    checks this at several `turnProgress` values directly.
+  - **`turnProgress == 0` reduces exactly to the flat (affine) case.**
+    `flatLen == width` then, so `sx <= flatLen` holds for every `sx` in
+    `[0, width]` (`s` never exceeds 1) — the curled branch is never
+    reached, and every control vertex sits at `z == 0`, `x` linear in `s`,
+    the same "reduces to the existing flat case" property ADR-027 already
+    established for cylinder/sphere as their own angular spans shrink to
+    zero.
+
+  `radius` must be positive whenever `turnProgress > 0` (`theta` divides
+  by it wherever the curled branch is reached) — not checked here, the
+  same unchecked-precondition convention `Lattice::at()`'s row/col bounds
+  and `core/binner.cpp`'s tile-local indexing already use throughout this
+  codebase. Large `radius`/`width`/`turnProgress` combinations (`theta`
+  exceeding `2*pi`, wrapping the curl around on itself more than once) are
+  not guarded against — same "extreme parameters produce an extreme but
+  well-defined fold, not sanitized away" choice WU-11's own cylinder
+  leaves `angleSpan > pi` to do (I1: "non-invertible maps, folds, tears
+  and shattering are only expressible this way").
+
+- **Why no `core/binner.cpp`, `core/splat.cpp` or `core/resolve.cpp`
+  change is needed for transparent mode.** WU-11's own `HANDOFF.md` note
+  ("WU-06 through WU-11 are all shape-agnostic — verify this holds, don't
+  assume it") is checked directly here, not assumed: `docs/
+  architecture.md` 4.7 phase 1's own transparency ("overlapping surfaces
+  sum... no sorting, no depth buffer") requires nothing more than two
+  independently generated fragment sets landing in the same tile bins,
+  which `core/binner.hpp`'s `generateFragments()` already supports simply
+  by being called twice against the same `TileBins` — it appends, it does
+  not clear or otherwise depend on prior bin contents. `tests/
+  test_pageturn.cpp`'s
+  `test_pipeline_pageturn_transparent_accumulates_over_page_behind()`
+  checks the consequence directly rather than by inspection of the code:
+  splatting a page-turn flap and a full-canvas "page behind" together into
+  one set of bins produces, at every destination cell, an `AccumCell`
+  exactly equal (bit-for-bit — I6, integer addition is associative) to
+  splatting each layer separately and adding their `AccumCell`s
+  component-wise afterward. This is the direct, checkable form of "phase 1
+  is pure weighted accumulation" (ADR-009, unchanged) for the *first* time
+  two independently authored surfaces have actually been run through this
+  pipeline together — WU-11 only ever populated one lattice per
+  `runFrame()` call. `core/pipeline.cpp`'s `runFrame()` itself is
+  unchanged and still only takes one lattice/source pair per call;
+  producing a composited two-layer frame is the caller's own job (this
+  unit's test does it directly against `TileBins`/`TileAccum`/
+  `splatTile()`/`sumBanks()`, bypassing `runFrame()`'s single-shape
+  convenience wrapper), the same way `tests/test_zoneplate.cpp`'s own
+  reference checks reach past `runFrame()` when a check needs access
+  `runFrame()` itself does not expose.
+
+- **Why priority-tag opacity is a separate unit, WU-12b, not built this
+  session, and its own design direction decided now.**
+  `SESSION-PROTOCOL.md`'s sizing cap ("touch at most 3 source files plus
+  its test... if a unit cannot meet this, split it before starting")
+  cannot be met by one unit covering both modes: transparent mode's own
+  shape needs `core/shapes/shapes.hpp` (touched) and `core/shapes/
+  pageturn.cpp` (new) — two source files, this unit's own scope. A
+  narrower-than-k-buffer opacity mechanism (below) needs `core/
+  resolve.hpp` and `core/resolve.cpp` — a different two source files, in a
+  different module, from a different unit's own reasoning. Together that
+  is four source files before either unit's own test, one over the cap;
+  `core/shapes/*` and `core/resolve.*` are also different enough concerns
+  (a shape's own geometry versus how two already-accumulated layers
+  combine at resolve time) that combining them into one work unit would
+  violate the spirit of the cap even if the raw file count somehow fit.
+  Decided instead: WU-12a (this session) is the shape and transparent mode
+  alone; WU-12b (next session) is priority-tag opacity alone, `core/
+  resolve.hpp`/`.cpp` only, no shape file changes needed (WU-12b can be
+  exercised against WU-12a's own `buildPageTurnLattice()` and any earlier
+  shape without modification to either).
+
+  The mechanism itself, decided now as WU-12b's own scope rather than
+  re-litigated when that session starts: `docs/architecture.md` 4.7 phase
+  2 describes "the priority tag forcing opacity for the read-replace-write
+  case" as part of the *general* k-buffer (WU-28, ADR-009 unchanged,
+  "nearest 8 depth-sorted layers per pixel") — a mechanism this project
+  explicitly does not have yet and is not this unit's job to build early.
+  But "opaque" does not have to wait for that in order to mean something
+  honest for exactly *two* layers with a caller-fixed order (which is all
+  a page turn's own accept criterion — one flap, one page behind — ever
+  needs): given two already-splatted `AccumCell`s for a lower layer and an
+  upper layer, and the upper layer's own tag, WU-12b's own
+  `compositeLayered()` (sketch; the actual name and signature are WU-12b's
+  own to fix) reads the lower layer's `AccumCell`, resolves it against the
+  caller's background as `composite()` already does today (the "read"),
+  then composites the upper layer's own resolved colour over *that*
+  result using the upper layer's own coverage as alpha (the "write",
+  replacing what was read) — literally the patent's "read-replace-write"
+  phrase 4.7 already quotes, for the case where the upper layer's tag
+  equals a caller-configured opaque tag. Where it does not, the two
+  `AccumCell`s are summed first and normalised/composited once — 4.7
+  phase 1's own default, and the identity this unit's own
+  `test_pipeline_pageturn_transparent_accumulates_over_page_behind()`
+  already establishes. Both branches live in one new function operating
+  on two already-resolved layers' worth of `AccumCell`, not per-fragment
+  or per-`Frag::tag` (accumulation already discards which fragment
+  contributed to a summed cell by the time `splatTile()` finishes, and
+  reaching back to fix that would touch `core/splat.cpp`, outside WU-12b's
+  own two-file scope) — an honest, narrower "opaque" than the general
+  k-buffer: exactly two layers, ordered by the caller rather than sorted
+  by depth, no per-pixel arbitration among more than two surfaces. This is
+  a design sketch, not yet implemented or tested; `DECISIONS.md` records
+  this scope decision now (matching WU-11's own `HANDOFF.md`, which
+  flagged this same question) but the mechanism's actual signature and
+  behaviour are WU-12b's own to freeze once written and tested, the same
+  way every other ADR in this file follows, not precedes, its own unit's
+  test-writing.
+
+- **A shared `core/shapes/shapes.hpp`, extended rather than given its own
+  header.** Same "does this need its own header" judgement ADR-027 already
+  made of itself for cylinder/sphere, applied again: `PageTurnParams`/
+  `buildPageTurnLattice()` are declared in the existing `shapes.hpp`
+  rather than a new `pageturn.hpp`, keeping this unit at exactly two
+  source files (`shapes.hpp`, touched; `pageturn.cpp`, new) against its
+  test.
+
+Not decided here, deliberately: corner-lift or diagonal-curl page-turn
+variants (this unit's own roll, curling uniformly along the whole spine,
+is the classic Mirage/patent look `HANDOFF.md`'s own "rolling... sheet"
+framing points at; a corner peel is a plausible future variant, not built
+or required by WU-12a's own accept criteria); the flat/curl seam's second
+derivative (position and tangent match exactly at the seam, per the
+derivation above, but curvature does not — the flat branch's second
+derivative is identically zero and the curled branch's is not, at any
+`radius`, meeting only C1 not C2 — between the 129 control vertices this
+project's own Catmull-Rom expansion smooths across it with no visible
+defect at any radius/width ratio this session exercised, and `Lattice::
+jacobian()`'s own agreement with central differences, checked directly at
+and near the seam by `tests/test_pageturn.cpp`, is unaffected by this,
+the same way it was unaffected by C-008(a)'s unrelated lattice-edge issue
+— but an extremely tight curl radius relative to `width / kLatticeMax`
+could in principle show as a slight visual crease between control
+vertices; not measured, not fixed, flagged here rather than fabricated as
+either a problem or a non-problem); and WU-12b's own opacity mechanism
+past the scope decision recorded above.
+
+Does not reopen `docs/architecture.md`, ADR-009 or ADR-027 — same
+relationship every ADR since ADR-020 has to the document; ADR-009's
+k-buffer deferral is unchanged (WU-12b's own two-layer mechanism is not a
+k-buffer and does not claim to be one), and ADR-027's cylinder cross-
+section formula is reused, not altered, by this unit's own curled branch.

@@ -56,6 +56,12 @@ endif()
 # surface rather than a plane (architecture.md 4.1, DECISIONS.md ADR-027).
 # Portable, same as every other src/core/ file -- no platform dependency,
 # so scatter-core again, not the scatter application target.
+#
+# WU-12a adds src/core/shapes/pageturn.cpp: the page-turn surface,
+# transparent mode (architecture.md 4.1/4.7, DECISIONS.md ADR-028). Same
+# portability as every other shapes/ file -- no core/splat.cpp or
+# core/resolve.cpp changes needed; see ADR-028 and HANDOFF.md for why
+# priority-tag opaque mode is a separate unit, WU-12b, not yet built.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
@@ -68,7 +74,8 @@ add_library(scatter-core STATIC
     src/core/resolve.cpp
     src/core/pipeline.cpp
     src/core/shapes/cylinder.cpp
-    src/core/shapes/sphere.cpp)
+    src/core/shapes/sphere.cpp
+    src/core/shapes/pageturn.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
 
@@ -128,6 +135,7 @@ scatter_test(test_splat)
 scatter_test(test_zoneplate)
 target_include_directories(test_zoneplate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 scatter_test(test_shapes)
+scatter_test(test_pageturn)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

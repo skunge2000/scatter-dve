@@ -161,8 +161,58 @@ floating-point comparison (`CORRECTIONS.md` C-012) that the cloud sandbox
 hadn't caught; fixed within `tests/test_shapes.cpp` alone (tight tolerance
 in place of `==`, no production code touched), re-verified across the
 full matrix, and confirmed green on the second `close.sh 11` run.
-### WU-12 — Page turn, transparent and priority-tag opaque `todo`
-**Accept:** reproduces US 4,563,703 FIG. 5 in both modes.
+### WU-12a — Page turn, transparent mode `wip`
+**Files:** `src/core/shapes/shapes.hpp`, `src/core/shapes/pageturn.cpp`,
+`tests/test_pageturn.cpp`
+**Accept:** reproduces US 4,563,703 FIG. 5's transparent default
+(architecture.md 4.7 phase 1; section 9's own test-plan entry, "Transparent
+flap by default") — every control vertex `buildPageTurnLattice()` writes is
+either exactly flat or lies exactly (double-precision tolerance) on the
+surface of the configured curl cylinder, whichever side of the
+`turnProgress`-determined flat/curl split it falls on; the spine (hinge)
+never moves, for any `turnProgress`; `turnProgress == 0` reduces exactly to
+the flat/affine case; `Lattice::jacobian()`'s analytic derivatives agree
+with central differences (WU-06's own method) on a populated, genuinely
+curling page-turn lattice, including at and near the flat/curl seam; and
+two independently generated fragment sets — a page-turn flap and a
+full-canvas "page behind" — splatted into the *same* tile bins produce an
+`AccumCell` at every destination cell exactly equal (bit-for-bit, I6) to
+splatting each layer separately and summing the two results component-wise,
+with the flap's own most solidly covered pixel showing strictly higher
+accumulated weight and a composited colour that differs from the
+page-behind-alone colour by more than ordinary rounding — proving
+accumulation transparency actually happens for two real surfaces sharing
+one frame. See `DECISIONS.md` ADR-028. Priority-tag opaque mode is WU-12b,
+below — does not fit this unit's own file scope; see ADR-028's own scoping
+note.
+*Status:* implemented and verified in a Linux cloud sandbox — Clang 18 and
+GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, all green, zero warnings, checked explicitly in the build
+logs), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes: clean, no ASan or UBSan
+report. `tests/test_pageturn.cpp`: 126512 checks (Clang 18, Release, tile
+2^5). Not yet run on the M1 Max with AppleClang — `./tools/close.sh 12a`
+still to run at the real terminal; see `HANDOFF.md`.
+
+### WU-12b — Page turn, priority-tag opaque `todo`
+**Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`, plus a new test
+file (name TBD when this unit starts — not `tests/test_pageturn.cpp`,
+which WU-12a already owns; SESSION-PROTOCOL.md's own "one unit, one test"
+convention, same as every unit since WU-06).
+**Accept:** reproduces US 4,563,703 FIG. 5's "opaque with priority tag set"
+mode (architecture.md 4.7 phase 2's own phrase; section 9), via
+`DECISIONS.md` ADR-028's own scope decision — a narrower, two-layer
+"read-replace-write" mechanism, not WU-28's general k-buffer (ADR-009
+unchanged): given two already-splatted `AccumCell` layers (lower, upper)
+and the upper layer's own tag, wherever that tag equals a caller-configured
+opaque tag the upper layer's own coverage forces opacity (composite the
+lower layer against the background first, then composite the upper layer's
+own resolved colour over *that* result using the upper layer's own alpha,
+replacing rather than summing); any other tag falls back to WU-12a's own
+accumulation-sums default (the two `AccumCell`s summed first, then
+normalised/composited once). No `core/shapes/*`, `core/binner.cpp` or
+`core/splat.cpp` change — exercised against WU-12a's own
+`buildPageTurnLattice()` (or any earlier shape) unmodified.
 ### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`
 
 ---

@@ -3,202 +3,187 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 11
-**Tag:** `wu-11-green` — confirmed. `./tools/close.sh 11` ran clean on the
-M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds)
-and tagged it, on the second attempt (see "Two close.sh attempts" below).
-**Phase:** 2 — Shapes. WU-11, its first unit, is done. WU-12 (page turn)
-starts next; see below.
+**Session:** 12
+**Tag:** none yet. WU-12a is implemented and verified in a Linux cloud
+sandbox only — `./tools/close.sh 12a` has not run on the M1 Max with
+AppleClang. **That is the immediate next action, at the real terminal, not
+from this session.**
+**Phase:** 2 — Shapes. WU-12 split into WU-12a (this session, page-turn
+shape + transparent mode — implemented, cloud-verified, not yet
+`close.sh`'d) and WU-12b (priority-tag opaque mode — designed, not
+implemented). See `DECISIONS.md` ADR-028 for why it split and the design
+sketch WU-12b starts from.
 
-**Tests:** All eleven green on the M1 Max: the ten carried over unchanged
-from WU-10 (`test_smoke`, `test_v210`, `test_chroma`, `test_ramp_roundtrip`,
-`test_jacobian`, `test_ewa`, `test_binner`, `test_splat`, `test_zoneplate`,
-`test_testpat`, none of their files touched) and `test_shapes`, new this
-session, checking all three of WU-11's own accept criteria directly: every
-control vertex `buildCylinderLattice()`/`buildSphereLattice()` writes lies
-exactly on the configured surface
-(`test_cylinder_vertices_lie_on_cylinder`, `test_sphere_vertices_lie_on_sphere`,
-plus `test_sphere_reduces_to_cylinder_cross_section_at_zero_vertical_span`
-checking the two shapes' formulas agree at their shared degenerate case);
-`Lattice::jacobian()` matches central differences on a populated cylinder
-and a populated sphere lattice (`test_cylinder_jacobian_matches_central_difference`,
-`test_sphere_jacobian_matches_central_difference`, reusing WU-06's own
-method); and `runFrame()` with a flat source through a cylinder, a folded
-(self-overlapping) cylinder, and a sphere all produce coverage, stay
-within the source/background hull, and resolve close to the source colour
-at the most solidly covered point.
+**Tests:** All twelve green in the cloud sandbox: the ten carried over
+unchanged from WU-10/WU-11 plus `test_shapes` (WU-11's own, untouched this
+session) and `test_pageturn`, new this session — 126512 checks (Clang 18,
+Release, tile 2^5), checking WU-12a's own accept criteria directly: every
+`buildPageTurnLattice()` control vertex is exactly flat or exactly on the
+configured curl cylinder per the `turnProgress` split
+(`test_pageturn_flat_or_on_curl_cylinder`); the spine never moves, any
+`turnProgress` (`test_pageturn_spine_never_moves`); `turnProgress == 0`
+reduces exactly to the flat/affine case
+(`test_pageturn_flat_at_zero_progress`); `Lattice::jacobian()` matches
+central differences on a populated, genuinely curling page-turn lattice,
+including at and near the flat/curl seam
+(`test_pageturn_jacobian_matches_central_difference`); and a page-turn
+flap plus a full-canvas "page behind", splatted into shared tile bins,
+sum exactly (bit-for-bit) to the two layers' own separately-splatted
+`AccumCell`s added component-wise, at every destination cell, with the
+flap's own best-covered pixel showing strictly more accumulated weight and
+a composited colour that differs from page-behind-alone by more than
+rounding
+(`test_pipeline_pageturn_transparent_accumulates_over_page_behind`) — the
+first direct proof, not just an assumption carried over from WU-11's own
+note, that the pipeline built by WU-06 through WU-11 is shape-agnostic
+*and* handles two independently generated surfaces sharing one frame
+correctly, not just one shape at a time.
 
-Before that, this session verified in a Linux cloud sandbox (no
-AppleClang there), on Clang 18 and GCC 13, under the project's exact
-warning set (`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
--Werror`), Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
-configurations, all green, zero warnings — checked explicitly in the
-build logs, not just exit codes), plus GCC 13 with `-fsanitize=address,
-undefined -fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no
-ASan or UBSan report anywhere — same practice as prior sessions.
+Verified in a Linux cloud sandbox (no AppleClang there — same limitation
+every session since WU-06 has had) on Clang 18 and GCC 13, under the
+project's exact warning set (`-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror`), Release and Debug, `SCATTER_TILE_LOG2` 4 and
+5 (eight configurations, all green, zero warnings — checked explicitly in
+the build logs, not just exit codes), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` (Debug) at both
+tile sizes: clean, no ASan or UBSan report anywhere — same practice as
+every session since WU-06.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
-AppleClang (M1 Max), Clang 18 and GCC 13.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
+and GCC 13 in the cloud sandbox. Not yet built with AppleClang.
 
 ## Where we are
 
-WU-11 adds `src/core/shapes/shapes.hpp`, `src/core/shapes/cylinder.cpp`
-and `src/core/shapes/sphere.cpp` — the first shapes to populate a
-`Lattice`'s control vertices from a genuinely curved surface instead of a
-plane, the first non-affine lattice this project builds. Nothing WU-06
-through WU-10 built needed to change: `Lattice::eval()`/`jacobian()`,
-fragment generation, the four-bank splat, resolve/composite and
-`runFrame()`/`runFrameFile()` are all shape-agnostic already, consuming
-whatever control vertices are written through `Lattice::at()`.
+WU-12a adds `src/core/shapes/pageturn.cpp` and extends
+`src/core/shapes/shapes.hpp` with `PageTurnParams`/`buildPageTurnLattice()`
+— a page-turn surface, flat near a fixed spine and rolling into a partial
+cylinder (arc-length parametrised, so position and tangent match exactly
+at the flat/curl seam for any `turnProgress`) for the portion that has
+turned. No change to `Lattice`, `core/binner.cpp`, `core/splat.cpp` or
+`core/resolve.cpp` — transparent-mode compositing of two surfaces (this
+unit's flap plus a "page behind") works by calling
+`generateFragments()` twice into one `TileBins` and splatting once, which
+`tests/test_pageturn.cpp` proves sums exactly right, not merely assumed
+from WU-11's "shape-agnostic" note.
 
-**Design choices this session had to make that `docs/architecture.md`
-left open — now ADR-027 in `DECISIONS.md`:** orthographic projection, not
-a perspective camera (nothing else in the pipeline has a lens model —
-`core/binner.cpp` already reads `Vec3::x`/`y` as literal destination-raster
-pixel coordinates); a depth convention (`z == 0` at each shape's
-front-most point, increasing into the screen, matching every earlier
-affine lattice's own `z == 0`); the cylinder's parametrisation (vertical
-axis, `theta = (s - 0.5) * angleSpan`, `x`/`z` a standard circular
-cross-section, `y` linear); the sphere's parametrisation (independent
-yaw/pitch gimbal angles rather than textbook longitude/colatitude, chosen
-so horizontal and vertical wrap can be sized independently — verified
-algebraically and in `tests/test_shapes.cpp` to still land exactly on the
-sphere); why neither shape function takes `srcWidth`/`srcHeight` (ADR-024
-already normalises the lattice's own index space); and a shared
-`core/shapes/shapes.hpp` rather than one header per shape, to stay within
-SESSION-PROTOCOL.md's three-source-file cap.
+**Design choices this session had to make that `docs/architecture.md` and
+last session's own open question left open — now ADR-028 in
+`DECISIONS.md`:** the shape-function `t` question (`turnProgress` is this
+shape's own parameter, the same kind of thing `CylinderParams::angleSpan`
+already is — *not* `architecture.md` 4.1's `t`, which names WU-13's own
+keyframe/lattice-interpolation mechanism, a different and still-unbuilt
+thing); the flat/curl parametrisation itself (arc-length continuity
+derivation, the spine-never-moves and reduces-to-flat-at-zero-progress
+properties, both checked directly, not just asserted); and the scope split
+with WU-12b, including a design sketch (not yet implemented) for a
+narrower-than-k-buffer "opaque with priority tag set" mechanism — two
+already-splatted layers, caller-ordered, "read-replace-write" only for the
+layer whose tag matches a configured opaque tag, summed otherwise. See
+ADR-028 for the full reasoning on all of these, including why WU-12b
+cannot fit in this same unit under `SESSION-PROTOCOL.md`'s sizing cap
+(`core/shapes/*` for the shape, `core/resolve.*` for opacity — four source
+files together, one over the cap, and different enough concerns that
+combining them would violate the cap's spirit even if the count somehow
+fit).
 
-**Two corrections found this session, in `CORRECTIONS.md` as C-011 and
-C-012** — both in this session's own test-writing, neither a defect in
-`core/shapes/cylinder.cpp` or `sphere.cpp`, and neither in any earlier,
-already-frozen unit's own work:
-
-- **C-011** — a mistaken assumption in this session's own first draft of
-  `tests/test_shapes.cpp`: that a shape's front-facing point is a safe
-  place to expect solid, near-source-colour coverage. Actually the
-  front-facing point is exactly where magnification peaks (the surface is
-  most face-on to the camera there), meaning it can be the *sparsest*-
-  covered part of the frame, not the densest. Caught and fixed before
-  shipping: the pipeline checks use a larger source raster so compression
-  dominates the shape's footprint, and search for whichever destination
-  pixel is empirically farthest from the background rather than asserting
-  a hand-picked coordinate.
-- **C-012** — found by real hardware, not the cloud sandbox (see "Two
-  close.sh attempts" below): asserting bit-exact (`==`) equality between
-  two *differently-shaped* floating-point expressions (`cylinder.cpp`'s
-  one-multiply `radius*sin(theta)` versus `sphere.cpp`'s two-multiply
-  `radius*sin(phi)*cosPsi`) is not safe across compilers/platforms, even
-  when the algebra guarantees they compute the same real number — FMA
-  contraction, reassociation and transcendental rounding can all legally
-  differ. Fixed with a tight relative tolerance (`1e-12`) in place of `==`
-  for that one comparison; every other floating-point check in the file
-  was swept for the same risk and left as-is (either already tolerance-
-  based, or providably rounding-free — see C-012's own account).
-
-## Two `close.sh 11` attempts
-
-The first attempt was red: `test_shapes.cpp:230`, `c.x == s.x`, 1 of 83385
-checks. That is C-012 above. The fix touched only
-`tests/test_shapes.cpp` and `CORRECTIONS.md` — `core/shapes/cylinder.cpp`
-and `sphere.cpp` were never touched, and the fix was re-verified across
-the full eight-configuration-plus-sanitizers matrix in the cloud sandbox
-before asking for a second `close.sh 11` run, which came back green. This
-is exactly what `SESSION-PROTOCOL.md`'s cloud-sandbox-first process is
-for: it does not catch everything (a platform-specific floating-point
-rounding difference is precisely the kind of thing it can miss, having no
-AppleClang/ARM64 of its own to test against), but it means a red result on
-real hardware is rare and, when it happens, isolated enough to fix and
-re-verify quickly rather than being an actual design defect.
-
-**Delivery mechanics, not a design matter:** this session ran remotely,
-via the device-bridge tools connecting to this machine, same as sessions 6
-through 10. All implementation and the full verification matrix above ran
-first in a disposable Linux cloud sandbox, never on this machine directly.
-Files were then written to this machine via the bridge, and `git add -A
-&& git commit` ran through that same bridge, twice (once for the initial
-WU-11 commit, once for the C-012 fix); as in prior sessions it still
-cannot clean up its own `index.lock`/`HEAD.lock`/temp-object files
-afterward (unlink fails on this mount), so stale ones were moved into
-`_to_delete/` rather than removed — safe to `rm -rf _to_delete/` by hand.
-Git identity was already set locally on this mount from a prior session
-(`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
-against `git log`/`git config` before committing), so nothing needed
-reconfiguring. This machine was offline for part of the session by
-arrangement; nothing here ran locally until it reconnected. `./tools/
-close.sh 11` was, as before, run by hand at the real terminal — twice,
-per the paragraph above.
+**Corrections this session:** none. No design assumption made while
+writing `tests/test_pageturn.cpp` turned out wrong the way C-011/C-012 did
+at WU-11 — the accumulation-sums identity check in particular was designed
+to be exact (bit-for-bit, via I6) from the start, specifically to avoid
+needing a tolerance-based colour comparison of the kind C-012 warns about;
+see `tests/test_pageturn.cpp`'s own header comment for why it's checked
+that way. Two ordinary compile-time fixes during this session's own
+sandbox iteration (a `-Wvexing-parse` false-function-declaration on
+`std::vector<AccumCell> tileCells(std::size_t(kTilePixels))`, fixed by
+brace-initialising instead; an unused-`kPi`-constant warning after that
+constant turned out not to be needed in this file) were caught and fixed
+before the first successful build — not shipped, not a design error,
+nothing to log here.
 
 ## Next work unit
 
-**WU-12 — Page turn, transparent and priority-tag opaque**, per
-`WORK-UNITS.md`'s Phase 2. **Accept:** reproduces US 4,563,703 FIG. 5 in
-both modes. **Files/Accept:** not yet scoped beyond that one accept line
-— `WORK-UNITS.md`'s WU-12 entry is currently a bare heading plus the
-accept line alone, unlike WU-02 through WU-11's, which all had **Files:**
-filled in before their session started. Per SESSION-PROTOCOL.md, the next
-session should:
+**WU-12b — Page turn, priority-tag opaque.** `WORK-UNITS.md` now has its
+own **Files:**/**Accept:** lines, and `DECISIONS.md` ADR-028 already
+sketches the mechanism (read the whole of ADR-028's own "priority-tag
+opacity" section before starting, not just the `WORK-UNITS.md` summary).
+Concretely, next session should:
 
-- Re-read `docs/architecture.md` 4.7 in full (both transparency phases —
-  phase 1's pure accumulation, already built, and phase 2's k-buffer,
-  still WU-28's) and section 13's provenance note again specifically for
-  FIG. 5 (US 4,563,703) — a page turn's own geometry and its transparent-
-  vs-opaque behaviour are the actual patent claim this unit reproduces,
-  not just a shape parametrisation exercise the way WU-11 was.
-- Work out the page-turn lattice parametrisation from first principles
-  the same way WU-11 worked out cylinder/sphere — likely a rolling or
-  folding surface parametrised by a "turn" progress fraction (possibly
-  the unit's own `t` parameter mentioned in architecture.md 4.1's "a
-  shape is a function of `(u, v, t)`", not used by any shape yet — WU-11's
-  cylinder/sphere are both static, no time-varying `t` — this may be the
-  first unit that actually needs it, or `t` may still be WU-13's
-  (keyframed lattices/morph) to introduce; worth a deliberate look rather
-  than assuming either way going in).
-- Work out the priority-tag mechanism: `core/types.hpp`'s `Frag::tag`
-  already exists (copied through unchanged by `core/binner.cpp` since
-  WU-08) but nothing yet reads it meaningfully — "opaque with priority tag
-  set" (architecture.md's own test-plan entry, section 9) is the first
-  place this unit's accept criterion needs it to actually do something.
-  Given Phase 1's transparency is pure accumulation with no k-buffer
-  (ADR-009, unchanged), "opaque" here almost certainly means something
-  narrower than real depth-sorted occlusion — worth being precise about
-  what it *can* mean without WU-28, rather than either under- or
-  over-building it.
-- Decide whether `core/shapes/shapes.hpp` is the right home for a
-  page-turn's own params struct and build function
-  (`buildPageTurnLattice()`?, `pageturn.cpp` per architecture.md 8's
-  module layout), or whether it needs its own header — the same "does
-  this need its own header" judgement call WU-11 made of itself, not to
-  be assumed either way without looking.
-- Fill in WU-12's own **Files:**/**Accept:** lines, respecting the sizing
-  cap, and only then implement.
+- Design and freeze `compositeLayered()`'s actual name and signature in
+  `core/resolve.hpp` (ADR-028's sketch: two `AccumCell`s — lower, upper —
+  the upper layer's own tag, a caller-configured opaque tag, and a
+  `Background` — returning a `CompositedCell`), then implement it in
+  `core/resolve.cpp`. Two branches: tag matches the opaque tag ->
+  `composite()` the lower layer against `bg` first, then blend the upper
+  layer's own resolved colour over *that* result using the upper layer's
+  own alpha (`cell.w` clamped to `[0, kWeightUnity]`, same convention
+  `composite()` already uses); tag does not match -> sum the two
+  `AccumCell`s component-wise first (WU-12a's own accumulation-sums
+  identity, exact per I6), then `composite()` once — WU-12a's own default,
+  reused rather than reimplemented.
+- Write `compositeLayered()`'s own test (new file — do not extend
+  `tests/test_pageturn.cpp`, which is WU-12a's) reusing WU-12a's own
+  two-layer construction (a page-turn flap over a full-canvas page behind)
+  from `tests/test_pageturn.cpp`, duplicated locally per
+  `SESSION-PROTOCOL.md` rule 2, but this time checking the *opaque* tag
+  path specifically: at the flap's own well-covered pixels, the composited
+  result should resolve close to the flap's own colour (the page behind is
+  hidden there, not blended in) while at pixels where only the page behind
+  has coverage it is unaffected — the literal "opaque with priority tag
+  set" contrast against WU-12a's own already-proven transparent default.
+- No `core/shapes/*`, `core/binner.cpp` or `core/splat.cpp` change is
+  expected — if one turns out to be needed, treat that as a reason to stop
+  and reconsider the design before writing more code, not push through it,
+  per `SESSION-PROTOCOL.md`'s anti-drift rule 3 ("never reopen an ADR...
+  propose a superseding ADR instead").
+- Once WU-12b is itself green (cloud-verified, then `close.sh 12b`'d),
+  WU-12 as a whole (the parent entry `HANDOFF.md`'s session-11 note and
+  the original task both referred to) is done: both of US 4,563,703 FIG.
+  5's modes reproduced. `WORK-UNITS.md`'s WU-12a/WU-12b split does not need
+  reconciling back into a single WU-12 entry — the split itself is
+  permanent record, matching how WU-03's original stale status line was
+  corrected in place rather than erased (WU-04's own session).
+
+**Before that, at the real terminal:** run `./tools/close.sh 12a`. Tags
+`wu-12a-green` on success (the tag format `close.sh` produces from
+whatever string is passed — `12a` here, not just a bare number — is
+untested by any earlier session but nothing in `tools/close.sh` assumes
+`NN` is numeric; it only uses it to build the tag name and the commit
+message). If it comes back red, the same discipline every session since
+WU-06 uses: isolate the failure, fix within the smallest possible file
+scope, re-verify the full cloud-sandbox matrix, ship the fix as its own
+commit, ask for `close.sh 12a` again — don't guess at a fix without seeing
+the actual failure output first.
 
 ## Open questions
 
-Unchanged from WU-10: Q1 (tile size), Q2 (4K Mini program outputs), Q3
-(macOS/Desktop Video version) — all still open, none blocking. Q4
+Unchanged from WU-10/WU-11: Q1 (tile size), Q2 (4K Mini program outputs),
+Q3 (macOS/Desktop Video version) — all still open, none blocking. Q4
 (`core/lattice.cpp`'s `jacobian()` edge damping, C-008(a)) — still open,
-still not urgent; nothing in WU-11's own accept criteria exercised the
-lattice's edge region in a way that hit it.
+still not urgent; `tests/test_pageturn.cpp`'s own Jacobian check includes
+lattice-edge points (reusing WU-06/WU-11's own point list) and passed at
+the tolerance those tests already use, so this session adds no new
+evidence either way.
 
-No new open question from this session beyond what C-011/C-012 already
-record — both are closed corrections, not open questions.
+No new open question from this session beyond WU-12b's own design sketch,
+already captured above and in ADR-028 — not an "open question" in the Q1-4
+sense (those are environment/tuning unknowns), a scoped-but-not-yet-built
+next unit instead.
 
 ## Blocked / red
 
-Nothing. WU-11 closed green.
+Nothing red. WU-12a is cloud-green, awaiting `close.sh 12a` on real
+hardware before it can be tagged.
 
 ## Environment check still outstanding
 
 Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-12 and costs no session time.
+independent of WU-12a/WU-12b and costs no session time.
 
 ## Append to DECISIONS.md
 
-Nothing this update — ADR-027 was appended in full earlier this session;
-see `DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
+Nothing this update — ADR-028 was appended in full earlier this session;
+see `DECISIONS.md`. Not reopened or amended now.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — C-011 and C-012 were appended in full earlier this
-session; see `CORRECTIONS.md`. Not reopened or amended now that the tag is
-confirmed.
+Nothing this update — see "Corrections this session" above.

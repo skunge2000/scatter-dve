@@ -5,6 +5,17 @@
 // parametrisations this session had to choose — the same kind of gap
 // ADR-020/022/023/024/025/026 filled for earlier units.)
 //
+// WU-12a adds PageTurnParams/buildPageTurnLattice below (module layout
+// section 8 names src/core/shapes/pageturn.cpp) — see DECISIONS.md ADR-028
+// for the page-turn surface's own parametrisation, and for why its
+// turn-progress fraction is this shape's own parameter, not
+// architecture.md 4.1's shape-function t (still WU-13's, keyframed
+// lattices/temporal interpolation between whole lattices — a different
+// mechanism). Same shared-header rationale as ADR-027 gave for cylinder
+// and sphere: one params struct and one build function per shape, declared
+// together here rather than in per-shape headers, to stay within
+// SESSION-PROTOCOL.md's three-source-file cap.
+//
 // This is the first shape to populate a Lattice's control vertices from a
 // genuinely curved surface instead of a plane — WU-01 through WU-10 only
 // ever exercised affine (planar) lattices, built test-locally
@@ -91,5 +102,65 @@ struct SphereParams {
 // centerY)^2 + (z - radius)^2 == radius^2 exactly (to double-precision
 // rounding), for any angleSpanH/angleSpanV.
 Lattice buildSphereLattice(const SphereParams& params);
+
+// Page turn (US 4,563,703 FIG. 5; ADR-028). A rectangular sheet, hinged
+// along a vertical spine that never moves, the rest of which lies flat
+// against the destination raster for the portion nearest the spine and
+// rolls into a partial cylinder of the configured radius for the portion
+// that has turned — the split point between flat and curled is
+// turnProgress, not a fixed geometric boundary. width and heightSpan are
+// output pixels: width spans spine to free edge when fully flat
+// (turnProgress == 0); heightSpan is the spine's own (straight, uncurved)
+// extent, exactly like the cylinder's own heightSpan. radius is the curl's
+// cylinder radius, output pixels. turnProgress in [0, 1]: 0 leaves the
+// whole sheet flat (reduces exactly to the affine/plane case); 1 curls the
+// sheet starting from the spine itself, with no flat portion left.
+// centerX/centerY are the output-pixel position of the flat sheet's own
+// centre — the spine itself sits at (centerX - width/2), for any
+// turnProgress, since it never moves.
+struct PageTurnParams {
+    double width        = 400.0;
+    double heightSpan   = 400.0;
+    double radius       = 60.0;
+    double turnProgress = 0.0;
+    double centerX      = 0.0;
+    double centerY      = 0.0;
+};
+
+// Populates a fresh Lattice's control vertices with ADR-028's page-turn
+// parametrisation. s = col/kLatticeMax, t = row/kLatticeMax range over
+// [0, 1] across the control-vertex grid, as ADR-027 already establishes;
+// spineX = centerX - width/2; flatLen = (1 - turnProgress) * width is how
+// far from the spine, measured along the flat sheet, the flat/curl split
+// falls; sx = s * width is a control vertex's own distance from the spine
+// along that same measure.
+//
+// For sx <= flatLen (still flat): x = spineX + sx, z = 0.
+// For sx > flatLen (turned): a = sx - flatLen (arc-length distance into
+// the curl — the sheet does not stretch as it feeds into the roll), theta
+// = a / radius, x = spineX + flatLen + radius*sin(theta), z = radius*(1 -
+// cos(theta)) — the same cylinder cross-section ADR-027 already derives
+// for buildCylinderLattice, reused here for the curled portion, arc-length
+// parametrised (rather than a fixed angular span) so the flat and curled
+// pieces meet with matching position and tangent at sx == flatLen for any
+// turnProgress: at theta == 0, dx/da == cos(0) == 1 and dz/da == sin(0) ==
+// 0, exactly the flat piece's own dx/dsx == 1, dz/dsx == 0 — see ADR-028
+// for the full derivation. y = centerY + (t - 0.5) * heightSpan
+// throughout, unchanged along the spine direction, exactly like the
+// cylinder's own vertical mapping.
+//
+// Every control vertex in the curled region satisfies (x - (spineX +
+// flatLen))^2 + (z - radius)^2 == radius^2 exactly (to double-precision
+// rounding) — a point on a cylinder of the given radius, by construction,
+// the same identity ADR-027 states for buildCylinderLattice. The spine
+// column (s == 0) satisfies x == spineX and z == 0 exactly, for any
+// turnProgress — sx == 0 is never greater than flatLen (flatLen >= 0
+// always, since turnProgress is expected in [0, 1]), so the spine is
+// always in the flat branch, and radius never enters the calculation
+// there regardless of its value. radius must be positive whenever
+// turnProgress > 0 (theta divides by it wherever the curled branch is
+// reached) — not checked here, the same unchecked-precondition convention
+// this codebase already uses for Lattice::at()'s row/col bounds.
+Lattice buildPageTurnLattice(const PageTurnParams& params);
 
 }  // namespace scatter::shapes
