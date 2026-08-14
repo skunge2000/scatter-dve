@@ -251,3 +251,38 @@ partial-coverage columns' hull check (already needed for C-008(a)'s
 reasons, since those are the raster's own first/last source columns) is
 widened by the same margin at each endpoint. Pure-background columns,
 which involve no accumulation arithmetic at all, remain exact.
+
+**C-011 — a curved shape's front-facing point (WU-11's cylinder/sphere) is
+not necessarily where coverage is densest; it is often where magnification
+peaks instead.**
+*Claimed (implicitly, this session's own first draft of
+`tests/test_shapes.cpp`'s pipeline checks):* a shape's front-facing point
+(cylinder's `theta == 0`, sphere's `phi == psi == 0`), being the most
+face-on part of the surface to the camera, is a safe destination pixel to
+assert solid, near-exact source-colour coverage at.
+*Correct:* the front-facing point is exactly where `d(x)/d(theta)` (and
+the sphere's equivalent gimbal-angle derivatives) is largest — `cos(0) ==
+1`, the maximum of cosine over the shape's own angular range — so it is
+where the local pixel-space Jacobian determinant is largest, i.e. where
+*magnification*, not compression, peaks, for any shape whose angular span
+is wide relative to the source raster's own pixel density. Under
+magnification the four-bank splat's fixed 2x2 footprint (architecture.md
+4.5) cannot widen to compensate — 4.6's own adaptive supersampling raises
+fragment *count*, not footprint *size* — so the front-facing point can be
+the sparsest-covered part of the frame, not the densest. Measured directly
+this session: with a 64x64 source and a cylinder sized for illustration
+(radius 100, `angleSpan` 0.8·pi, both centred in a 256x256 destination),
+the front-facing destination pixel resolved within a few hundred codes of
+pure background, not the source colour, while pixels nearer the shape's
+angular extremes — where the surface turns away from the camera and
+compression dominates instead — resolved almost exactly to source. Fixed
+within this unit's own test file: `tests/test_shapes.cpp`'s pipeline
+checks use a larger source raster (256) so compression dominates almost
+everywhere in the shape's footprint instead, and search for whichever
+destination pixel is empirically farthest from the background colour to
+check for genuine full coverage, rather than assuming its location in
+advance. Not a defect in any production code — `core/binner.cpp`'s
+magnification/supersampling behaviour is architecture.md's own
+already-frozen design (4.6), working exactly as specified; this only
+corrects a mistaken assumption in this session's own test-writing, caught
+before WU-11 shipped.

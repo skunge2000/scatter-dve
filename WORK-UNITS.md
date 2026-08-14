@@ -131,7 +131,24 @@ within this unit's own files without touching `core/lattice.cpp` or
 
 ## Phase 2 — Shapes
 
-### WU-11 — Cylinder and sphere `todo`
+### WU-11 — Cylinder and sphere `wip`
+**Files:** `src/core/shapes/shapes.hpp`, `src/core/shapes/cylinder.cpp`,
+`src/core/shapes/sphere.cpp`, `tests/test_shapes.cpp`
+**Accept:** every control vertex `buildCylinderLattice()`/
+`buildSphereLattice()` writes lies exactly (double-precision tolerance) on
+the surface of the configured radius — `(x-cx)^2 + (z-R)^2 == R^2` for the
+cylinder, `(x-cx)^2 + (y-cy)^2 + (z-R)^2 == R^2` for the sphere — checked at
+every one of the 129x129 control vertices, not spot values; `Lattice::
+jacobian()`'s analytic derivatives agree with central differences (WU-06's
+own method, reused) across a populated cylinder and a populated sphere
+lattice, proving the interpolant differentiates correctly on genuinely
+curved, non-affine control data for the first time; `runFrame()` with a
+flat source through each shape produces no crash and every covered
+destination pixel resolves to the source's own colour within ADR-025's
+already-established rounding margin. Explicitly not testing self-occlusion
+or back-face correctness — that is Phase 2's k-buffer (WU-28) to resolve
+(architecture.md 4.7; see HANDOFF.md), and overlapping surface points are
+expected to simply accumulate at this phase, not be sorted or culled.
 ### WU-12 — Page turn, transparent and priority-tag opaque `todo`
 **Accept:** reproduces US 4,563,703 FIG. 5 in both modes.
 ### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`

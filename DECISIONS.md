@@ -448,3 +448,120 @@ own signatures is expected to change when that happens.
 
 Does not reopen `docs/architecture.md` or ADR-021 — extends ADR-021's
 precedent to a second, later case rather than revisiting it.
+
+**ADR-027 — Cylinder and sphere: orthographic projection, front-at-zero
+depth convention, gimbal-angle sphere parametrisation, and a shared
+`shapes.hpp`, frozen at WU-11.**
+`docs/architecture.md` 4.1 fixes the *mechanism* every shape must use — "a
+shape is a function of `(u, v, t)` producing `(x, y, z)` in output raster
+space, sampled onto a coarse lattice" — without fixing cylinder or sphere's
+actual parametrisation, or how a 3D surface point becomes a 2D destination
+position. Section 13's provenance note points at GB 2,158,671 ("3D address
+map projected to a viewing surface") and US 5,150,213 ("projection onto
+non-planar surfaces") for the historical grounding, but neither document is
+quoted for a formula — this is this session's own design work, the same
+kind of gap ADR-020/022/023/024/025/026 filled for earlier units.
+
+- **Projection: orthographic, not perspective.** Every affine lattice
+  WU-01 through WU-10 built (test-local `makeAffineLattice`/
+  `makePixelAffineLattice`, since a shipped `plane.cpp` does not exist yet)
+  already writes `Vec3::x`/`y` as literal destination-raster pixel
+  coordinates with `z` uniformly `0`, and `core/binner.cpp` already reads
+  `dest.x`/`dest.y` directly as pixel coordinates (its off-raster check is
+  `dest.x < 0 || dest.x >= destWidth`, no division by depth anywhere) — no
+  projection step exists between `Lattice::eval()` and its consumers today.
+  `core/jacobian.hpp`'s `K`/EWA formulas (ADR-023) operate on `∂x/∂u`, etc.
+  directly, not on a post-perspective-divide quantity. Introducing a real
+  camera/lens model (a perspective divide by `z` or `z + focalLength`)
+  would need to change `core/binner.cpp` and `core/jacobian.hpp` too, which
+  this unit's file scope does not include and architecture.md does not ask
+  for. Orthographic projection needs none of that: a shape's `(x, y)` *is*
+  its destination position, offset by a caller-supplied centre; `z` carries
+  straight through as a depth scalar, exactly like every earlier lattice's
+  `z = 0`. This is also historically apt — contemporary hardware DVEs of
+  this class did not carry a perspective camera either.
+- **Depth convention: `z = 0` at each shape's front-most (nearest-camera)
+  point, increasing into the screen.** Every earlier lattice (the affine/
+  plane case) sits at `z = 0` uniformly, being the flat degenerate case;
+  choosing the same zero point for a curved shape's nearest point means a
+  cylinder or sphere smoothly reduces toward the existing flat case as
+  `angleSpan`/`angleSpanH`/`angleSpanV` shrink toward zero, rather than
+  introducing a discontinuity at the shape boundary. It also matches
+  `core/binner.cpp`'s `toDepth()`, whose saturate-at-zero clamp already
+  assumes depth does not go negative — true by construction here, since
+  `1 - cos(...)` and `1 - cos(...)*cos(...)` are both always `>= 0`.
+- **Cylinder: axis parallel to the destination raster's `y` axis (a
+  vertical "roll"), the standard cylinder-DVE look.** `s = col /
+  kLatticeMax`, `t = row / kLatticeMax` (control-vertex indices normalised
+  to `[0, 1]`, not a per-source-pixel scale — see below); `θ = (s - 0.5) *
+  angleSpan`; `x = centerX + radius·sin θ`, `z = radius·(1 - cos θ)` — the
+  standard parametrisation of a circle for the cross-section that actually
+  curves; `y = centerY + (t - 0.5)·heightSpan`, linear, because a
+  cylinder's axis direction does not curve at all, only its cross-section
+  does. `θ = 0` (`s = 0.5`, horizontal centre) is exactly the front-facing
+  point, `x = centerX`, `z = 0`.
+- **Sphere: independent yaw/pitch ("gimbal") angles, not textbook
+  longitude/colatitude spherical coordinates.** `φ = (s - 0.5) *
+  angleSpanH`, `ψ = (t - 0.5) * angleSpanV`; `x = centerX + radius·sin
+  φ·cos ψ`, `y = centerY + radius·sin ψ`, `z = radius·(1 - cos φ·cos ψ)`.
+  Chosen over the textbook `(θ, φ)` parametrisation (which ties a single
+  polar angle to both horizontal and vertical extent) because a Mirage-
+  style sphere effect exposes independent horizontal- and vertical-wrap
+  controls, the same split the cylinder already has between its curved
+  axis (`angleSpan`) and its straight one (`heightSpan`) — the natural
+  generalisation keeps that same independence for both of the sphere's
+  angles instead of collapsing to one. This is not the standard formula,
+  so it is verified, not asserted: substituting into `(x - centerX)^2 + (y
+  - centerY)^2 + (z - radius)^2` gives `radius^2·[cos^2ψ·(sin^2φ + cos^2φ)
+  + sin^2ψ] = radius^2·[cos^2ψ + sin^2ψ] = radius^2` identically — every
+  control vertex lies exactly on the sphere of the configured radius for
+  any `angleSpanH`/`angleSpanV`, which `tests/test_shapes.cpp` checks
+  directly rather than trusting the algebra alone. Setting `angleSpanV` to
+  0 collapses `x` and `z`'s formulas exactly to the cylinder's own (`ψ ≡
+  0`, `cos ψ = 1`, `sin ψ = 0`, leaving `x = centerX + radius·sin φ`, `z =
+  radius·(1 - cos φ)`, identical to the cylinder's `theta`/`x`/`z` with
+  `phi` in place of `theta`) — `y` does not similarly collapse to the
+  cylinder's own vertical mapping, since the sphere has no `heightSpan`
+  parameter and this degenerate case instead pins `y` at `centerY`
+  uniformly; the shared structure is the two shapes' curved cross-section,
+  not the whole lattice. The two shapes' parametrisations are siblings, not
+  independent inventions.
+- **No `srcWidth`/`srcHeight` parameter on `buildCylinderLattice()`/
+  `buildSphereLattice()`, unlike the test-local affine helpers.** ADR-024
+  already makes `core/binner.cpp`'s `pixelToLattice()` map a source
+  raster's first/last pixel to lattice parameter `0`/`kLatticeMax` for any
+  resolution — the lattice's own index space is already resolution-
+  normalised. The test-local affine helpers needed `srcWidth`/`srcHeight`
+  only because they chose to parametrise scale *per source pixel*
+  (`scaleX` = output pixels per source pixel); `radius`, `angleSpan` and
+  `heightSpan` are not naturally expressible that way for a curved surface,
+  and there is no other reason a shape function needs to know the source
+  raster's resolution — it only ever reads the lattice's own normalised
+  `[0, 1]` fraction (`col`/`kLatticeMax`, `row`/`kLatticeMax`).
+- **A shared `core/shapes/shapes.hpp`, not one header per shape.**
+  architecture.md 8's module-layout sketch names `shapes/plane.cpp
+  cylinder.cpp sphere.cpp pageturn.cpp explode.cpp` with no header at all.
+  `CylinderParams`/`SphereParams` and the two build functions need
+  declaring somewhere a test (and eventually `src/app/config.cpp`) can
+  reach; one header per shape would make this unit four source files
+  (`cylinder.hpp`, `cylinder.cpp`, `sphere.hpp`, `sphere.cpp`) against
+  its test, over SESSION-PROTOCOL.md's three-source-file cap. A single
+  `shapes.hpp` for both keeps the unit at exactly three source files.
+  Same "does this need its own header" judgement call ADR-021 and ADR-026
+  already made for `file_source.cpp`/`file_sink.cpp` and `pipeline.cpp`
+  respectively — applied here from the start, rather than discovered
+  mid-unit, since two shapes sharing one header was foreseeable going in.
+
+Not decided here, deliberately: self-occlusion/back-face handling (I1 and
+architecture.md 4.7 phase 1 already specify accumulate-everything, no
+sorting, no culling — a cylinder or sphere wide enough to fold back on
+itself is exactly the "non-invertible maps, folds, tears" I1 exists for,
+and nothing about that needs a decision from this unit); `plane.cpp` itself
+(still implicit via the affine path, per HANDOFF.md, and not this unit's
+job to formalise); and horizontal-axis cylinders or any other orientation
+(the vertical-axis convention above is the only one built; rotating the
+roles of `u`/`v` to build a horizontal one is a straightforward future
+variant, not exercised or required by WU-11's own accept criteria).
+
+Does not reopen `docs/architecture.md` — same relationship every ADR since
+ADR-020 has to it, filling a gap the document leaves open on purpose.
