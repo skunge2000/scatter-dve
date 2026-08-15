@@ -3365,3 +3365,348 @@ tile or how the four banks are addressed; ADR-044's own WU-19b scope
 M1 Max... no committed benchmarking tool") is extended to a second build
 configuration using the exact same uncommitted scratch mechanism, not
 altered or reopened.
+
+**ADR-046 — WU-20 split into WU-20a (a portable, allocation-free SPSC ring
+buffer — this session, genuinely built and run in the Linux cloud sandbox,
+including under ThreadSanitizer) and WU-20b (the DeckLink-specific capture
+object — not this session, reasoned through only, same shape as WU-14/
+WU-15a); the real `IDeckLinkInput`/`IDeckLinkInputCallback` shape confirmed
+against the real SDK; two architecture.md 7 inaccuracies found by that
+reading; and what three real capture samples actually do for frame
+retention and format-change restart, which differs sample to sample. Frozen
+at WU-20a, Phase 5's first unit.**
+
+`WORK-UNITS.md`'s own WU-20 line, going into this session, named its
+hardware target (UltraStudio Recorder 3G, ADR-039) but had no `Files:`/
+`Accept:` scoping at all — this session's own first job, per Steve's own
+brief and this project's established practice for a new hardware surface
+(ADR-031/032's own reading-before-scoping discipline, cited by WU-20's own
+line), was reading the real SDK's `IDeckLinkInput`/capture-callback shape
+before writing anything, not assuming from architecture.md 7's own Input
+subsection — which ADR-039 already flags as describing the original,
+now-superseded single-full-duplex-device design, unrevised.
+
+**What `IDeckLinkInput`, `IDeckLinkInputCallback` and
+`IDeckLinkVideoInputFrame` actually are, read directly from
+`Mac/include/DeckLinkAPI.h` rather than assumed from architecture.md's own
+snippet.** `IDeckLinkInput` (obtained via `QueryInterface` from `IDeckLink`,
+same convention ADR-031 already established for `IDeckLinkOutput`) declares
+`DoesSupportVideoMode()`, `GetDisplayMode()`/`GetDisplayModeIterator()`,
+`EnableVideoInput()`/`EnableVideoInputWithAllocatorProvider()`/
+`DisableVideoInput()`, `GetAvailableVideoFrameCount()`, the audio-input
+trio, `StartStreams()`/`StopStreams()`/`PauseStreams()`/`FlushStreams()`,
+`SetCallback(IDeckLinkInputCallback*)` and `GetHardwareReferenceClock()` —
+confirming architecture.md 7's own sketch (`EnableVideoInput`, `SetCallback`,
+`StartStreams`) is accurate as far as it goes, just incomplete.
+`IDeckLinkInputCallback` has exactly two methods,
+`VideoInputFormatChanged(BMDVideoInputFormatChangedEvents, IDeckLinkDisplayMode*,
+BMDDetectedVideoInputFormatFlags)` and
+`VideoInputFrameArrived(IDeckLinkVideoInputFrame*, IDeckLinkAudioInputPacket*)`
+— both named exactly as architecture.md 7 already has them.
+`IDeckLinkVideoInputFrame` extends `IDeckLinkVideoFrame` (adding only
+`GetStreamTime()`/`GetHardwareReferenceTimestamp()`), and
+`IDeckLinkVideoFrame` itself declares `GetWidth()`/`GetHeight()`/
+`GetRowBytes()`/`GetPixelFormat()`/`GetFlags()`/`GetTimecode()`/
+`GetAncillaryData()` — no `GetBytes()` anywhere on either interface.
+`bmdVideoInputEnableFormatDetection` (`BMDVideoInputFlags`, value `1 << 0`)
+is exactly the flag architecture.md 7 names; `BMDVideoInputFormatChangedEvents`
+carries three independent bits, `bmdVideoInputDisplayModeChanged`,
+`bmdVideoInputFieldDominanceChanged` and `bmdVideoInputColorspaceChanged`.
+
+**Two architecture.md 7 inaccuracies this reading found, the same kind
+ADR-032 already found on the output side — recorded here, not corrected in
+the document itself, per this project's own established convention (no ADR
+since ADR-020 has ever edited architecture.md; ADR-039's own closing
+paragraph states the reasoning most recently).**
+
+- **"Always use `GetBytesPerRow()`"" names a method that does not exist.**
+  The real interface declares `GetRowBytes()` (`IDeckLinkVideoFrame`, above)
+  — not a behavioural difference, just the wrong name, but exactly the kind
+  of thing that would have looked plausible if guessed rather than read,
+  the same caution ADR-031's own `IDeckLink`-location finding names.
+- **`GetBytes()` is not directly on `IDeckLinkVideoFrame`/
+  `IDeckLinkVideoInputFrame` on the input side either.** ADR-032 already
+  found this true for output (`IDeckLinkVideoBuffer`, obtained via
+  `QueryInterface(IID_IDeckLinkVideoBuffer, ...)`, bracketed by
+  `StartAccess()`/`EndAccess()`); the same interface serves both directions
+  (`IDeckLinkVideoBuffer` is generic, not output-specific), and neither
+  `IDeckLinkVideoFrame` nor `IDeckLinkVideoInputFrame` gained a `GetBytes()`
+  of their own anywhere in this reading. Neither half of WU-20 actually
+  needs this: WU-20a (below) never touches a frame's pixel contents at all,
+  and WU-20b's own scope (also below) stops at retaining and queueing the
+  frame handle — reading pixel bytes into this project's own pipeline is
+  WU-21's job ("Full loop through at 576i25"), not named or built here. This
+  is intentionally the same "stop at the boundary this unit's own name
+  implies" discipline WU-14 already used (enumeration, no stream opened) and
+  WU-15a already used (loop one frame, no sequence decoding).
+
+**Three real C++ capture samples surveyed
+(`Samples/CaptureStills/DeckLinkInputDevice.cpp`, `Samples/InputLoopThrough/
+DeckLinkInputDevice.cpp`, `Samples/CapturePreview/DeckLinkInputDevice.mm`) —
+read in full, not assumed from one of them generalizing to all three, because
+they turn out to disagree with each other on exactly the two questions
+WU-20's own line names.**
+
+- **Frame retention: all three do "copy or retain, then return"
+  (architecture.md 7's own phrase), but no two do it quite the same way.**
+  `CaptureStills` calls `videoFrame->AddRef()` directly and pushes the raw
+  pointer into a `std::queue<IDeckLinkVideoFrame*>` guarded by a
+  `std::mutex`/`std::condition_variable`, with the consumer (a separate
+  thread, `WaitForVideoFrameArrived()`) eventually calling `Release()` once
+  done. `InputLoopThrough` and `CapturePreview` both instead construct their
+  own `com_ptr<IDeckLinkVideoInputFrame>` directly from the raw callback
+  parameter — the SDK's own sample `com_ptr`'s raw-pointer constructor
+  AddRefs, exactly the borrowing case this project's own `ComPtr`'s
+  raw-pointer constructor already handles identically (ADR-031) — and hand
+  that smart pointer onward via `std::function`/`std::shared_ptr`. All three
+  are the same underlying operation (`AddRef`, hand off, `Release` once the
+  consumer is done); this project's own `ComPtr`'s existing borrowing
+  constructor (`explicit ComPtr(T* borrowedPtr)`, already built at WU-14,
+  unchanged) is exactly the right tool for whichever WU-20b's own capture
+  object ends up doing with an arriving `IDeckLinkVideoInputFrame*` — no new
+  `ComPtr` capability is needed for this, only its already-existing borrowing
+  case, applied here for the first time to a genuinely borrowed callback
+  parameter rather than a factory/enumerator result (ADR-031's own
+  anticipated-but-not-yet-exercised distinction, "unlike a callback parameter
+  such as a future `VideoInputFrameArrived(IDeckLinkVideoInputFrame*)`...
+  which is borrowed and must be retained by the callee").
+- **Format-change restart: two samples do it, one deliberately does not.**
+  `CaptureStills` and `CapturePreview` both restart the stream
+  (`StopStreams()`, then `EnableVideoInput()` with the newly detected mode
+  and pixel format, then `StartStreams()`) inside `VideoInputFormatChanged()`,
+  gated on `notificationEvents & (bmdVideoInputDisplayModeChanged |
+  bmdVideoInputColorspaceChanged)` — confirming architecture.md 7's own claim
+  ("restart the stream on mode change... without it, switching source
+  standards silently produces garbage") against real, working code, not
+  merely trusting the prose. `InputLoopThrough` does not: its own
+  `VideoInputFormatChanged()` only invokes a notification callback
+  (`m_videoFormatChangedCallback`) and never calls `StopStreams()`/
+  `EnableVideoInput()`/`StartStreams()` itself — a deliberately different
+  design for a sample built to loop through one continuously-configured mode,
+  not to adapt to a changing one. Since WU-20's own line names "format
+  detection" as one of its three pieces, `CaptureStills`/`CapturePreview`'s
+  restart-on-change behaviour is the one WU-20b (below) follows, not
+  `InputLoopThrough`'s non-restarting variant — the disagreement between
+  samples is exactly why this needed reading three, not one, before deciding.
+  `CaptureStills` additionally restarts a second way, inside
+  `VideoInputFrameArrived()` itself: when a frame's own
+  `bmdFrameHasNoInputSource` flag transitions from set to clear (signal
+  recovery, not a format change), it also calls `StopStreams()`/
+  `FlushStreams()`/`StartStreams()` once before accepting frames as good.
+  This is a different concern from format detection (signal *presence*, not
+  signal *format*) and interacts with WU-20a's own ring in a way this session
+  has not worked out (should a `bmdFrameHasNoInputSource` frame be pushed to
+  the ring at all, or filtered before `tryPush()`?) — named here, not decided
+  or built, for WU-20b or WU-21 to pick up.
+
+**Why none of the three samples' own frame-handoff mechanism satisfies
+architecture.md 6's own requirement for the capture callback thread, and why
+this project's ring buffer is therefore a new design, not adapted from the
+SDK — unlike `ComPtr` (ADR-031) and the preroll/refill idiom (ADR-032), both
+of which were.** Architecture.md 6: "Capture callback thread (driver-owned).
+Retains the frame, pushes to a lock-free ring, returns immediately. Never
+blocks, never allocates." `CaptureStills`' own `std::queue` push allocates
+(a queue node) and a full, bounded queue would block a producer — moot in
+that sample only because it never actually bounds its own queue's size, not
+because the mechanism itself is non-blocking by design.
+`InputLoopThrough`/`CapturePreview` instead invoke a `std::function`
+synchronously, on the callback thread itself, before returning — not "push
+and return immediately" at all; whatever the invoked callback body does runs
+with the driver's own callback thread held for its entire duration.
+architecture.md's own requirement is stricter than any of the three real
+samples this project has read provide, so WU-20a's own `RingBuffer<T,
+Capacity>` (`src/core/ring_buffer.hpp`, new, header-only) is built directly
+against that requirement rather than adapted from an existing idiom.
+
+**The WU-20a/WU-20b split, decided after this reading, not before it — the
+same order ADR-028/032/040/044 already used for WU-12a/b, WU-15a/b, WU-16a/b
+and WU-19a/b.** WU-20's own three named pieces — format-detection-aware
+`EnableVideoInput`, a capture callback implementing `IDeckLinkInputCallback`
+with correct frame retention, and a ring buffer — do not all carry the same
+kind of dependency. The first two need `DeckLinkAPI.h` and cannot be built or
+run in this session's own Linux cloud sandbox at all (no Blackmagic SDK, no
+AppleClang/Xcode toolchain — the same gap ADR-031/032 already named for
+WU-14/WU-15a, unchanged). The ring buffer needs neither: as designed above,
+it is ordinary, portable C++20 with no DeckLink or platform dependency
+whatsoever, the same "core/ — portable, zero platform dependencies" charter
+architecture.md 8 already states for every other file in that directory.
+Combining all three into one unit would force the ring buffer's own
+correctness — the one genuinely new (not-adapted-from-a-sample) design this
+whole unit introduces, and concurrency-critical besides — into WU-14/WU-15a's
+own "reasoned through against headers, entirely unverified until the real
+terminal" shape, for no reason: nothing about a fixed-capacity SPSC ring
+templated on an arbitrary `T` requires the SDK to compile, run, or stress
+under ThreadSanitizer, the same "check concurrency empirically, not just by
+inspection" standard WU-16a (ADR-040) established for this project's first
+concurrent code. Splitting lets WU-20a get that verification for real, this
+session; WU-20b inherits WU-14/WU-15a's own unavoidable shape for the parts
+that actually need the SDK.
+
+- **WU-20a (this session).** `src/core/ring_buffer.hpp` (new, header-only) —
+  `RingBuffer<T, Capacity>`, single-producer/single-consumer, fixed capacity,
+  allocation-free after construction. `tests/test_ring_buffer.cpp` (new) —
+  one source file plus its test, comfortably within
+  `SESSION-PROTOCOL.md`'s cap (the same header-only-plus-test shape WU-07's
+  `core/jacobian.hpp` already used). Design, frozen here:
+  - **Single producer, single consumer only** — concurrent callers on the
+    same side are not supported and not guarded against, the same
+    "caller's own bug, not guarded against here" convention this codebase
+    already uses for unchecked preconditions elsewhere (`Lattice::at()`'s
+    row/col bounds, `ThreadPool::runOnAll()`'s "`fn` must not throw"). This
+    matches WU-20b's own future shape exactly: one driver-owned callback
+    thread producing, one consumer thread draining (WU-21's own job).
+  - **Fixed capacity, a compile-time template parameter, with no default
+    chosen by this unit.** The same "do not invent an operating-point
+    number nobody has decided yet" discipline ADR-023 already used for
+    `maxK` and ADR-024 for the supersample thresholds — sizing a real
+    capture ring against actual buffering needs (architecture.md 7's own
+    "Expect 3-4 frames end-to-end... 60-80ms at 50p") is WU-20b's own
+    concern, once it exists to have one; `tests/test_ring_buffer.cpp`
+    exercises several arbitrary capacities (3, 4, 5, 16) to prove the class
+    itself is correct at any of them, not to pick one.
+  - **One slot always left empty** (the classic circular-buffer technique),
+    so `head_ == tail_` is an unambiguous empty test with no second,
+    separately-synchronized size counter needed. Usable capacity is
+    `Capacity`, not `Capacity + 1` — checked directly, not just documented,
+    by `test_capacity_reports_usable_slots_not_backing_storage()`.
+  - **A full ring drops the new item and increments a counter; it never
+    blocks, waits, or overwrites the oldest entry.** `tryPush()` returns
+    `bool`; on failure the caller's own `T&&` argument is left untouched —
+    still fully owned by the caller, exactly as if `tryPush()` had never
+    been called — so a caller passing a `ComPtr<IDeckLinkVideoInputFrame>`
+    that fails to push still correctly releases its own `AddRef()` when that
+    local `ComPtr` goes out of scope at the end of the callback, the same
+    "no reference silently retained past its owner's intent" property
+    architecture.md 12's own risk table names ("reference-count leaks lock
+    the device") for a different failure route. `droppedCount()` — a
+    relaxed `std::atomic<std::size_t>`, the same convention
+    `io/decklink_output.hpp`'s `PlaybackStats` (WU-15a) already uses for its
+    own atomics — is this class's own equivalent surfaced statistic, for
+    whichever future caller wants to log it periodically the way
+    `PlaybackStats` already is.
+  - **Acquire/release, not a mutex — the textbook single-producer/
+    single-consumer construction.** The producer's relaxed load of its own
+    `head_`, acquire load of `tail_` (to check fullness against the
+    consumer's latest progress), slot write, then release store of the new
+    `head_`; the consumer's mirror image against `tail_`/`head_`. This
+    publishes a slot's contents together with the index update that makes it
+    visible, in both directions, with no lock anywhere on the hot path —
+    checked empirically, not just reasoned through (below), since a subtly
+    wrong memory-ordering argument is exactly the kind of claim this
+    project's own C-011/C-012 lessons say not to trust on inspection alone.
+  - **A popped slot is explicitly reset to a default-constructed `T`,
+    rather than relying on whatever state `T`'s own move constructor leaves
+    a moved-from object in.** Every retained-handle type this project has
+    (`ComPtr<T>`) already nulls its own moved-from pointer, making this
+    redundant for that one case — but a ring buffer whose whole reason to
+    exist is not silently retaining a reference past its owner's intent is
+    worth making that property true by construction, for any `T`, not only
+    the one this project happens to use today.
+
+  **A genuine compile error this unit's own real-compiler verification
+  caught, fixed before any claim was made based on it — the same "routine
+  iteration, not a design/reasoning error" distinction `HANDOFF.md`/ADR-043
+  already drew for WU-17/WU-18's own most-vexing-parse mistakes, not a
+  `CORRECTIONS.md` entry for the identical reason.** `tests/
+  test_ring_buffer.cpp`'s first draft wrote
+  `CHECK(RingBuffer<Tracked, 5>::capacity() == std::size_t(5));` directly —
+  `CHECK` (`tests/harness.hpp`) is a single-argument function-like macro, and
+  the template argument list's own comma split this into two macro
+  arguments, a hard compile error under every compiler tried. Fixed by
+  binding the specialization to a local `using Ring5 = RingBuffer<Tracked,
+  5>;` alias first, the same "name it before using it inside a
+  single-argument macro" fix this file's own comment now documents inline.
+
+  **Verification.** Built and run in this session's own Linux cloud sandbox
+  (Ubuntu 24.04, GCC 13.3.0, Clang 18.1.3, CMake 3.28.3, Ninja) — genuinely,
+  not reasoned through, the whole existing project (all eighteen tests, not
+  `test_ring_buffer` in isolation) rebuilt and re-run at every point below,
+  confirming this addition leaves every earlier unit's own result unmoved:
+  GCC and Clang, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (`ring_buffer.hpp`
+  itself has no tile-size dependency at all — confirmed directly, not
+  assumed, by grep before writing this sentence — so this axis exists only
+  to confirm the addition does not somehow interact with it, which it does
+  not), GCC with `-fsanitize=address,undefined -fno-sanitize-recover=all`,
+  and GCC with `-fsanitize=thread` against the real concurrent
+  producer/consumer test (`TSAN_OPTIONS=halt_on_error=0`, both standalone and
+  as part of the full suite) — all eighteen tests green throughout, zero
+  warnings under this project's full `-Wall -Wextra -Wpedantic -Wconversion
+  -Wsign-conversion -Werror` set, no ASan/UBSan/TSan report. Additionally,
+  and not part of this project's own established per-unit matrix until now:
+  Clang's own `-fsanitize=address,undefined` and `-fsanitize=thread` builds
+  were also run standalone against `test_ring_buffer.cpp` directly (this
+  session's own sandbox initially lacked the `libclang-rt-18-dev` package
+  those need; installed via `apt-get`/`dpkg` before retrying) — both clean,
+  the first time this project has exercised Clang's own sanitizers rather
+  than GCC's alone. This is a materially stronger verification than any
+  prior DeckLink-adjacent unit has had going into its own real-terminal
+  confirmation: WU-14 and WU-15a were "reasoned through against headers,
+  entirely unverified until the real terminal" by necessity (no SDK, no
+  AppleClang, in that session's own sandbox); WU-20a needed neither, and got
+  genuine execution, including under two different sanitizer implementations
+  checking its concurrency specifically. `WORK-UNITS.md`'s own WU-20a line
+  stays `wip`, not `green`, for the same procedural reason every other unit's
+  line has (`SESSION-PROTOCOL.md`, "the assistant does not run `close.sh`")
+  — nothing about this unit's own content is expected to behave differently
+  at Steve's own terminal than in the sandbox above.
+
+- **WU-20b (not this session, not yet scheduled in `WORK-UNITS.md`'s own
+  numbering beyond this note).** `src/io/decklink_input.hpp`/`.cpp` (new) —
+  a capture object mirroring `io/decklink_output.hpp`'s own
+  `LoopedFramePlayback` shape (ADR-032): implements `IDeckLinkInputCallback`
+  directly (real `IUnknown` refcounting, `ComPtr::adopt()` on `create()`, the
+  same pattern this project already has one working instance of), calls
+  `EnableVideoInput()` with `bmdVideoInputEnableFormatDetection` after
+  confirming `IDeckLinkProfileAttributes::GetFlag(
+  BMDDeckLinkSupportsInputFormatDetection, ...)` reports the device actually
+  supports it (`CapturePreview`'s own pattern, checked rather than assumed —
+  this project already has the identical `IDeckLinkProfileAttributes`-based
+  capability-check idiom for `BMDDeckLinkVideoIOSupport`, WU-14/ADR-031),
+  retains each arriving frame via `ComPtr`'s existing borrowing constructor
+  and pushes it into a caller-owned `RingBuffer<ComPtr<IDeckLinkVideoInputFrame>,
+  N>` (WU-20a, above; `N` — the actual capacity — is this unit's own number to
+  pick, not decided here), and restarts the stream in `VideoInputFormatChanged()`
+  on `bmdVideoInputDisplayModeChanged | bmdVideoInputColorspaceChanged`
+  (`CaptureStills`/`CapturePreview`'s own pattern, above — not
+  `InputLoopThrough`'s non-restarting one). Device selection generic, by
+  `supportsCapture` and a live `QueryInterface(IID_IDeckLinkInput)` succeeding
+  — the same "not device-specific" convention ADR-034 already established for
+  output, applied here even though ADR-039 names the intended physical device
+  (UltraStudio Recorder 3G) — the code does not need to know that name to
+  find the right device, only the right capability bits. `tests/
+  test_decklink_input.cpp` (new) — hardware-only, gated on
+  `BLACKMAGIC_SDK_DIR` exactly as `test_decklink_device.cpp`/
+  `test_decklink_output.cpp` already are. This remains reasoned-through-only
+  until built and run at Steve's own real terminal, the identical shape
+  ADR-031/032 already used for WU-14/WU-15a and for the identical reason:
+  no Blackmagic SDK, no AppleClang/Xcode toolchain, in this session's own
+  Linux cloud sandbox.
+
+  **Not decided here, deliberately, and named for whoever picks up WU-20b:**
+  the ring's own capacity `N`; whether a frame carrying
+  `bmdFrameHasNoInputSource` should be pushed to the ring at all or filtered
+  before `tryPush()`; `CaptureStills`' own second restart trigger (signal
+  recovery inside `VideoInputFrameArrived()`, distinct from format-mode-change
+  restart, above); and the consumer side of the ring — draining it into
+  `runFrame()`/`runFrameFile()` is WU-21's own job ("Full loop through at
+  576i25"), not this one's.
+
+Does not reopen `docs/architecture.md`, ADR-009, ADR-013, ADR-021, ADR-030,
+ADR-031, ADR-032, ADR-034, ADR-039 or ADR-040 — same relationship every ADR
+since ADR-020 has to the document; ADR-031's `ComPtr` (including its existing
+borrowing constructor, exercised here for a genuinely borrowed callback
+parameter for the first time, not changed) and `BLACKMAGIC_SDK_DIR`-gated
+"fail soft with no SDK present" shape are reused unaltered; ADR-032's own
+`GetBytes()`-is-not-on-the-frame finding is extended to the input side, not
+revisited; ADR-034's "select by capability, not by model name" device
+convention is extended to input; ADR-039's own naming of the UltraStudio
+Recorder 3G as this project's input target is unaffected — this entry decides
+how the *code* finds a device, not which physical device Steve attaches;
+ADR-040's "check concurrency empirically" standard is applied to a second,
+differently-shaped concurrent primitive (lock-free/atomic rather than
+mutex-based) for the first time, not weakened; and ADR-021/030's own "does
+this need its own header" judgement is applied again, the same way, to
+`ring_buffer.hpp`'s placement in `core/` rather than `io/` — motivated by
+capture, but with zero DeckLink dependency of its own, the same reasoning
+that already placed `file_source.cpp`/`file_sink.cpp` in `scatter-core`
+despite living under `src/io/`.

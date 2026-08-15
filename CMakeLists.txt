@@ -112,6 +112,14 @@ endif()
 # WU-16a/16b's own unchanged behaviour -- or a caller-supplied persistent
 # one, DECISIONS.md ADR-044) -- no new source file for scatter-core
 # itself, only its own new test executable below (test_persistent_pool).
+#
+# WU-20a adds src/core/ring_buffer.hpp (new, header-only) -- a fixed-
+# capacity, single-producer/single-consumer, allocation-free ring buffer
+# (DECISIONS.md ADR-046), split out of WU-20 ("DeckLink input, format
+# detection, ring buffer") as the half of that unit with zero DeckLink or
+# platform dependency at all, so it belongs in scatter-core rather than
+# waiting on scatter-decklink below. WU-20b -- the DeckLink-specific
+# capture object that actually uses it -- is not built this session.
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -203,6 +211,10 @@ scatter_test(test_row_band)
 # (WarpedFrame is built from a zone plate).
 scatter_test(test_persistent_pool)
 target_include_directories(test_persistent_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+# WU-20a -- fixed-capacity SPSC ring buffer (DECISIONS.md ADR-046). Header-
+# only and platform-independent -- no tools/ include needed, unlike the
+# tests above that build a warped frame via tools/testpat.hpp.
+scatter_test(test_ring_buffer)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

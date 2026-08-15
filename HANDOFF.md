@@ -3,210 +3,221 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 24
-**Tag:** `wu-18-green` stood, confirmed at session open. `wu-19a-green` was
-tagged this session per the "What to run at your terminal" runbook this
-handoff's own earlier draft gave — see the commands below; not
-independently re-verified (this session's own recurring "the assistant
-does not run `close.sh`" limit) but expected clean, the same "one known
-exception, nothing else" pattern every close since WU-15a has hit.
-**Phase:** 4 (Threading and NEON) is now genuinely done in full — WU-16a/
-16b, WU-17, WU-18 (all already green going in), WU-19a (this session:
-persistent, caller-owned `ThreadPool`, ADR-044) and WU-19b (this session,
-via Steve's own real-terminal measurement: confirmed "at frame rate" on
-the real M1 Max) all closed out. `DECISIONS.md` now runs through ADR-045;
-`CORRECTIONS.md` unchanged this session, still through C-015.
+**Session:** 25
+**Tag:** `wu-19a-green` stood, confirmed at session open (Phase 4 fully
+closed out per session 24's own handoff). `wu-20a-green` is NOT yet
+tagged — this session's own work is implemented and verified in full in
+the sandbox, but per this project's own "the assistant does not run
+`close.sh`" rule, tagging is Steve's own next action; see "What to run at
+your terminal," below.
+**Phase:** 5 (Live capture) is now under way. WU-20a (ring buffer) is done
+in the sandbox this session, `wip` pending Steve's real-terminal close;
+WU-20b (DeckLink capture object) is scoped as a sketch but deliberately not
+built this session — needs the real SDK/AppleClang, same gap as WU-14/
+WU-15a. `DECISIONS.md` now runs through ADR-046; `CORRECTIONS.md`
+unchanged this session, still through C-015.
 
 ## This session in full
 
-**Part 1 — WU-19a.** `WORK-UNITS.md`'s own WU-19 line was barer going in
-than any prior unit's — just a title, "Real time at 576i25." Read
-architecture.md section 10's own Phase 4 "done when" line, section 6
-(threading model) and section 11 (budget/splat discussion), plus
-`core/pipeline.cpp`/`.hpp` and `video/v210.cpp`/`chroma.cpp`, before scoping
-anything. The central finding: "at frame rate" is a real-hardware timing
-claim this project's own Linux cloud sandbox CPU cannot produce meaningful
-evidence about — a different kind of gap than ADR-031/032's own "cannot
-compile here at all" (this sandbox compiles and runs the code fine; the
-number it would produce just wouldn't mean anything for the M1 Max). Split
-into WU-19a (a correctness-preserving refactor this sandbox *can* fully
-verify) and WU-19b (the real measurement, Steve's own job).
+**Reading, before anything else.** Per `SESSION-PROTOCOL.md`'s own reading
+table: `HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md` in full (through
+ADR-045), `CORRECTIONS.md` (through C-015), `WORK-UNITS.md`. Then, per this
+project's own established practice for a new hardware surface (WU-14/
+ADR-031, WU-15a/ADR-032 — read the real SDK before scoping, not
+`architecture.md`'s own summary, which ADR-039 already flags as describing
+the superseded single-full-duplex-device design): the real Blackmagic
+DeckLink SDK's own `DeckLinkAPI.h` (`IDeckLinkInput`, `IDeckLinkInputCallback`,
+`VideoInputFrameArrived`, `VideoInputFormatChanged`, `EnableVideoInput`,
+`StartStreams`/`StopStreams`, `bmdVideoInputEnableFormatDetection`'s own
+operational implications, `IDeckLinkVideoInputFrame`/`IDeckLinkVideoBuffer`'s
+own split — `GetBytes()` is not directly on the frame, extending ADR-032's
+own output-side finding to input), and `Mac/Samples/`'s three real capture
+samples (`CaptureStills`, `InputLoopThrough`, `CapturePreview` — the
+`CapturePreview` guess flagged going in was confirmed real). Also reread
+this project's own `src/io/decklink_device.hpp`/`.cpp`,
+`src/io/com_ptr.hpp` (ADR-031 in full), `src/io/decklink_output.hpp`/`.cpp`
+(WU-15a) for established idioms, and `architecture.md` sections 3, 6, 7, 9,
+12 plus ADR-037/039 (real target: **UltraStudio Recorder 3G**, not 4K Mini).
 
-WU-19a built `PipelineParams::pool` (`core/resolve.hpp`) — an optional,
-caller-owned, already-constructed `ThreadPool*`, default `nullptr` — so a
-caller can build one `ThreadPool` once and reuse it across many
-`runFrame()` calls instead of paying WU-16a/16b's own per-call spawn/join
-cost every time. `core/pipeline.cpp`'s own threaded PASS-1/PASS-2 body was
-factored out unchanged into `runThreaded(..., ThreadPool&, ...)`, callable
-against either a fresh per-call pool (unchanged WU-16a/16b behaviour) or
-the caller's persistent one. New `tests/test_persistent_pool.cpp` (2 562
-778 checks) verified: a pool reused across ten calls matches the
-single-threaded oracle every time; a pool whose size deliberately
-disagrees with `PipelineParams::threads` still produces correct output
-(the direct regression check that `pool->size()`, not `threads`, governs);
-a pool reused across different frame geometries in sequence doesn't leak
-state. Full sandbox matrix — Clang 18/GCC 13 x Release/Debug x tile 4/5,
-GCC 13 ASan+UBSan both tile sizes, GCC 13 ThreadSanitizer both tile
-sizes — all clean, all seventeen tests green, zero warnings. See
-`DECISIONS.md` ADR-044.
+**The split decision.** `WORK-UNITS.md`'s own WU-20 line named three
+pieces — format-detection-aware `EnableVideoInput`, a capture callback
+implementing `IDeckLinkInputCallback` with correct frame retention, and a
+ring buffer — with no `Files:`/`Accept:` scoping at all. The real-SDK
+reading found these do not share a verifiability profile: the first two
+need the Blackmagic SDK and AppleClang/Xcode to build or even compile at
+all (the same gap ADR-031/032 already established for WU-14/WU-15a), while
+the ring buffer architecture.md 6 requires ("never blocks, never
+allocates," on the capture callback thread) has zero DeckLink or platform
+dependency — ordinary portable C++20, the same as every other `core/`
+file — and, notably, **no real SDK sample this project read actually
+provides one**: `CaptureStills` hands frames off via a
+`std::queue`/`std::mutex`/`std::condition_variable` (allocates every push,
+would block a producer against a bounded queue, though that sample never
+bounds its own); `InputLoopThrough` and `CapturePreview` both invoke a
+`std::function` callback synchronously on the driver's own callback thread,
+which is not "push and return immediately" at all. architecture.md's own
+requirement is stricter than anything sampled, so the ring buffer is this
+project's own design, not adapted from an SDK idiom — and unlike WU-14/
+WU-15a, it is fully buildable and runnable, including under
+ThreadSanitizer with a real concurrent producer and consumer, in this
+project's own Linux cloud sandbox. Split into WU-20a (ring buffer, built
+this session) and WU-20b (the DeckLink-specific capture object, sketched
+but deferred), the same "split after reading, not before or by guessing"
+discipline WU-12a/b, WU-15a/b, WU-16a/b and WU-19a/b all used for their own
+splits. See `DECISIONS.md` ADR-046 for the full record.
 
-**Part 2 — WU-19b.** Steve ran a small, deliberately uncommitted
-`std::chrono` scratch benchmark (per ADR-044's own reasoning: a sandbox-CPU
-benchmark tool would report numbers meaningless for the real question, so
-nothing was committed for this) against the real M1 Max, linked directly
-against `libscatter-core.a`, using WU-19a's own persistent-pool mechanism,
-timing a genuinely warped (cylinder-over-zone-plate) 720x576 frame across
-200 iterations after a 20-iteration warmup, at four thread counts, at
-**both** tile sizes:
+**WU-20a itself.** `src/core/ring_buffer.hpp` (new): a fixed-capacity,
+single-producer/single-consumer, allocation-free `RingBuffer<T, Capacity>`,
+the classic circular-buffer one-slot-always-empty technique, `std::atomic`
+head/tail indices with acquire/release ordering (mirroring
+`io/decklink_output.hpp`'s own `PlaybackStats` atomics convention for the
+relaxed `droppedCount()`), drop-not-block on a full ring. `tests/
+test_ring_buffer.cpp` (new): FIFO order, full-ring drop/count behaviour,
+`capacity()` reporting usable slots not backing storage, 10000-cycle
+wraparound with an instrumented move-only `Tracked` type checking for
+leaks/duplication, and — the check this unit cares about most — a genuine
+two-`std::thread` producer/consumer run of 200000 items, verified under
+ThreadSanitizer. One genuine first-draft compile bug caught and fixed
+before any claim was made (a raw template-argument-list comma inside
+`CHECK(...)`, a single-argument function-like macro — worked around with a
+local `using` alias, documented inline; not a `CORRECTIONS.md` entry, per
+the WU-17/18 precedent for routine first-draft mistakes caught same-session).
+`CMakeLists.txt`: `test_ring_buffer` wired in via `scatter_test()`, plus a
+comment documenting the WU-20a/WU-20b split and that WU-20b is deferred.
 
-| threads | 2^5 (32x32) ms/frame | 2^4 (16x16) ms/frame |
-|---|---|---|
-| 1 | 48.766 (over 40ms budget — expected) | 50.269 (over budget) |
-| 2 | 24.665 | 25.710 |
-| 4 | 13.101 | 14.349 |
-| 8 | 6.868 (5.8x headroom) | 7.528 (5.3x headroom) |
+**Verification.** Full project (all 51 build targets, eighteen tests, the
+seventeen carried over unchanged plus `test_ring_buffer`, 20036 checks) —
+GCC 13 and Clang 18, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5, all
+clean, zero warnings under this project's full `-Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Werror` set. Both compilers' own ASan+UBSan
+runtimes, both tile sizes: clean. Both compilers' own **ThreadSanitizer**,
+both tile sizes: clean, no data race — the first unit in this project to
+verify a concurrent data structure under TSan with two different
+compilers' own sanitizer runtimes, not just GCC's (Clang's
+`libclang_rt.tsan`/`.asan` needed a manual `apt-get download`/`dpkg -i`
+workaround for an unrelated broken transitive dependency — `libc6-i386` —
+in the sandbox's own package mirror; not a project code issue). This is a
+materially stronger verification than WU-14/WU-15a's own SDK-gap units
+could get, extending ADR-042's own "genuinely verify everything possible"
+ethos (established for the NEON units' AArch64 cross-compile) to a
+portable, SDK-independent data structure instead.
 
-architecture.md 10's own Phase 4 "done when" line ("8-thread output is
-bit-identical to single-threaded, at frame rate") is now satisfied in full
-— bit-identical by WU-16a/16b/19a's own I6 checks, frame-rate by this
-measurement, at architecture.md's own named 8-worker configuration, with
-wide margin at both tile sizes.
+**Explicitly stated, per this project's own discipline (ADR-031/032):**
+this sandbox has no Blackmagic SDK and no AppleClang/Xcode toolchain at
+all. Anything landing in the `scatter-decklink` target (gated on
+`BLACKMAGIC_SDK_DIR`) — which is all of WU-20b — cannot be compiled here,
+only reasoned through against the real SDK headers and samples, exactly as
+WU-14/WU-15a already were. WU-20a itself has no such gap; see
+"Verification," above.
 
-**Part 3 — Q1 settled, unplanned but natural given the data already in
-hand.** Tile 2^5 (32x32) beat 2^4 (16x16) at every thread count measured,
-consistently by 3-10%, the margin widening as worker count grew — real,
-whole-pipeline, real-M1-Max evidence for the question architecture.md 4.5
-itself flagged as empirical ("32x32 may still win on reduced edge
-replication despite spilling") and that has sat open since WU-09 for lack
-of exactly this kind of measurement. `SCATTER_TILE_LOG2=5` — already this
-project's own default — is now confirmed and settled as the project's tile
-size going forward, not merely an unexamined default. See `DECISIONS.md`
-ADR-045; `CMakeLists.txt`'s own tile-size comment updated to match (both
-values stay fully configurable and fully exercised by the test matrix —
-nothing about the build changed, only the comment recording that the
-question is closed).
-
-**Neither NEON deferral reopened.** WU-17's own denser `vld4q_u32` v210
-scheme and WU-18's own `downsampleRowNeon` load-count reduction: with
-5.3-5.8x headroom at 8 threads, at both tile sizes, there is no evidence
-either is a bottleneck. Both stay exactly as deferred as ADR-042/043 left
-them.
-
-**Corrections this session:** none. `CORRECTIONS.md` unchanged, still
-through C-015. One documentation-only touch-up: `WORK-UNITS.md`'s own
-WU-18-session note ("once tagged, Phase 4 is done in full... WU-19 is
-next") turned out premature once real scoping found WU-19 needed two
-sub-units — corrected in place with a short parenthetical, not erased, the
-same convention WU-04's own session used correcting WU-03's stale status
-line.
+**Corrections this session:** none logged. The `CHECK`-macro compile bug
+above was caught and fixed within the same edit, before any claim was
+made — routine first-draft mistake, not a `CORRECTIONS.md`-worthy
+correction, per the WU-17/18 precedent this project already established
+for that category.
 
 ## Where we are
 
-**Phase 4 (Threading and NEON) is done in full.** Every unit from WU-16a
-through WU-19b is green (pending only the routine `close.sh 19a` tag
-confirmation, per "What was run this session," below). `DECISIONS.md` now
-runs through ADR-045; `CORRECTIONS.md` unchanged, through C-015.
+**Phase 5 (Live capture) is under way.** WU-20a (ring buffer) is done in
+the sandbox, `wip` pending Steve's real-terminal close. WU-20b (DeckLink
+capture object: format-detection-aware `EnableVideoInput`,
+`IDeckLinkInputCallback` implementation, pushing arrived frames into a
+`WU-20a::RingBuffer`) is sketched in `WORK-UNITS.md` but not built —
+deliberately deferred, needs the real SDK/AppleClang. `DECISIONS.md` now
+runs through ADR-046; `CORRECTIONS.md` unchanged, through C-015.
 
-**Delivery mechanics:** WU-19a's implementation and verification were done
-in this session's own Linux cloud sandbox; WU-19b's own measurement and
-Q1's own resolution happened entirely at Steve's real terminal, reported
-back into this same session. All files (`resolve.hpp`, `pipeline.cpp`,
-`test_persistent_pool.cpp`, `CMakeLists.txt`, `DECISIONS.md`,
-`WORK-UNITS.md`, this `HANDOFF.md`) were written to the real repository via
-the device bridge. Steve commits and tags at his own terminal — the
-standing operational note (device-bridge commits on this machine leave
-stale `.git/index.lock`/`HEAD.lock` files) still applies.
+**Delivery mechanics:** WU-20a's implementation and full verification
+matrix were done entirely in this session's own Linux cloud sandbox — no
+real-hardware or real-terminal step was needed for WU-20a itself, unlike
+every DeckLink-touching unit before it. All files (`ring_buffer.hpp`,
+`test_ring_buffer.cpp`, `CMakeLists.txt`, `DECISIONS.md`, `WORK-UNITS.md`,
+this `HANDOFF.md`) were written to the real repository via the device
+bridge. Steve commits and tags at his own terminal — the standing
+operational note (device-bridge commits on this machine leave stale
+`.git/index.lock`/`HEAD.lock` files) still applies; git commands are not
+run via the bridge this session either.
 
 ## Next work unit
 
-**Phase 5 — Live capture.** `WORK-UNITS.md`'s own WU-20 line
-("DeckLink input, format detection, ring buffer") already names its
-hardware target (**UltraStudio Recorder 3G**, ADR-039) but has no
-`Files:`/`Accept:` scoping at all yet — whichever session starts it should
-read the real SDK's own `IDeckLinkInput`/capture-callback shape first, the
-same reading-before-scoping discipline ADR-031/032 already used for
-enumeration and output, rather than assume from architecture.md's own
-Input subsection (which still describes the original single-full-duplex-
-device design, unrevised — ADR-039's own note). Given WU-14/WU-15a's own
-precedent, expect this to need the same "reasoned through against the real
-SDK headers, unverified until the real terminal" shape this sandbox has
-used for every DeckLink-touching unit so far — no Blackmagic SDK, no
-AppleClang, in this sandbox.
+**WU-20b — DeckLink capture: format-detection-aware `EnableVideoInput`,
+`IDeckLinkInputCallback` implementation.** Sketched, not frozen, in
+`WORK-UNITS.md` this session (files: `src/io/decklink_input.hpp`/`.cpp`,
+`tests/test_decklink_input.cpp`). Needs the real SDK headers/samples this
+session already read (cited in `DECISIONS.md` ADR-046) plus AppleClang/
+Xcode to build or run at all — expect the same "reasoned through, entirely
+unverified until the real terminal" shape WU-14/WU-15a already used.
+Real `Files:`/`Accept:` scoping is that session's own first job, same as
+every unit in this project, this sketch included.
+
+Once WU-20b closes, Phase 5's own remaining units are WU-21 (full loop
+through at 576i25) and WU-22 (diagnostic coverage view) — both `todo`,
+unscoped.
 
 ## Open questions
 
-**Q1 (tile size) — closed this session, ADR-045.** No longer open.
-
-Unchanged: Q3 (macOS/Desktop Video version), Q4 (lattice edge damping,
-C-008(a)). Q2 remains moot per ADR-037. ADR-037's own follow-ups #1
-(`test_decklink_device.cpp`'s full-duplex check) and #2 (genlock) remain
-open — both squarely Phase 5's own concern now that Phase 5 is next.
+Unchanged from session 24: Q3 (macOS/Desktop Video version), Q4 (lattice
+edge damping, C-008(a)) remain open. Q2 remains moot per ADR-037. ADR-037's
+own follow-up #2 (genlock) remains open — now squarely WU-20b's own
+concern. Follow-up #1 (`test_decklink_device.cpp`'s full-duplex check) is
+already the known, accepted ADR-035 exception, unrelated to Phase 5's own
+new work.
 
 ## Blocked / red
 
-Nothing red. WU-19a is green in the sandbox across the full matrix
-(including TSAN, both tile sizes); WU-19b and Q1 are both confirmed by real
-hardware measurement. Only the routine `close.sh 19a` tag confirmation is
-outstanding — same procedural step every unit needs.
+Nothing red. WU-20a is green in the sandbox across the full matrix
+(GCC+Clang, Release+Debug, tile 4+5, ASan+UBSan, and — both compilers —
+ThreadSanitizer). Only the routine `close.sh 20a` tag confirmation is
+outstanding, same procedural step every unit needs. WU-20b is not started;
+not blocked, deliberately deferred (needs real SDK/AppleClang).
 
 ## Environment check
 
-Unchanged from sessions 18-23 (ADR-037/039): **UltraStudio Monitor 3G** is
-the active, confirmed output target. **UltraStudio Recorder 3G** is in
-hand, named (ADR-039) as Phase 5's own input target — about to actually
-matter, now that WU-20 is next. **UltraStudio 4K Mini** remains on hold
+Unchanged from sessions 18-24 (ADR-037/039): **UltraStudio Monitor 3G**
+remains the active, confirmed output target. **UltraStudio Recorder 3G**
+is in hand, named (ADR-039) as Phase 5's own input target — WU-20b's own
+job to actually exercise it, next. **UltraStudio 4K Mini** remains on hold
 pending a PSU replacement.
 
 ## Append to DECISIONS.md
 
-ADR-044 (WU-19a's own design) and ADR-045 (Q1, tile size, settled) were
-both appended in full this session; see `DECISIONS.md`. ADR-045 does not
-reopen `docs/architecture.md`, ADR-002 or ADR-044 — see its own closing
-paragraph.
+ADR-046 (the real `IDeckLinkInput`/`IDeckLinkInputCallback`/
+`IDeckLinkVideoInputFrame` shape, the two `architecture.md` 7 inaccuracies
+found, the three real capture samples surveyed, the WU-20a/WU-20b split
+decision and reasoning, the full `RingBuffer<T, Capacity>` design freeze,
+and the full verification record) was appended in full this session; see
+`DECISIONS.md`. ADR-046 does not reopen `docs/architecture.md`, ADR-009,
+013, 021, 030, 031, 032, 034, 039 or 040 — see its own closing paragraph.
 
 ## Append to CORRECTIONS.md
 
-Nothing appended this session.
+Nothing appended this session. The `CHECK`-macro compile bug in
+`tests/test_ring_buffer.cpp`'s first draft was caught and fixed within the
+same edit, before any claim was made based on the broken draft — a routine
+first-draft mistake, not a genuine correction in the `CORRECTIONS.md`
+sense, per the precedent WU-17/18 already established for this exact
+category (see `HANDOFF.md` session 22/23 and `DECISIONS.md` ADR-042/043).
 
 ---
 
-## What was run this session
+## What to run at your terminal
 
-Already done:
+Nothing has been committed yet — same standing operational note as every
+prior session: committing through the device bridge on this repo reliably
+leaves stale `.git/index.lock`/`HEAD.lock` files behind, so this was left
+for you to run directly:
 
 ```
 cd ~/src/scatter-dve
-git add src/core/resolve.hpp src/core/pipeline.cpp tests/test_persistent_pool.cpp \
-        CMakeLists.txt DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-19a: persistent, caller-owned ThreadPool (ADR-044), verified in the cloud sandbox"
+git add src/core/ring_buffer.hpp tests/test_ring_buffer.cpp CMakeLists.txt \
+        DECISIONS.md WORK-UNITS.md HANDOFF.md
+git commit -m "WU-20a: portable SPSC ring buffer (ADR-046), verified in the cloud sandbox incl. TSan"
 cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure   # 20/21 -- ADR-035's known exception
-./tools/close.sh 19a
-git tag -a wu-19a-green -m "WU-19a: persistent, caller-owned ThreadPool, verified"
+ctest --test-dir build --output-on-failure   # expect 20/21 -- ADR-035's known exception, unrelated
+./tools/close.sh 20a
+git tag -a wu-20a-green -m "WU-20a: portable SPSC ring buffer, verified"
 ```
 
-Plus, for WU-19b and Q1 (not committed — scratch, per ADR-044/045):
-
-```
-cmake -B build-t4 -DSCATTER_TILE_LOG2=4 && cmake --build build-t4
-# scratch bench.cpp compiled and linked against both build/libscatter-core.a
-# and build-t4/libscatter-core.a, results recorded in WORK-UNITS.md/ADR-045
-```
-
-**Still to do, this session's own remaining loose end:** commit this
-replacement `HANDOFF.md` (and the WU-19b/Q1 updates to `WORK-UNITS.md`,
-`DECISIONS.md` and `CMakeLists.txt`'s own comment, all already written to
-the repo via the bridge):
-
-```
-cd ~/src/scatter-dve
-git add HANDOFF.md WORK-UNITS.md DECISIONS.md CMakeLists.txt
-git commit -m "WU-19b + Q1: real-time measurement at 576i25 confirmed on M1 Max; tile size settled (ADR-045)"
-git push origin HEAD --tags   # if you keep a remote
-```
-
-No new build/test run needed for this commit — nothing in `src/` or
-`tests/` changed since the WU-19a commit above, only documentation
-recording WU-19b's own measurement and Q1's own resolution. `build-t4/` is
-yours to keep or remove as you like; nothing in the repo depends on it
-persisting.
+WU-20b is deliberately not started — its own real scoping, and the real
+SDK/AppleClang build it needs, are next session's first job (or yours, if
+you want to get ahead of it: read `DECISIONS.md` ADR-046's own WU-20b
+sketch and `WORK-UNITS.md`'s own WU-20b entry first).
