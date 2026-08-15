@@ -81,11 +81,14 @@ inline constexpr std::uint16_t kPadLuma   = kCode10Black;
 inline constexpr std::uint16_t kPadChroma = kCode10ChromaZero;
 
 // ---------------------------------------------------------------------------
-// Row operations — the primitives WU-17 replaces
+// Row operations — the scalar reference WU-17's NEON path is diffed against
 //
 // Preconditions, none of them checked at runtime: isSupportedWidth(width);
 // `src` holds at least rowBytesMin(width) bytes; the plane pointers hold at
-// least width, chromaWidth(width) and chromaWidth(width) samples.
+// least width, chromaWidth(width) and chromaWidth(width) samples. WU-17 adds
+// NEON-suffixed siblings below with the same preconditions and the same
+// short-final-group behaviour (ADR-018) — these scalar entry points are
+// never modified or replaced; see ADR-042.
 // ---------------------------------------------------------------------------
 
 // Reads rowBytesMin(width) bytes. Bits 30 and 31 of every word are ignored.
@@ -116,5 +119,43 @@ void packImage(const Sample* Y, std::ptrdiff_t yStrideSamples,
                const Sample* Cb, const Sample* Cr, std::ptrdiff_t cStrideSamples,
                int width, int height,
                std::uint8_t* dst, std::ptrdiff_t dstStrideBytes) noexcept;
+
+// ---------------------------------------------------------------------------
+// NEON operations — WU-17, ADR-042
+//
+// Present only when __ARM_NEON is defined (AArch64 always defines it; no
+// -mfpu flag needed, unlike 32-bit ARM). Absent from any x86_64 build —
+// scatter-core's default Linux-sandbox matrix is unaffected, exactly as
+// ADR-031's BLACKMAGIC_SDK_DIR guard keeps that matrix unaffected by a
+// different Apple/ARM-only surface.
+//
+// Same signatures, same preconditions, same short-final-group behaviour
+// (ADR-018) as the scalar functions immediately above — these vectorise the
+// v210 bit-layout codec only (the 10-bit-field <-> 32-bit-word packing).
+// toCode10/fromCode10 (the I2 round-and-clamp / offset-binary shift) are
+// called identically on both paths, not reimplemented here. Bit-identical to
+// the scalar reference is this unit's entire accept criterion
+// (WORK-UNITS.md); tests/test_v210_neon.cpp checks it directly.
+// ---------------------------------------------------------------------------
+
+#if defined(__ARM_NEON)
+
+void unpackRowNeon(const std::uint8_t* src, int width,
+                   Sample* Y, Sample* Cb, Sample* Cr) noexcept;
+
+void packRowNeon(const Sample* Y, const Sample* Cb, const Sample* Cr, int width,
+                 std::uint8_t* dst) noexcept;
+
+void unpackImageNeon(const std::uint8_t* src, std::ptrdiff_t srcStrideBytes,
+                     int width, int height,
+                     Sample* Y, std::ptrdiff_t yStrideSamples,
+                     Sample* Cb, Sample* Cr, std::ptrdiff_t cStrideSamples) noexcept;
+
+void packImageNeon(const Sample* Y, std::ptrdiff_t yStrideSamples,
+                   const Sample* Cb, const Sample* Cr, std::ptrdiff_t cStrideSamples,
+                   int width, int height,
+                   std::uint8_t* dst, std::ptrdiff_t dstStrideBytes) noexcept;
+
+#endif  // __ARM_NEON
 
 }  // namespace scatter::v210

@@ -609,8 +609,48 @@ is untouched — but per this project's own convention the assistant does
 not run `close.sh`; the full suite and `./tools/close.sh 16b` still need
 a real-terminal run before this can be tagged `wu-16b-green`.
 
-### WU-17 — NEON v210 unpack and pack `todo`
-**Accept:** bit-identical to scalar reference.
+### WU-17 — NEON v210 unpack and pack `wip`
+See `DECISIONS.md` ADR-042 for the full design and for this session's own
+scoping work (this line was as bare going in as WU-16's own line was
+before ADR-040 split it): the sandbox's own real cross-compile-and-run
+verification capability, the new-sibling-function design, the group-level
+vectorisation shape, and the CMake guards.
+**Files:** `src/video/v210.hpp`, `src/video/v210.cpp` (both extended, not
+new — `unpackRowNeon`/`packRowNeon`/`unpackImageNeon`/`packImageNeon`,
+guarded by `#if defined(__ARM_NEON)`; the scalar `unpackRow`/`packRow`/
+`unpackImage`/`packImage` are untouched), `tests/test_v210_neon.cpp` (new);
+plus `CMakeLists.txt` (`test_v210_neon` added, gated on
+`CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$"` — CMakeLists.txt edits
+have never counted against the "3 source files" cap in any earlier unit
+either).
+**Accept:** bit-identical to scalar reference. `tests/test_v210_neon.cpp`
+diffs `unpackRowNeon`/`packRowNeon` against `unpackRow`/`packRow` directly
+over random buffers at widths covering every residue mod 6 an even width
+can take (both the full-group fast path and the short-final-group path,
+ADR-018), including the full 10-bit domain (codes 0-3 and 1020-1023, not
+just the legal range, so `packRowNeon`'s I2 clamp is checked at and around
+its bounds); and `unpackImageNeon`/`packImageNeon` against
+`unpackImage`/`packImage` over a whole 720x576 frame, byte-identical packed
+output and sample-identical planar output, plus NEON's own round trip.
+*Status:* implemented and verified in this session's own Linux cloud
+sandbox — not only compiled but genuinely **executed** as real AArch64
+machine code, via cross-compilation (GCC 13.3.0 and Clang 18.1.3) and
+`qemu-aarch64-static`, a materially stronger verification than ADR-031/032's
+DeckLink units could get (no SDK there at all; here, a real, if emulated,
+ARM64 CPU). Default x86_64 matrix (Clang 18/GCC 13, Release/Debug, tile
+4/5, plus GCC 13 ASan+UBSan) confirms this unit leaves the existing sandbox
+build completely unaffected — sixteen tests green, `test_v210_neon`
+correctly absent per its own CMake gate. AArch64 cross-compile +
+`qemu-aarch64-static` execution: Release/Debug, tile 4/5, plus GCC 13
+UBSan — seventeen tests green in every configuration, `test_v210_neon`
+itself 53 checks, zero warnings under this project's full `-Wall -Wextra
+-Wpedantic -Wconversion -Wsign-conversion -Werror` set on both GCC and
+Clang. ASan specifically crashes `qemu-aarch64-static` itself (a known
+sandbox/emulator limitation, not a code defect — see ADR-042) and is
+deferred to the real M1 Max, alongside AppleClang's own first compile of
+this unit (this session's own aarch64 verification used GCC/Clang's
+mainline cross target, not AppleClang) and `./tools/close.sh 17`. Still
+needed before this line goes `green`: that real-terminal run.
 ### WU-18 — NEON chroma resampling `todo`
 ### WU-19 — Real time at 576i25 `todo`
 

@@ -2519,3 +2519,248 @@ whole raster; ADR-015's single-threaded oracle is preserved deliberately
 own arithmetic is bit-for-bit unchanged, verified via the unmoved output
 of every pre-existing pipeline-level test, not merely reasoned to be
 unchanged).
+
+**ADR-042 — NEON v210 unpack/pack: the sandbox's own real cross-compile-and-
+run verification capability (materially stronger than ADR-031/032's
+DeckLink precedent), the new-sibling-function design (scalar entry points
+untouched forever), the group-level vectorisation shape, and the
+`__ARM_NEON`/`CMAKE_SYSTEM_PROCESSOR` guards — frozen at WU-17, Phase 4's
+first NEON unit.**
+
+`WORK-UNITS.md`'s own WU-17 line, going into this session, was bare: a title
+and one accept criterion ("bit-identical to scalar reference"), no `Files:`
+line — the same shape WU-16's own line was in before WU-16a/16b split it
+(ADR-040) and WU-14's DeckLink-enumeration line was in before ADR-031. This
+session's own first job, per Steve's own brief: real scoping — reading
+`src/video/v210.hpp`/`.cpp` (the WU-02 scalar reference this unit must match
+bit-for-bit, a frozen interface) and `tests/test_v210.cpp` (the existing
+scalar coverage this unit must not regress) — before writing code, plus
+working out, from the real toolchain rather than assuming, whether this
+unit's own Linux cloud sandbox (x86_64) can do anything better than
+ADR-031/032's "reasoned through against headers, unverified until the real
+terminal" shape for a genuinely different kind of platform gap: NEON
+intrinsics are ARM64 machine instructions the sandbox's CPU cannot execute
+natively, not an absent SDK.
+
+**The sandbox question, answered with evidence, not assumed.** Checked
+directly: `apt-cache policy g++-aarch64-linux-gnu qemu-user-static` in this
+session's own Linux cloud sandbox (Ubuntu 24.04) showed both installable
+from the standard Ubuntu repositories already in this sandbox's package
+manager configuration; installed via `apt-get install g++-aarch64-linux-gnu
+qemu-user-static` (exit 0, no network/permission issue — this sandbox runs
+as root with allowlisted access to the standard package registries).
+Confirmed with a standalone smoke test before trusting it for anything real
+(a NEON `vaddq_u16` on a small buffer): `aarch64-linux-gnu-g++-13 -static`
+compiles genuine `<arm_neon.h>` intrinsic code for AArch64, and
+`qemu-aarch64-static ./binary` runs it and produces the correct result —
+this sandbox can **actually execute** ARM64 NEON code, not merely
+cross-compile it blind. This is a materially different, stronger situation
+than ADR-031/032's DeckLink units, which could not even compile against the
+real SDK in this sandbox at all. Also checked, not assumed: Clang cross-
+compiles the same way (`clang++ --target=aarch64-linux-gnu
+--gcc-toolchain=/usr`, dynamically linked, run via `qemu-aarch64-static -L
+/usr/aarch64-linux-gnu ./binary`) — both compilers this project's own
+matrix already uses for x86_64 are therefore available for aarch64 too.
+GCC's ASan+UBSan combination (`-fsanitize=address,undefined`) was tried and
+reproducibly segfaults *qemu itself* (`qemu: uncaught target signal 11`,
+confirmed twice, on both a standalone prototype and the real project files)
+— a known class of limitation in QEMU's user-mode emulation of ASan's
+shadow-memory mmap layout, not a defect in this unit's own code; UBSan
+alone (`-fsanitize=undefined`, no ASan) runs clean under the same emulator.
+**Decision:** this sandbox is used for genuine execution-verified
+cross-compilation — GCC 13 and Clang 18, Release and Debug, both tile
+sizes, plus UBSan alone — with ASan specifically deferred to the real M1
+Max terminal alongside this unit's own final `close.sh` confirmation, the
+same "one thing genuinely unverified here, everything else is not" shape
+ADR-031's own `setWorkerQoS()` note already used for a different Apple-only
+surface, but reached by actually trying the sandbox's own tools rather than
+assuming a NEON unit must default to ADR-031's fully-unverified shape.
+
+**Design: new NEON-suffixed sibling functions; the scalar entry points are
+never modified, extended, or made to dispatch internally.** `unpackRow`,
+`packRow`, `unpackImage` and `packImage` (WU-02, frozen) are untouched —
+still exactly what `v210.hpp`'s own top comment already called them,
+"Scalar only." New siblings — `unpackRowNeon`, `packRowNeon`,
+`unpackImageNeon`, `packImageNeon` — declared in the same `v210.hpp`,
+defined in the same `v210.cpp`, guarded by `#if defined(__ARM_NEON)` in
+both files. Two designs were weighed, per this session's own brief: making
+the *existing* names platform-dispatch internally (same signature, NEON
+body on ARM, scalar body elsewhere) — matching `v210.hpp`'s own now-stale
+WU-02-era comment, "Row operations — the primitives WU-17 replaces" — or
+adding distinctly-named siblings and leaving the scalar ones alone forever.
+Chosen: siblings. Internal dispatch would remove the very thing this unit's
+own accept criterion ("bit-identical to scalar reference") needs to exist
+at all — on an ARM build there would be no way to call "the scalar
+implementation, specifically" to diff against, only whichever one platform
+dispatch picked. This also reads `SESSION-PROTOCOL.md` rule 2 ("never
+rename or refactor... names in existing headers are fixed") the same way
+ADR-026/030/038 already do — as forbidding a change to an existing
+function's own contract, not as forbidding a new sibling beside it — the
+same precedent, applied here to a platform variant rather than a new
+capability. The stale "primitives WU-17 replaces" comment is corrected in
+place (comment-only, no signature or behaviour change) to say what this
+entry actually decides.
+
+**No new header/`.cpp` pair.** `docs/architecture.md` section 8's own
+module-layout sketch already names this file pair `v210.hpp/.cpp # unpack/
+pack, scalar reference + NEON` — one file pair holding both, not a separate
+`v210_neon.hpp/.cpp` — so unlike ADR-021/026/027/030's own "does this need
+its own header" judgement calls (each filling a gap architecture.md left
+open), this one is answered directly by the document's own already-written
+words. `Files:` for this unit is therefore `src/video/v210.hpp`,
+`src/video/v210.cpp` (both extended, not new) plus `tests/test_v210_neon.cpp`
+(new) — two source files plus its test, within `SESSION-PROTOCOL.md`'s cap
+with room to spare.
+
+**Vectorisation shape: one v210 group (16 bytes, 4 words) per NEON register,
+mask/shift vectorised across all 4 words at once, field-to-Y/Cb/Cr placement
+left scalar.** v210's own layout (`v210.hpp`'s own diagram) puts each 10-bit
+field at bit offset 0, 10 or 20 within one of 4 words per group, but *which*
+of Y/Cb/Cr owns which offset differs per word — an irregular interleave, not
+a uniform stride. One `vld1q_u32` loads a whole group's 4 words into one
+128-bit register; three vector ops (`vandq_u32`/`vshrq_n_u32` for bits 0/10/
+20) extract all 12 fields for all 4 words at once, replacing the scalar
+`readGroup()`'s 12 individual `component()` calls (one word, one shift, one
+mask each) with 3 vector op-pairs. The field ->  Y/Cb/Cr placement itself
+(which of the 12 extracted values is `Y[0]` vs `Cb[0]` vs...) stays 12
+scalar lane reads (`readGroupNeon`) or writes (`writeGroupNeon`, gathering
+into the same per-word layout before the symmetric vectorised
+shift-and-`vorrq_u32` reassembly) — the same "no clean vector shuffle across
+an irregular interleave" reasoning `docs/architecture.md`'s own bin-traffic
+section already gives for the splat's own "NEON has no scatter instruction"
+limitation, applied here to a different irregular-interleave problem. This
+is a deliberately modest first step — vectorising the part that is
+genuinely uniform across all 4 words (the bitfield mask/shift), leaving the
+part that is not (the interleave) as scalar data movement, the same ratio
+of vector-to-scalar work in both directions by construction. A denser
+scheme (`vld4q_u32` across 4 groups at once, deinterleaving by word-position
+into a fully SoA layout before any scalar step) was considered and set
+aside as a future refinement, not decided here — this unit's own accept
+criterion is bit-identical correctness, not throughput (WU-19's job,
+architecture.md's own Phase 4 "done when" line), and the simpler one-group
+shape is easier to verify correct by direct field-by-field inspection
+against `readGroup`/`writeGroup`'s own known per-word field assignments,
+which this entry's own comments in `v210.cpp` state explicitly rather than
+leaving to be reverse-engineered from the code.
+
+**Short-final-group handling (ADR-018) needs no separate NEON-vs-scalar
+split at all.** Checked directly against the real scalar code before
+assuming a "NEON fast path, scalar tail" structure would be needed: scalar
+`readGroup()`/`writeGroup()` have no dependency on `width` whatsoever — they
+unconditionally decode/encode a full 16-byte group's twelve 10-bit fields;
+the short-final-group branching lives entirely in `unpackRow`/`packRow`,
+which decide how much of an *already-decoded* group to write out (unpack)
+or which entries to replace with `kPadLuma`/`kPadChroma` before encoding
+(pack), never in the group codec itself. `readGroupNeon`/`writeGroupNeon`
+are therefore width-independent, drop-in replacements for exactly that one
+step, and `unpackRowNeon`/`packRowNeon` are `unpackRow`/`packRow`'s own
+loop bodies with only `readGroup` -> `readGroupNeon` / `writeGroup` ->
+`writeGroupNeon` substituted — identical short-group branching,
+identical `fromCode10`/`toCode10` calls, copied rather than shared (this
+file's own `#if defined(__ARM_NEON)` block is meant to be self-contained)
+to keep the two loops independently readable. `toCode10`'s own round-and-
+clamp (I2) and `fromCode10`'s own offset-binary shift are not
+reimplemented or vectorised here — called identically from both paths, so
+I2's "pack is the one and only clamp site" property is exactly as true of
+the NEON path as the scalar one, by construction rather than by a second
+proof.
+
+**CMake: `test_v210_neon` gated on `CMAKE_SYSTEM_PROCESSOR`, deliberately
+not folded into the neighbouring `-mcpu=apple-m1` block; no new
+cross-compilation build mode added to the project.** Two separate
+`CMakeLists.txt` decisions:
+
+- The executable itself must be gated at the CMake level, not left to a
+  runtime skip inside the test — the functions it calls are not *declared*
+  at all without `__ARM_NEON`, so it would fail to *compile*, the same
+  "gate the whole executable, not sprinkle `#ifdef` through test code"
+  shape `BLACKMAGIC_SDK_DIR` already uses for `test_decklink_device`/
+  `test_decklink_output` (ADR-031), applied here for a processor-target
+  reason instead of a missing vendor SDK. Chosen guard:
+  `CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$"` (matching both
+  Apple's own `arm64` spelling and Linux's `aarch64`) — deliberately
+  **not** added to the existing `if(APPLE AND CMAKE_SYSTEM_PROCESSOR
+  MATCHES "arm64|aarch64")` `-mcpu=apple-m1` block a few lines above it in
+  the same file, because that block is Apple-specific *tuning*, orthogonal
+  to whether NEON intrinsics are available at all, and this guard must also
+  match a non-Apple AArch64 Linux build (this session's own cross-compiled
+  verification build, above) that the `APPLE AND` block never would.
+- **No new project-level cross-compilation infrastructure was added.** This
+  session's own aarch64-cross-plus-`qemu-aarch64-static` verification (a
+  CMake toolchain file setting `CMAKE_SYSTEM_NAME Linux`,
+  `CMAKE_CROSSCOMPILING_EMULATOR "qemu-aarch64-static;-L;/usr/aarch64-linux-gnu"`,
+  etc.) was used ad hoc, outside the repository, the same "standalone
+  reproduction, not new project machinery" shape ADR-036's own
+  no-CMake/no-SDK verification already used. Considered and rejected:
+  committing that toolchain file into `tools/` so a future session could
+  reuse it. Rejected for the same reason ADR-038 declined to build a
+  configurable-duration mechanism for WU-15b's own one-off need — Steve's
+  own real verification of this unit happens natively on the M1 Max (an
+  AArch64 host already; no cross-compilation of any kind needed there), so
+  a committed cross-toolchain file would be permanent repository machinery
+  serving only this session's own sandbox limitation, not this project's
+  actual development target. The exact commands are recorded in this
+  entry's own "Verification" section below instead, reproducible by a
+  future session if the same sandbox question ever comes up again.
+
+**Verification.** Built and run in this session's own Linux cloud sandbox
+(Ubuntu 24.04) via genuine AArch64 cross-compilation and execution under
+`qemu-aarch64-static`, not merely reasoned through:
+
+- Default (x86_64, no toolchain file) matrix, confirming this unit leaves
+  the existing sandbox matrix completely unaffected: Clang 18 and GCC 13,
+  Release and Debug, tile 4 and 5 (eight configurations) plus GCC 13 with
+  `-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+  sizes — all sixteen tests green (`test_v210_neon` itself absent from
+  this matrix, correctly, per its own `CMAKE_SYSTEM_PROCESSOR` gate;
+  configure log confirms the "skipping test_v210_neon" `STATUS` message),
+  zero warnings under this project's full `-Wall -Wextra -Wpedantic
+  -Wconversion -Wsign-conversion -Werror` set.
+- AArch64 cross-compile + `qemu-aarch64-static` execution (GCC 13.3.0, via
+  a CMake toolchain file, not committed — see above): Release and Debug,
+  tile 4 and 5 (four configurations), plus GCC 13 with `-fsanitize=undefined
+  -fno-sanitize-recover=all` — all seventeen tests green in every
+  configuration (the sixteen carried over, `bit-identical to threads==1`
+  etc. all still holding on AArch64, plus the new `test_v210_neon`, 53
+  checks, zero warnings under the same full warning set). `-fsanitize=
+  address` was also tried at Debug/tile5 and reproducibly crashes
+  `qemu-aarch64-static` itself (`uncaught target signal 11`) before any
+  test code runs — the sandbox limitation named above, not a result to
+  report as a test failure.
+- Clang 18.1.3 cross-compile (`--target=aarch64-linux-gnu
+  --gcc-toolchain=/usr`, standalone — `v210.cpp` + `test_v210_neon.cpp`
+  compiled directly, no CMake, the same ADR-036-style standalone shape),
+  run under `qemu-aarch64-static -L /usr/aarch64-linux-gnu`: `PASS
+  test_v210_neon (53 checks)`, zero warnings under the same full warning
+  set — confirming this unit compiles clean under both compilers this
+  project's own matrix already uses for x86_64, not only GCC.
+
+`WORK-UNITS.md`'s own WU-17 line stays `wip`, not `green`, for the same
+procedural reason every other unit's line has (`SESSION-PROTOCOL.md`, "the
+assistant does not run `close.sh`") — Steve's own real-terminal `cmake
+--build` + `ctest` + `./tools/close.sh 17` run, natively on the M1 Max
+(where this unit's NEON path needs no cross-compilation or emulation at
+all, being already AArch64 hardware), is still outstanding. Unlike
+ADR-031/032's DeckLink units, this is not "reasoned through against
+headers, entirely unverified until the real terminal" — every line this
+unit adds has already executed correctly, genuinely, in this session's own
+sandbox; what remains for the real terminal is confirming AppleClang agrees
+(a real, open question — this session's own aarch64 verification used GCC
+and Clang's mainline cross target, not AppleClang, which is a different
+compiler with its own `-mcpu=apple-m1` tuning already applied via the
+existing CMake block) and the one specifically-untried case, ASan on
+AArch64, which the real M1 Max can attempt without the qemu limitation this
+session's own sandbox hit.
+
+Does not reopen `docs/architecture.md`, ADR-013, ADR-017, ADR-018 or
+ADR-031 — same relationship every ADR since ADR-020 has to the document;
+ADR-013's Linux-cloud-sandbox-buildable `scatter-core` property is extended
+by a second, gated build mode (the AArch64 cross toolchain, used ad hoc,
+not committed) rather than crossed — the default x86_64 matrix is provably
+unaffected (see "Verification," above); ADR-017's warning set is applied
+unchanged to every line this unit adds, on every compiler and every target
+tried; ADR-018's short-final-group padding behaviour is reused unaltered,
+proven identical on the NEON path by construction (see above) rather than
+re-decided; ADR-031's "gate an entire executable at the CMake level, not
+via scattered `#ifdef`" shape is reused for a second, unrelated
+platform-availability question.

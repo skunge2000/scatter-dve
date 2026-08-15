@@ -86,6 +86,17 @@ endif()
 # now row-band-parallel too, when PipelineParams::threads > 1) -- no new
 # source file for scatter-core itself, only its own new test executable
 # below (test_row_band).
+#
+# WU-17 extends the existing src/video/v210.hpp/.cpp with NEON-suffixed
+# siblings of the scalar unpack/pack functions (DECISIONS.md ADR-042) --
+# architecture.md section 8's own module-layout sketch already names this
+# file pair "scalar reference + NEON", not a separate v210_neon.hpp/.cpp.
+# Guarded by #if defined(__ARM_NEON) in both files, so scatter-core's object
+# list and every existing test are completely unaffected on a non-NEON
+# (x86_64) build -- no new source file for scatter-core itself, only its own
+# new test executable below (test_v210_neon), itself gated at the CMake
+# level (not by a runtime skip) since its whole body calls functions that do
+# not exist to declare or define at all without __ARM_NEON.
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -168,6 +179,29 @@ scatter_test(test_morph)
 scatter_test(test_threading)
 target_include_directories(test_threading PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 scatter_test(test_row_band)
+
+# ---------------------------------------------------------------------------
+# test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared
+# in src/video/v210.hpp only under #if defined(__ARM_NEON) (AArch64 always
+# defines it; no -mfpu flag needed, unlike 32-bit ARM); this executable would
+# therefore fail to *compile*, not just fail to run, on a processor this
+# guard doesn't match, so it is gated here rather than left for a runtime
+# skip -- the same "gate the whole executable at CMake level" shape
+# BLACKMAGIC_SDK_DIR already uses below for test_decklink_device/_output
+# (ADR-031), applied here for a portable-toolchain reason (a processor
+# target) rather than a missing vendor SDK. Deliberately not folded into the
+# neighbouring `if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")`
+# -mcpu=apple-m1 block above: that block is Apple-specific tuning, unrelated
+# to whether NEON intrinsics themselves are available, and this guard must
+# also match a non-Apple AArch64 Linux build (e.g. a cross-compiled
+# verification build, see ADR-042) that the APPLE-gated block never would.
+# ---------------------------------------------------------------------------
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    scatter_test(test_v210_neon)
+    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} -- test_v210_neon configured")
+else()
+    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}, not arm64/aarch64 -- skipping test_v210_neon (WU-17's NEON path is not declared at all without __ARM_NEON)")
+endif()
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw
