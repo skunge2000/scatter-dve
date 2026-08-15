@@ -390,8 +390,32 @@ also records that this does not reopen WU-14 (`wu-14-green` stands). Steve
 reported seeing "a circular zone plate" on the monitor — **not yet
 confirmed whether the cylinder curvature itself was visible**, as distinct
 from the zone plate pattern's own inherent concentric-ring shape, which is
-what `Accept:` above actually requires; asked directly, not assumed either
-way.
+what `Accept:` above actually requires; asked directly, Steve confirmed it
+looked like a plain, undistorted zone plate, not a bent one.
+
+**Investigation opened, not yet closed.** That answer is a real problem if
+true of the actual SDI output, so before touching any code the file
+`LoopedFramePlayback` actually reads was checked independently of hardware:
+`writeWarpedTestFrame()`'s own steps (`makeZonePlate` -> `buildCylinderLattice`
+with the test's exact `CylinderParams` -> `runFrameFile`) were reproduced
+standalone (g++, no CMake, in the device bridge's own Linux VM, linking
+only `scatter-core`'s files — no Blackmagic SDK involved at all) and both
+the pre-warp and post-warp `.v210` files were dumped to 8-bit PGM/PNG for
+direct visual inspection. Result: the post-warp file is **clearly, strongly
+warped** — a vertically-elongated oval with black letterboxing on both
+sides, not remotely a plain circular zone plate; the cylinder mechanism
+(`buildCylinderLattice`/`runFrameFile`) is doing exactly what ADR-027
+specifies. This rules out `runFrameFile`/`buildCylinderLattice` themselves
+as the cause of what Steve saw — the file being handed to
+`LoopedFramePlayback::create()` is unambiguously the warped one, not the
+source. What is still open: whether that same warped content is what
+actually left the Monitor 3G's SDI output, or whether Steve's own
+description was a first-glance impression that didn't specifically register
+the letterboxing/ellipse shape versus a genuinely wrong signal on the wire.
+Steve was shown the actual before/after image and asked to look again,
+specifically for black bars down both sides of the picture and an oval
+(not round) ring shape, before this line's own by-eye `Accept:` clause is
+either marked satisfied or treated as a real `decklink_output.cpp` bug.
 
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
