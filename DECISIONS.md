@@ -1835,3 +1835,100 @@ named for whichever session picks them up next, not solved here):
    should target the Recorder 3G/Monitor 3G split directly rather than
    describing a single device, once either is actually touched by new
    `Files:`/`Accept:` scoping.
+
+**ADR-038 — WU-15b's own duration mechanism: hand-edit the existing
+bounded-run literal for one temporary, uncommitted run, not a CLI arg or
+environment variable. Completes an implicit gap in ADR-032's "not
+implementation work" framing; does not reopen it.**
+
+ADR-032 already fixed WU-15b's own shape precisely: "WU-15a's own
+`LoopedFramePlayback` mechanism, unchanged, run for longer... not scoped
+with new `Files:`/`Accept:` source-file lines the way every other work unit
+in this file is." What it left unstated is *how* "run for longer" is
+actually invoked — `tests/test_decklink_output.cpp`'s
+`test_looped_playback_runs_with_no_dropped_or_late_frames()` hardcodes the
+bounded run's own length as a single literal,
+`std::this_thread::sleep_for(std::chrono::seconds(5))` (line 168), with no
+parameter anywhere that already lets a caller ask for an hour instead. Two
+candidate mechanisms were weighed before touching anything, per this
+session's own brief:
+
+- **A configurable duration — CLI arg or environment variable.** Rejected.
+  This is new implementation by ADR-032's own already-frozen standard, not
+  an exception to it: a new parameter needs a name, a type, a default,
+  validation (what happens to a negative or absurd value), and a decision
+  about whether it also changes WU-15a's own `close.sh`-driven ~5-second
+  smoke-test invocation or only a separate manual one — none of which
+  `architecture.md` or any existing ADR speaks to, all of which WU-15b's
+  own `WORK-UNITS.md` line already declined to scope with a
+  `Files:`/`Accept:` pair. It also introduces a real foot-gun the
+  hardcoded literal does not have: if the default value were ever set to
+  anything but the committed 5 seconds, or an environment variable meant
+  for one manual run leaked into a later `close.sh` invocation's own
+  environment, every future work unit's own `close.sh` run would silently
+  hang for up to an hour waiting on one test, with nothing in `close.sh`
+  itself (which only gates on git-dirty, an existing tag, build failure or
+  test failure, never on suspiciously long runtimes) to catch it.
+- **Hand-edit the existing literal, once, for exactly one manual
+  invocation — not committed to git, reverted immediately after.** Chosen.
+  WU-15a's own mechanism is genuinely unchanged; the only thing different
+  is how long an already-frozen, already-verified bounded-run test sleeps
+  before calling `stop()`, for one run Steve invokes directly and
+  discards. This needs no new parameter, no default-value decision and no
+  interaction question with any other caller, because there is no other
+  caller — `close.sh`'s own `ctest` run always executes whatever the
+  committed literal says, so its cost stays fixed at ADR-032's own
+  ~5-second figure forever, regardless of what any one manual run
+  temporarily does to a dirty working tree. This is the same "temporary,
+  purpose-specific edit, run, then discard" shape ADR-036's own checksum
+  instrumentation and sphere-warp diagnostic already used in this project
+  — the only difference is those were committed and later reverted across
+  several commits, appropriate for a multi-step investigation spanning a
+  session's own narrative; this is a single, self-contained
+  edit-build-run-revert cycle within one sitting, so it does not need its
+  own commit at all.
+
+**Mechanics, frozen:**
+
+- **Edit:** `tests/test_decklink_output.cpp` line 168,
+  `std::this_thread::sleep_for(std::chrono::seconds(5));` →
+  `std::this_thread::sleep_for(std::chrono::seconds(3600));`. Nothing else
+  in the file changes — this is the file's only bounded-run-length literal
+  (the two comments mentioning "five seconds"/"a few seconds", lines 18
+  and 164, are descriptive prose, not code, and are irrelevant to the
+  run's actual behaviour either way).
+- **Build:** `cmake --build build` (incremental; picks up the one changed
+  translation unit).
+- **Run:** the `test_decklink_output` binary directly
+  (`./build/test_decklink_output`) or `ctest --test-dir build -R
+  test_decklink_output --output-on-failure` — either invokes the same
+  binary. **Not `./tools/close.sh`**, for two independent reasons: its own
+  git-dirty gate would refuse to run at all while the edit is uncommitted
+  (correct behaviour, not a bug to route around), and even if the tree
+  were clean, `close.sh`'s own job is tagging a work unit `green` against
+  `Files:`/`Accept:` criteria WU-15b was explicitly never scoped with
+  (ADR-032) — there is nothing for it to tag.
+- **Revert:** `git checkout -- tests/test_decklink_output.cpp` (or `git
+  restore tests/test_decklink_output.cpp`) immediately after the run,
+  before doing anything else in the repository. `git status` should be
+  clean again, matching `wu-15a-green`'s own committed content exactly,
+  before any future `close.sh` run for a later work unit — otherwise that
+  gate would incorrectly refuse on what looks like an unrelated dirty
+  tree.
+- **No commit for the edit/revert pair itself.** Unlike ADR-036's own
+  investigation, this is not a multi-commit narrative worth checkpointing
+  — the edit exists only to make one binary sleep longer before its own
+  already-frozen `stats()` checks run, and reverting it before the next
+  session (or the next `close.sh` invocation) leaves no trace to record.
+
+**Not decided here, deliberately:** whether a real configurable duration is
+ever worth building as its own future unit, if repeated multi-hour runs
+turn out to be needed often enough that hand-editing becomes tedious —
+flagged as a possible future convenience, the same way ADR-037 names
+follow-ups without resolving them, not decided or scoped now.
+
+Does not reopen `DECISIONS.md` ADR-032 — completes a gap that entry left
+implicit (it fixed WU-15b's *scope*, not its *invocation mechanism*), the
+same relationship ADR-033's `bmdModePAL` confirmation and ADR-029's
+`compositeLayered()` freeze both already have to their own respective
+"not decided here" notes.

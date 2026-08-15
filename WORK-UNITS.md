@@ -484,6 +484,14 @@ already asks for by hand, not a session's own job to assert from a
 terminal. See `DECISIONS.md` ADR-032.
 **Accept:** one hour on a broadcast monitor, zero
 `stats().dropped`/`stats().displayedLate` across the whole run.
+*Status:* not yet run. Session 17 resolved and froze the two remaining
+open questions before any real run — how "run for an hour" is actually
+invoked (`DECISIONS.md` ADR-038: hand-edit `tests/test_decklink_output.cpp`
+line 168's bounded-run literal from `seconds(5)` to `seconds(3600)` for one
+uncommitted, reverted run, not a new CLI arg/env var) and how an hour-long
+unattended run is expected to survive being unattended (`HANDOFF.md`'s own
+"What to run at your terminal": AC power, lid open, `caffeinate -s`,
+`nohup`+`disown`). Nothing left to decide — only to run it.
 
 ---
 
