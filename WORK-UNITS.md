@@ -324,7 +324,7 @@ of the two things `HANDOFF.md` flagged as unverified going into this
 session's own close, now resolved. Phase 3 (SDI output) is under way:
 device enumeration and `ComPtr` are done; WU-15 (scheduled playback, file
 source to SDI out) is next.
-### WU-15a — Scheduled playback: one looped warped frame, file source to SDI out `wip`
+### WU-15a — Scheduled playback: one looped warped frame, file source to SDI out `green` (`wu-15a-green`)
 See `DECISIONS.md` ADR-032 for the full design and for why this splits from
 the single WU-15 line above (`HANDOFF.md`'s own flag going into this
 session, resolved after reading the real SDK — the same order ADR-028 used
@@ -459,6 +459,16 @@ done. `./tools/close.sh 15a` and tagging `wu-15a-green` are Steve's own
 next action, not run this session — per this project's own "the assistant
 does not run `close.sh`" rule, this line stays `wip` until he reports that
 back.
+
+**`./tools/close.sh 15a`, run by Steve:** 15/16 — the same, single, already-
+understood `test_decklink_device` duplex failure ADR-035 predicted, nothing
+new. `close.sh` itself has no way to know that failure is an accepted
+exception (its own gate is "any failure blocks tagging," which is the
+right default behaviour for a script that shouldn't be hardcoding hardware-
+availability judgment calls) — so it correctly refused to tag. **Steve
+tagged `wu-15a-green` by hand**, accepting the ADR-035 exception himself
+rather than waiting or extending `close.sh` — his own call to make, made.
+This line is `green`.
 
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept

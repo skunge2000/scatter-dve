@@ -4,21 +4,22 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 16
-**Tag:** none yet — WU-15a is `wip`, not `green`. `wu-14-green` (session 15)
-remains the last confirmed tag. WU-15a's own `Accept:` criteria are now all
-satisfied (mechanics and by-eye warp confirmation both done); `./tools/
-close.sh 15a` and tagging `wu-15a-green` are Steve's own next action, not
-run this session.
+**Tag:** `wu-15a-green`. Steve ran `./tools/close.sh 15a`: 15/16, the single
+already-understood `test_decklink_device` duplex exception ADR-035
+predicted (Monitor 3G is playback-only) — `close.sh` correctly refused to
+tag on its own, since it has no way to know that specific failure is an
+accepted exception. Steve tagged `wu-15a-green` by hand, accepting that
+exception himself. WU-15a is `green`.
 **Phase:** 3 — SDI output. WU-14 (device enumeration, `ComPtr`) is `green`.
 WU-15a (scheduled playback of one looped, file-sourced, warped frame) is
-implemented, built, and confirmed working end to end against real hardware
-— ready to close, pending only Steve's own `close.sh` run.
+`green` (`wu-15a-green`), confirmed working end to end against real
+hardware.
 
-**This was a long session with a real hardware incident and a real (if
-ultimately false-alarm) investigation in the middle of it.** Summary in
-chronological order; `DECISIONS.md` ADR-032 through ADR-036 and
-`CORRECTIONS.md` C-013 are the frozen record — this section is the
-narrative, not a replacement for reading them.
+**This was a long session: a real hardware incident, a real (if ultimately
+false-alarm) investigation, and a genuine end-of-session hardware-target
+decision.** Summary in chronological order; `DECISIONS.md` ADR-032 through
+ADR-037 and `CORRECTIONS.md` C-013 are the frozen record — this section is
+the narrative, not a replacement for reading them.
 
 **1. Research, then WU-15a implementation (as usual).** Read
 `HANDOFF.md`/`INVARIANTS.md`/`DECISIONS.md`/`CORRECTIONS.md`/
@@ -97,7 +98,24 @@ mode recurring.
 Steve.** WU-15a's `Accept:` criteria — zero dropped/late frames and a clean
 stop (established in step 2, unaffected by the investigation), plus the
 by-eye warp confirmation (established in step 5) — are both satisfied.
-`./tools/close.sh 15a` and tagging are Steve's own next action.
+`./tools/close.sh 15a`: 15/16, the same ADR-035 exception, refused to tag
+on its own (correct behaviour for the script). Steve tagged `wu-15a-green`
+by hand, accepting that exception himself. WU-15a is `green`.
+
+**7. End-of-session hardware decision: the Monitor 3G/Recorder 3G split is
+the real going-forward target, not a stopgap.** Steve stated directly that
+output will use the UltraStudio Monitor 3G and input will use a separate
+UltraStudio Recorder 3G — both already in his hands, not a future plan.
+The 4K Mini is on hold pending a PSU replacement (Steve's own diagnosis,
+consistent with ADR-034's "unlikely code-caused" assessment) — not
+retired, but not the active plan either way. Recorded as ADR-037, which
+supersedes ADR-006's specific device choice and ADR-011's "spare" framing
+of the Monitor 3G, does not reopen ADR-013 (still one machine, just two
+DeckLink devices instead of one), and names three concrete follow-ups for
+a future session (WU-14's full-duplex check no longer describes the real
+hardware; genlock matters more with two independent-clock devices; future
+capture work should target the Recorder 3G by name) without resolving any
+of them now.
 
 **Tests:** `test_decklink_output` has passed clean, full-suite, against
 both the 4K Mini and the Monitor 3G. `test_decklink_device` passes against
@@ -121,22 +139,27 @@ ADR-032's design; no diagnostic scaffolding remains.
 bmdModePAL` (ADR-033), cylinder warp (ADR-032, reaffirmed by ADR-036), now
 with a comment warning about the 4:3-on-16:9 false-alarm mode. `CMakeLists.
 txt` unchanged since its own commit in step 1. See `DECISIONS.md` ADR-032
-through ADR-036, `CORRECTIONS.md` C-013, and `WORK-UNITS.md`'s WU-15a/
+through ADR-037, `CORRECTIONS.md` C-013, and `WORK-UNITS.md`'s WU-15a/
 WU-15b entries for the full record.
 
 **Corrections this session:** C-013 only (the `bmdModePALp` failure's
 stated *reason*, not the `bmdModePAL` decision itself). The hardware
-incident (ADR-034) and the warp-visibility investigation (ADR-036) both
-closed without any earlier project claim being shown wrong, so neither
-gets a `CORRECTIONS.md` entry — see those ADRs' own closing notes for why.
+incident (ADR-034), the warp-visibility investigation (ADR-036), and the
+end-of-session hardware-target decision (ADR-037) all closed without any
+earlier project claim being shown wrong, so none gets a `CORRECTIONS.md`
+entry — see each ADR's own closing note for why.
 
 **Delivery mechanics:** this session ran remotely via the device-bridge
 tools throughout. Commits this session: `c5605f4` (WU-15a implementation),
 `5fd4b4f` (`bmdModePAL` fix, ADR-033/034, C-013, the 4K Mini incident and
 Monitor 3G pivot), `8b840e9` (ADR-035, Monitor 3G run results), `0138c54`
 (warp investigation opened, off-hardware evidence logged), `ef45a35`
-(ADR-036, investigation closed, diagnostics/sphere-swap reverted). Working
-tree is clean as of this handoff. The bridge's own `unlink`-can't-work-on-
+(ADR-036, investigation closed, diagnostics/sphere-swap reverted),
+`7410b30` (full-suite confirmation, HANDOFF refresh), plus one further
+commit for this update (ADR-037, the `wu-15a-green` tag record, and the
+Monitor 3G/Recorder 3G hardware decision) — see `git log` for its actual
+hash, made after this file was written. Working tree is clean as of this
+handoff. The bridge's own `unlink`-can't-work-on-
 this-mount limitation continued to leave stale `index.lock`/`HEAD.lock`/
 temp-object files after nearly every commit this session; each was moved
 into `_to_delete/` rather than removed, per the established convention —
@@ -146,30 +169,43 @@ _to_delete/` by hand whenever convenient.
 
 ## Next work unit
 
-**WU-15a:** run `./tools/close.sh 15a` at your own terminal whenever
-convenient (this session doesn't run it) and let me know the result — I'll
-update `WORK-UNITS.md`'s status line and tag `wu-15a-green` from what you
-report back.
+WU-15a is `green` (`wu-15a-green`). Next is Steve's own call: WU-15b (the
+one-hour unattended endurance run — no new code, Steve's own hands-on step,
+`DECISIONS.md` ADR-032/`WORK-UNITS.md`'s own WU-15b entry; runs against the
+Monitor 3G, which is now the project's actual going-forward output device,
+not a stopgap — ADR-037) or WU-16 (thread pool, QoS, per-worker bin arenas
+— Phase 4), if WU-15b is deferred to run unattended in the background of a
+later session rather than blocking the next one.
 
-**After that,** the choice is WU-15b (the one-hour unattended endurance
-run — no new code, Steve's own hands-on step, `DECISIONS.md` ADR-032/
-`WORK-UNITS.md`'s own WU-15b entry; can run against the Monitor 3G for now,
-same as WU-15a's own verification did, or wait for the 4K Mini) or WU-16
-(thread pool, QoS, per-worker bin arenas — Phase 4), if WU-15b is deferred
-to run unattended in the background of a later session rather than blocking
-the next one.
+**Before either, worth a look:** `DECISIONS.md` ADR-037 (written this
+session, from Steve's own end-of-session hardware decision) names three
+concrete follow-ups that aren't resolved yet and aren't this session's own
+job either — read ADR-037's own closing list before picking whichever of
+WU-15b/WU-16 comes next, in case one of them is now relevant sooner than
+expected:
 
-**Separately, not blocking either of the above:** whenever you've made
-progress on the 4K Mini (Blackmagic support, a hardware check), let me know
-what you find — I'll fold the outcome into `DECISIONS.md`, either closing
-ADR-034's pivot as temporary-and-resolved or recording whatever comes next.
+1. `test_decklink_device.cpp`'s full-duplex check (WU-14) checks a fact
+   that will never be true of the real going-forward hardware (two
+   separate devices, not one full-duplex unit) — worth deciding whether to
+   retire or rescope it, not just keep accepting the same `close.sh`
+   exception forever.
+2. Genlock (ADR-010) was reasoned about for one device sharing one
+   internal clock between input and output; two independent devices (the
+   Recorder 3G and Monitor 3G) share no such clock. Worth revisiting once
+   the Recorder 3G is actually touched by this project's own code.
+3. Future capture-side work should target the Recorder 3G by name, not a
+   generic "input device," once scoped with its own `Files:`/`Accept:`.
 
 ## Open questions
 
-Unchanged from session 15, none touched this session: Q1 (tile size), Q2
-(4K Mini program outputs — now also entangled with whether the 4K Mini
-itself is usable again), Q3 (macOS/Desktop Video version), Q4 (lattice
-edge damping, C-008(a)).
+Unchanged from session 15, none touched this session: Q1 (tile size), Q3
+(macOS/Desktop Video version), Q4 (lattice edge damping, C-008(a)).
+
+**Q2 (4K Mini program outputs) is now moot for this project's own
+purposes** — the 4K Mini is on hold pending a PSU replacement (ADR-037) and
+is no longer the going-forward output device regardless of whether it
+recovers; leaving Q2 recorded here for history, not as something blocking
+anything.
 
 Resolved this session: `bmdModePALp` unsupported on the 4K Mini, `bmdModePAL`
 confirmed working on *both* the 4K Mini and the Monitor 3G (ADR-033,
@@ -177,30 +213,45 @@ extended by the Monitor 3G run); `RowBytesForPixelFormat(bmdFormat10BitYUV,
 ...)` matches `v210::rowBytesMin()` on both devices too. Whether the
 warp is actually visible on real hardware — yes, confirmed (ADR-036), after
 a real but ultimately false-alarm investigation into a display-side aspect
-issue, not a code defect.
+issue, not a code defect. What caused the 4K Mini's hardware incident —
+most likely a failed PSU (Steve's own diagnosis, folded into ADR-037),
+consistent with ADR-034's own "unlikely code-caused" assessment.
 
-New this session, still open: is the 4K Mini recoverable at all (Steve's
-own hardware diagnosis, not this project's). Nothing else new.
+New this session, still open: the three ADR-037 follow-ups above. Whether
+the 4K Mini ever gets its PSU replaced and rejoins the project in some
+role is Steve's own call, not tracked as a blocking question here.
 
 ## Blocked / red
 
-Nothing red. The 4K Mini remains hardware-unavailable (see ADR-034) but
-that no longer blocks WU-15a, which is now fully verified against the
-Monitor 3G instead.
+Nothing red, nothing open. `./tools/close.sh 15a` reported 15/16 (the
+already-understood `test_decklink_device` duplex exception, ADR-035) and
+refused to tag on its own — correct behaviour for the script, not a sign
+anything is wrong. Steve tagged `wu-15a-green` by hand, accepting that
+exception himself. Worth keeping in mind for future work units closed
+while only the Monitor 3G is attached: `close.sh` will keep refusing to
+tag on this same exception every time, and someone will need to tag by
+hand each time (or `close.sh` could be taught a documented exception list
+— not done, not scoped, just worth naming as a real option if this gets
+tedious).
 
 ## Environment check
 
-Unchanged from the last update this session: UltraStudio 4K Mini
-unresponsive (Desktop Video, Media Express, Thunderbolt System Report all
-show it absent; no power passthrough) — isolated to the unit itself, not
-the Mac/port/cable/driver. UltraStudio Monitor 3G confirmed working and is
-now the verified hardware target for WU-15a (`bmdModePAL` +
-`bmdFormat10BitYUV`, playback only, no capture input — expected and
-unrelated to WU-15a's own playback-only need).
+**Changed again at the very end of this session (ADR-037).** Going-forward
+target hardware is now a two-device split, both already in Steve's hands:
+**UltraStudio Monitor 3G for output** (confirmed working this session,
+`bmdModePAL` + `bmdFormat10BitYUV`, playback only — no capture input, which
+is fine for its own role) and **UltraStudio Recorder 3G for input** (not
+yet touched by any of this project's own code — first contact with it is a
+future session's own job). UltraStudio 4K Mini: still unresponsive (Desktop
+Video, Media Express, Thunderbolt System Report all show it absent; no
+power passthrough), isolated to the unit itself via cable/port swap
+(ADR-034), and now diagnosed by Steve as most likely a failed PSU — on hold
+pending a replacement, not part of the active hardware plan regardless of
+whether it recovers (ADR-037).
 
 ## Append to DECISIONS.md
 
-ADR-033, ADR-034, ADR-035, and ADR-036 were all appended in full this
+ADR-033, ADR-034, ADR-035, ADR-036, and ADR-037 were all appended in full this
 session; see `DECISIONS.md`. None reopens an earlier entry — each records
 either a new decision or an investigation's own closure; see each entry's
 own closing note for its precise relationship to what came before.
@@ -209,22 +260,18 @@ own closing note for its precise relationship to what came before.
 
 C-013 was appended in full this session; see `CORRECTIONS.md`. Nothing
 further — see "Corrections this session" above for why the hardware
-incident and the warp investigation both closed without one.
+incident, the warp investigation, and the hardware-target decision all
+closed without one.
 
 ---
 
 ## What to run at your terminal
 
-Whenever convenient, not urgent:
+Nothing outstanding from this session — WU-15a is tagged `wu-15a-green`
+and the working tree is clean. Whenever you're ready to start the next
+piece of work (WU-15b's hour-long run, or WU-16), that's the next session's
+own job to scope properly, same as always.
 
-```
-cd ~/src/scatter-dve
-./tools/close.sh 15a
-```
-
-Let me know the result and I'll update `WORK-UNITS.md` and tag
-`wu-15a-green` from what you report back.
-
-If you make progress on the 4K Mini (support ticket, hardware check, a
-different cable/dock, anything), let me know what you find whenever it
-happens — no rush, and it doesn't block anything above.
+If the 4K Mini's PSU gets replaced and you want it back in the picture in
+some role, or if anything about the Monitor 3G/Recorder 3G split changes,
+let me know whenever it happens — no rush, and it doesn't block anything.

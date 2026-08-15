@@ -1757,3 +1757,81 @@ WU-15a's own `Accept:` by-eye clause is satisfied by this — Steve has now
 confirmed the warped frame is visible, on both shapes tried, accounting
 for his monitor's own scaling. Full suite + `./tools/close.sh 15a` on the
 reverted build is still Steve's own next step, not this entry's to claim.
+
+**ADR-037 — Going-forward target hardware is a two-device split: UltraStudio
+Monitor 3G for output, UltraStudio Recorder 3G for input. Supersedes
+ADR-006's specific device choice and ADR-011's "spare" framing of the
+Monitor 3G. Does not reopen ADR-013.**
+
+Steve's own decision, stated directly at the end of this session: going
+forward, output uses the UltraStudio Monitor 3G and input uses the
+UltraStudio Recorder 3G — two separate devices, not one full-duplex unit.
+Both are already in hand, not a future purchase — this is the project's
+real target hardware now, not a provisional workaround. The UltraStudio 4K
+Mini (ADR-006's original choice, unresponsive since the incident this
+session — ADR-034) is **on hold pending a PSU replacement**: not retired
+outright, but not part of the active plan either, and its return (if it
+comes) does not revert this decision.
+
+That PSU diagnosis is also worth folding back into ADR-034's own causation
+assessment, without reopening it: a failed power supply is exactly the
+kind of mundane, physical, hardware-level fault ADR-034 already judged
+most likely and explicitly distinguished from anything this project's code
+could reach (no code path touches power delivery). This doesn't change
+ADR-034's conclusion, just gives it a concrete, plausible real-world shape.
+
+**Relationship to earlier ADRs, stated precisely, the same discipline
+ADR-034 itself used:**
+
+- **Supersedes ADR-006's device choice** ("Host is the M1 Max MacBook Pro
+  with UltraStudio 4K Mini... full duplex... 12G headroom... composite and
+  component analogue inputs") — the going-forward hardware is neither full
+  duplex on one device nor does it carry the 4K Mini's analogue inputs;
+  ADR-006's other reasoning (CPU first, Metal deferred based on the M1
+  Max's own compute headroom) is about the *host*, not this device choice,
+  and is unaffected.
+- **Does not reopen ADR-013** ("Single machine... no second build host, no
+  cross-machine verification") — still one Mac, still one development
+  environment; what changes is how many DeckLink devices are attached to
+  it (two, not one), not how many machines are involved.
+- **Supersedes ADR-011's framing of the Monitor 3G** as "the spare...not a
+  second SDI output," scoped to a secondary diagnostic-coverage-view role
+  alongside a primary full-duplex 4K Mini. The Monitor 3G is now the
+  primary output device outright, not a spare. Where the diagnostic
+  coverage view itself goes with this hardware in place — the Mac's own
+  display alone, now that the Monitor 3G is spoken for, or something else
+  — is not decided by this entry; a future session picks that up if it
+  becomes relevant again.
+
+**Concrete follow-ups this entry surfaces but does not resolve** (no
+unscoped code in this entry, per this project's own discipline — these are
+named for whichever session picks them up next, not solved here):
+
+1. `tests/test_decklink_device.cpp`'s `test_at_least_one_device_is_full_duplex`
+   (WU-14) checks a fact — architecture.md 7's "The UltraStudio 4K Mini is
+   full duplex: one `IDeckLink` exposing both `IDeckLinkInput` and
+   `IDeckLinkOutput`" — that will never be true of this project's actual
+   going-forward hardware (Monitor 3G and Recorder 3G are two separate
+   devices, neither full duplex). ADR-035 treated this check's failure as
+   a temporary, hardware-availability exception while the 4K Mini was
+   simply absent; this entry means that framing no longer fits — the
+   check's own premise doesn't describe the intended hardware at all
+   anymore, not even once the 4K Mini's PSU is sorted. WU-14 itself stays
+   `green` (`wu-14-green` recorded a true result against hardware attached
+   at the time, same principle ADR-034/035 already applied) — but a future
+   session should decide whether to retire this specific check, rescope
+   what "full duplex" means for a two-device architecture, or something
+   else. Not decided here.
+2. Genlock (ADR-010, "free-running... an unlocked source drifts against
+   the output... the 4K Mini has a sync input, so one BNC of black burst
+   resolves it whenever it matters") was reasoned about for one device
+   sharing one internal clock domain between its own input and output.
+   Two independent devices have no such shared clock by construction —
+   drift between capture and playback may matter more, sooner, than
+   ADR-010 anticipated. Not resolved here; worth revisiting once input
+   (the Recorder 3G) actually gets exercised by this project's own code,
+   not before.
+3. `WORK-UNITS.md`'s WU-15b (`todo`) and any future capture-side work
+   should target the Recorder 3G/Monitor 3G split directly rather than
+   describing a single device, once either is actually touched by new
+   `Files:`/`Accept:` scoping.
