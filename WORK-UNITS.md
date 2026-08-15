@@ -1115,6 +1115,73 @@ full numbers and the new `kCaptureRingCapacity` data point they surface
 diagnosed this session). Confirmed `green`, tagged `wu-21b-green`
 (confirmed present on `git tag` at Steve's own real terminal).
 
+### WU-21c — Continuous SDI re-output: `LiveFramePlayback` schedules a
+live-produced frame stream (WU-21b's own `CaptureConsumer::copyLatestFrame()`)
+onto `IDeckLinkOutput` — a fixed pool of frame buffers, round-robin refilled
+and rescheduled exactly once per completion, in place of `LoopedFramePlayback`'s
+own single-static-buffer design `wip`
+See `DECISIONS.md` ADR-050 for the full design: the pool-sizing reasoning
+(exactly `round(frameRate / 2)` buffers, ADR-032's own preroll convention
+reused rather than invented fresh), the round-robin refill policy (relying on
+the SDK's own FIFO completion guarantee, no separate in-flight bookkeeping),
+and — this unit's own concern for the first time, ADR-037's second follow-up,
+open since it was first named — the no-explicit-synchronisation
+genlock/clock-domain decision: every refill uses whatever
+`CaptureConsumer::copyLatestFrame()` returns right now, with no timestamp
+alignment against the output's own fixed schedule, so a capture/process rate
+mismatch shows as repeated frames (`framesRepeated()`, this unit's own new
+counter) or silently superseded ones, never a growing backlog. This session's
+own first job, per established practice for a new hardware surface: re-read
+the real SDK's `IDeckLinkOutput`/`IDeckLinkVideoOutputCallback` shape directly
+again (confirmed unchanged from ADR-032/033), plus the real SDK's own
+`FilePlayback` sample specifically for how it schedules genuinely *changing*
+content across completions (`DeckLinkPlaybackDevice::scheduleVideo()` obtains
+a fresh frame object every call — the real precedent this unit's own pool
+design extends, distinct from `LoopedFramePlayback`'s "content never
+changes" case), plus `io/decklink_output.hpp`/`.cpp` (the preroll idiom and
+`fillFrameBuffer()` pattern this unit extends from one buffer to a pool),
+`io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b, this unit's own upstream
+source of frames), `io/decklink_input.hpp`/`.cpp` (WU-20b, touched only
+indirectly via `CaptureConsumer`), and `docs/architecture.md` sections 3, 6,
+7, 9, 12 plus ADR-010/032/037/039.
+**Files:** `src/io/decklink_live_output.hpp`, `src/io/decklink_live_output.cpp`
+(both new: `LiveFramePlayback`), `tests/test_decklink_live_output.cpp` (new);
+plus `CMakeLists.txt` (`decklink_live_output.cpp` added to the existing
+`scatter-decklink` library's source list — no new `target_link_libraries`
+needed, `scatter-decklink` already privately links `scatter-core` as of
+WU-21b; `test_decklink_live_output` added alongside the other three DeckLink
+tests, linking both `scatter-decklink` and `scatter-core` — CMakeLists.txt
+edits have never counted against the "3 source files" cap in any earlier unit
+either).
+**Accept:** with the same Monitor 3G → Recorder 3G SDI loopback WU-20b's/
+WU-21b's own tests already document (no new physical setup), `CaptureSource`
+captures, `CaptureConsumer` warps (identity map — this unit's own job is the
+pool-refill/reschedule mechanics, not re-proving `runFrameBytes()`'s own warp
+correctness or WU-21b's own read-side mechanics, both already genuinely
+verified), and `LiveFramePlayback` continuously reschedules the result onto
+the Monitor 3G's own SDI output, over a bounded 5-second run:
+`stats().completed > 0`, `stats().displayedLate == 0`, `stats().dropped == 0`;
+`CaptureConsumer`'s and `CaptureSource`'s own accounting invariants
+(`framesProcessed + framesFailed == framesPopped`, `framesPopped <=
+framesPushed`) hold, unchanged from WU-21b's own criteria; clean `stop()` on
+all three objects. Without the loopback connected, the same mechanics
+(clean create/stop, zero dropped/late — every pool buffer is scheduled
+regardless of whether `copyLatestFrame()` ever succeeds) are still real
+`Accept:` criteria; the test warns rather than fails on zero frames
+processed, the same convention `test_decklink_input.cpp`/
+`test_decklink_capture_consumer.cpp` already use. Does not include, and does
+not claim, the literal one-hour endurance run or a by-eye confirmation that
+the SDI output genuinely shows live, changing content — both a future WU-21d's
+own job (not yet scheduled), the same category WU-15b/WU-19b already were for
+a comparable unattended-hardware criterion.
+*Status:* delivered as reasoned-through-only, same shape as WU-14/WU-15a/
+WU-20b/WU-21b before it — drafted and written via the device bridge to the
+real repository, re-read back from there to confirm each write landed
+correctly (`SESSION-PROTOCOL.md` anti-drift rule 8) — not yet built or run at
+Steve's own real terminal. No Blackmagic SDK and no AppleClang/Xcode
+toolchain exist in the Linux cloud sandbox this session drafted this in, the
+same gap every DeckLink-touching unit before it has named.
+
 ### WU-22 — Diagnostic coverage view `todo`
 
 ---

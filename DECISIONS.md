@@ -4436,3 +4436,246 @@ Steve's own real terminal, alongside every earlier tag through
 entry's own "Does not reopen" paragraph above -- it records a real-terminal
 result for a unit that paragraph already described as reasoned-through-only
 at the time it was written, nothing more.
+
+**ADR-050 -- WU-21c: continuous SDI re-output (`LiveFramePlayback`,
+`src/io/decklink_live_output.hpp`/`.cpp`), scheduling a live-produced frame
+stream (WU-21b's own `CaptureConsumer::copyLatestFrame()`) onto
+`IDeckLinkOutput`. Closes architecture.md 10's own Phase 5 "done when" line
+("live SDI in, warped, SDI out") end to end for the first time. A fixed pool
+of frame buffers, round-robin refilled and rescheduled exactly once per
+completion, replaces `LoopedFramePlayback`'s own single-static-buffer design;
+the pool-sizing and no-explicit-sync genlock/clock-domain decisions are both
+frozen here. Reasoned-through scope only, same shape as every DeckLink-
+touching unit before it -- drafted and written via the device bridge with no
+Blackmagic SDK and no AppleClang/Xcode toolchain available in this session's
+own Linux cloud sandbox to check it against. UNVERIFIED as of this session's
+own close; needs building and running at the real terminal, with the same
+Monitor 3G <-> Recorder 3G SDI loopback WU-20b/WU-21b's own tests already
+document, before this unit can go `green`.**
+
+**Tag state, confirmed before anything else, per this session's own brief.**
+`git tag`/`git log --oneline -8`/`git status --short`, run directly against
+the real repository via the device bridge rather than trusted from
+`HANDOFF.md`'s own account: `wu-21b-green` confirmed present, alongside every
+earlier tag through it; `HEAD` at `bb97fa1` ("WU-21b: record real-hardware
+verification and wu-21b-green tag; note Weston 3-field preference for future
+WU-23"), which already carries the WU-21b real-hardware-verification update
+to `WORK-UNITS.md` -- the commit `HANDOFF.md` going into this session flagged
+as outstanding for Steve to run was in fact already made before this session
+began, resolving that uncertainty rather than repeating it. Working tree
+otherwise clean before this session's own writes.
+
+**Reading, before scoping, per this project's own established discipline for
+a new hardware surface (ADR-031's own precedent, reused by
+ADR-046/047/048/049).** Re-read the real SDK's own `DeckLinkAPI.h` directly
+this session: `IDeckLinkOutput` (`DoesSupportVideoMode`, `EnableVideoOutput`,
+`CreateVideoFrame`, `RowBytesForPixelFormat`, `ScheduleVideoFrame`,
+`SetScheduledFrameCompletionCallback`, `GetBufferedVideoFrameCount`,
+`StartScheduledPlayback`/`StopScheduledPlayback`) is confirmed unchanged from
+ADR-032/033's own account; `IDeckLinkVideoOutputCallback` has exactly the two
+methods `io/decklink_output.hpp`'s own `LoopedFramePlayback` already
+implements, `ScheduledFrameCompleted`/`ScheduledPlaybackHasStopped`, nothing
+new. Also reread the real SDK's own `FilePlayback` sample
+(`DeckLinkPlaybackDevice.cpp`'s `ScheduledFrameCompleted()`/`scheduleVideo()`)
+specifically for how it handles genuinely *changing* content across
+completions, not just cited from ADR-032's own earlier account of its preroll
+figure: confirmed directly that `scheduleVideo()` obtains a fresh
+`com_ptr<IDeckLinkVideoFrame>` from its own media reader on every call and
+schedules that new object, never rescheduling a previously-completed frame
+pointer unchanged -- the real SDK's own precedent for exactly this unit's own
+"content changes every tick" problem, distinct from `LoopedFramePlayback`'s
+own "content never changes" case. Also reread
+`src/io/decklink_output.hpp`/`.cpp` (`LoopedFramePlayback`, the preroll idiom
+and `fillFrameBuffer()` pattern this unit extends from one buffer to a pool),
+`src/io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b, `copyLatestFrame()`,
+this unit's own upstream source of frames), `src/io/decklink_input.hpp`/`.cpp`
+(WU-20b, `CaptureSource` -- confirmed this unit touches it only indirectly,
+through `CaptureConsumer`, never `IDeckLinkInput` itself), and
+`docs/architecture.md` sections 3 (the signal path diagram, whose final "v210
+pack -> SDI out" leg this unit closes for a live source for the first time),
+6 (the threading model's own "Output scheduler thread. Driven by the frame
+completion callback" -- this unit's own class realises that thread role
+exactly as already named, now driving a pool instead of one buffer), 7
+(Output subsection's own preroll/refill idiom, ADR-032's own citations,
+extended here rather than re-read as new ground), 9 (the endurance test's own
+pass criterion, "zero dropped or repeated frames beyond documented clock
+drift" -- explicitly naming clock drift as an accepted, already-anticipated
+phenomenon rather than a defect to engineer away, direct support for this
+entry's own no-explicit-sync design below), and 12 (the reference-count-leak
+risk, `ComPtr` used throughout unchanged) plus ADR-010 (free-running scope,
+unchanged), ADR-032 (the mechanism this unit extends), ADR-037 (the
+Monitor 3G/Recorder 3G device split, and its own second follow-up, genlock/
+clock-domain drift, named again at ADR-047/048/049 and squarely this unit's
+own concern for the first time -- see below) and ADR-039 (input device
+naming, unaffected).
+
+**Why this is a materially different mechanism from `LoopedFramePlayback`,
+not an extension of it.** `LoopedFramePlayback` (WU-15a) reschedules the
+exact same `IDeckLinkMutableVideoFrame` object every completion because its
+own content is fixed at `create()` time and never changes -- one buffer is
+correct and sufficient precisely because nothing ever needs to write into it
+again after the first fill. This unit's whole job is the opposite: content
+changes, once per output tick, from whatever `CaptureConsumer` most recently
+produced. A buffer currently queued for scheduled playback cannot safely be
+overwritten -- the driver may still be reading it -- so a single reused
+buffer would either corrupt in-flight output (writing while it plays) or
+force writes to wait for a completion that has not yet happened (serialising
+refill against playback for no reason). The real fix, confirmed against the
+SDK's own `FilePlayback` precedent above: more than one buffer, cycled so
+that only a buffer whose own completion has *just* fired is ever written to.
+
+**Pool sizing: exactly `round(frameRate / 2)` buffers -- ADR-032's own
+half-second preroll convention, reused for pool size rather than invented
+fresh.** Not a coincidence: the pool must hold exactly as many buffers as are
+concurrently in flight (scheduled, not yet completed) at any instant in
+steady state, and that number *is* the preroll depth -- this unit prerolls
+by scheduling every pool buffer once at `create()` time (mirroring
+`LoopedFramePlayback::startWith()`'s own preroll loop, generalised from N
+schedules of one buffer to one schedule each of N buffers), so exactly
+`poolSize` buffers are always in flight from that point on. `CreateVideoFrame()`
+is called exactly `poolSize` times, once each, entirely within `startWith()`
+-- setup-time allocation, never on the real-time completion-callback thread,
+the same "allocate once, never in the hot path" discipline architecture.md 6
+already states for the capture callback thread, applied here to the output
+side's own setup step rather than its own steady-state refill (which touches
+no new memory, only `memcpy`s into already-allocated buffers).
+
+**Refill/reschedule policy: round-robin in lockstep with completion order,
+relying on the SDK's own FIFO completion guarantee -- no separate
+in-flight/free bookkeeping needed.** `ScheduledFrameCompleted()` is confirmed
+(architecture.md 7, and by construction of `StartScheduledPlayback`'s own
+documented behaviour) to fire in exactly the order frames were scheduled;
+`LoopedFramePlayback`'s own single-buffer refill already relies on the same
+property implicitly (it only ever has one buffer, so order does not matter
+there). This unit cycles `m_nextPoolIndex` once per completion, in that same
+order, so the buffer index refilled and rescheduled after any given
+completion is always exactly the one whose own completion just fired -- safe
+by construction, with no separate "is this buffer still queued" flag or
+tracking structure needed. `refillAndSchedule()` is one shared function used
+both for the initial preroll loop and every subsequent completion, the same
+"one function, not two hand-written copies that could quietly drift apart"
+preference ADR-029/040/041 already established.
+
+**Genlock / clock-domain interoperation, decided for this unit specifically
+-- ADR-037's own second follow-up, open since it was first named at ADR-037
+and repeated unresolved at ADR-047/048/049, and this unit's own concern for
+the first time: a real capture clock (the Recorder 3G's own arrival cadence,
+however irregular) and a real output clock (the Monitor 3G's own fixed
+`ScheduleVideoFrame`/`StartScheduledPlayback` cadence) now genuinely have to
+interoperate, not just be named separately in a document.** Decided: no
+explicit synchronisation of any kind. Every refill calls
+`consumer.copyLatestFrame()` and uses whatever it returns, with no timestamp
+comparison against the output's own schedule, no queue of not-yet-shown
+produced frames, and no attempt to detect or correct drift. Two consequences,
+both accepted rather than engineered around: a capture/process rate slower
+than the output's own fixed cadence shows as the same bytes scheduled more
+than once in a row (`framesRepeated()`, this unit's own new counter,
+incremented whenever a refill finds nothing fresher than what is already
+scheduled); a rate faster than the output's own cadence shows as some
+produced frames never being sampled at all before a newer one silently
+supersedes them in `CaptureConsumer`'s own single-slot "latest" buffer (WU-21b,
+unchanged) -- no backlog ever accumulates either way, which is the point:
+architecture.md 9's own endurance pass criterion already names "documented
+clock drift" as an accepted, expected phenomenon for exactly this
+free-running (ADR-010) scope, not a defect this unit is asked to eliminate,
+and a policy that buffered a growing backlog to avoid ever repeating a frame
+would trade that away for unbounded, worsening latency over a long run --
+the opposite of what a live monitoring/re-output path wants. This is a
+narrower, concrete decision about how two independently clocked producers
+and consumers meet at one shared single-slot buffer, not a genlock
+implementation -- ADR-010's free-running scope is unchanged, and true
+clock-domain measurement (is the repeat/skip rate actually a problem in
+practice, at what magnitude) is deliberately left to whoever next revisits
+this, the same "named, not resolved" treatment `kCaptureRingCapacity`'s own
+`framesArrived`/`framesPushed` gap got at WU-21b (ADR-049) -- `framesRepeated()`
+exists specifically so a future session has a real number to look at, the way
+WU-21b's own accounting gave one for the ring-capacity question.
+
+**Row-bytes consistency, enforced at `create()` itself, not left to a
+caller's own separate test.** WU-15a's own
+`test_v210_rowbytes_matches_project_own_computation()` checks
+`IDeckLinkOutput::RowBytesForPixelFormat()` against
+`video::v210::rowBytesMin()` once, as a standalone test, because a mismatch
+there would only ever affect that one static file's own single buffer.
+Here, every pool buffer is refilled from `CaptureConsumer`'s own
+`video::v210::rowBytesMin()`-sized bytes on an ongoing basis, so the same
+mismatch would silently misalign every live frame for as long as this object
+runs, not just fail one check once. `startWith()` therefore checks it
+directly and fails `create()` outright on a mismatch, upgrading WU-15a's own
+test-only check to a hard runtime precondition for this unit specifically --
+does not change `decklink_output.cpp`'s own behaviour, which is unaltered.
+
+**`fillFrameBuffer()` duplicated, not shared, between
+`decklink_output.cpp` and `decklink_live_output.cpp`.** Same reasoning
+ADR-048 already gave for not routing `runFrameFile()` through
+`runFrameBytes()` internally: the function is a few lines of straight-line
+SDK calls (`QueryInterface` for `IDeckLinkVideoBuffer`, `StartAccess`,
+`GetBytes`, `memcpy`, `EndAccess`), calling five already-tested SDK entry
+points in the same order in both files -- the risk of a shared-header
+refactor's own regression against `decklink_output.cpp`'s own frozen,
+already-hardware-verified (`wu-15a-green`) body outweighs the benefit of not
+duplicating roughly a dozen lines. Flagged, not fixed speculatively, as a
+candidate for consolidation into a shared `io/` helper if a third caller ever
+needs the identical bracket -- the same "not decided here" treatment ADR-048
+already used for its own analogous duplication.
+
+**`PlaybackStats` reused directly from `io/decklink_output.hpp`, unmodified
+-- ADR-029's own "reuse a tested type" precedent, not a near-duplicate
+struct.** `completed`/`displayedLate`/`dropped`/`flushed` mean exactly the
+same thing for this unit's own pool-cycling scheduler as they already do for
+`LoopedFramePlayback`'s own single-buffer one -- both are counts of
+`ScheduledFrameCompleted()`'s own `result` argument, nothing about the
+refill policy changes what those four outcomes mean. `framesRepeated()` is
+kept as this unit's own separate counter, not added as a fifth field to
+`PlaybackStats` itself: it would be meaningless for `LoopedFramePlayback`
+(definitionally true of every single completion there, since it always
+reschedules the same buffer), and `SESSION-PROTOCOL.md` rule 2's "never
+rename or refactor... names in headers are fixed" is read here, consistent
+with ADR-026/030/040's own reading of the same rule, as permitting an
+*addition* that fits the existing type's own meaning -- `framesRepeated`
+does not.
+
+**Files:** `src/io/decklink_live_output.hpp`, `src/io/decklink_live_output.cpp`
+(both new: `LiveFramePlayback`), `tests/test_decklink_live_output.cpp` (new);
+plus `CMakeLists.txt` (`decklink_live_output.cpp` added to the existing
+`scatter-decklink` library's source list -- no new `target_link_libraries`
+needed, since `scatter-decklink` already privately links `scatter-core` as of
+WU-21b and `video::v210::rowBytesMin()` is this unit's only `scatter-core`
+symbol; a new `test_decklink_live_output` executable registered alongside
+the other three DeckLink tests, linking both `scatter-decklink` and
+`scatter-core` for the same reason `test_decklink_capture_consumer` already
+does -- CMakeLists.txt edits have never counted against the "3 source files"
+cap in any earlier unit either).
+
+**Not decided here, deliberately, and named for whoever picks up WU-21d or
+otherwise touches this next.** The literal one-hour endurance run
+architecture.md 10's own Phase 5 "done when" line names, and a by-eye
+confirmation that the Monitor 3G's own SDI output genuinely shows live,
+changing content rather than a frozen frame -- both Steve's own hands-on job
+at the real terminal, the same category WU-15b (ADR-032) and WU-19b (ADR-044)
+already used for a comparable unattended-hardware criterion this sandbox
+cannot produce evidence about; `framesRepeated()`'s own real value against
+real hardware, and whether the "always latest, no backlog" policy's
+frame-repeat/frame-skip behaviour actually looks acceptable in practice, both
+UNVERIFIED as of this session's own close; a possible future
+timestamp-based alignment between capture arrival time and output schedule
+time, if the "always latest" policy's own behaviour turns out to look bad in
+practice -- not attempted here, not decided, named only as a candidate
+refinement; and pool sizing tuned against measured real capture-to-output
+latency rather than ADR-032's own half-second convention borrowed for it --
+same "not decided here, no evidence yet" deferral `kCaptureRingCapacity` and
+WU-19b's own throughput question already received.
+
+Does not reopen `docs/architecture.md`, ADR-010, ADR-024, ADR-026, ADR-029,
+ADR-031, ADR-032, ADR-037, ADR-039, ADR-046, ADR-047, ADR-048 or ADR-049 --
+same relationship every ADR since ADR-020 has to the document; ADR-010's
+free-running scope is unchanged, extended by a concrete no-explicit-sync
+decision at one shared buffer, not superseded; ADR-032's `LoopedFramePlayback`
+shape (real `IUnknown` refcounting, `ComPtr::adopt()` on `create()`, the
+preroll idiom, fail-clean on any startup error) is reused directly for a
+second class, not modified -- `LoopedFramePlayback` itself is untouched by
+this entry; ADR-037's own genlock follow-up is addressed for this one unit's
+own narrow case, not resolved in general, and its device-naming/two-device
+split is read as a fixed input; ADR-048/049's own `CaptureConsumer` design
+(`copyLatestFrame()`'s exact contract) is consumed exactly as those entries
+left it, unaltered.
