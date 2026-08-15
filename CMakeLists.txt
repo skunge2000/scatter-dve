@@ -318,6 +318,7 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     add_library(scatter-decklink STATIC
         src/io/decklink_device.cpp
         src/io/decklink_output.cpp
+        src/io/decklink_input.cpp
         "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp")
     target_include_directories(scatter-decklink PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -364,7 +365,16 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
         ${CMAKE_CURRENT_SOURCE_DIR}/tools)
     add_test(NAME test_decklink_output COMMAND test_decklink_output)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device and test_decklink_output configured")
+    # WU-20b — test_decklink_input.cpp exercises scatter-decklink alone
+    # (device enumeration, CaptureSource) — no scatter-core dependency, since
+    # this unit's own scope stops before reading pixel bytes (WU-21's job).
+    # See DECISIONS.md ADR-046/ADR-047.
+    add_executable(test_decklink_input tests/test_decklink_input.cpp)
+    target_link_libraries(test_decklink_input PRIVATE scatter-decklink)
+    target_include_directories(test_decklink_input PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME test_decklink_input COMMAND test_decklink_input)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output and test_decklink_input configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()

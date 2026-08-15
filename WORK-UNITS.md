@@ -911,39 +911,53 @@ verify. Still needs Steve's own real-terminal `cmake --build` + `ctest` +
 procedural reason every other unit's line has had.
 
 ### WU-20b — DeckLink capture: format-detection-aware `EnableVideoInput`,
-`IDeckLinkInputCallback` implementation `todo`
-Deferred, not built this session — see `DECISIONS.md` ADR-046 for the full
-reasoning (unlike WU-20a's ring buffer, this half genuinely needs the
-Blackmagic SDK and AppleClang/Xcode to build or run at all, the same
-sandbox gap ADR-031/032 already established for WU-14/WU-15a — reasoned
-through against the real SDK headers and the three real capture samples
-this session read, but entirely unverified until the real terminal).
-Targets the **UltraStudio Recorder 3G** by name — see `DECISIONS.md`
-ADR-039, which completes ADR-037's own third follow-up. Sketch only, not
-frozen: a capture object enabling video input with
-`bmdVideoInputEnableFormatDetection` set, implementing
-`IDeckLinkInputCallback::VideoInputFormatChanged` (restart the input stream
-at the new detected mode rather than assume a fixed one, per
-`architecture.md`'s own Input subsection once corrected for the real
-multi-device UltraStudio Recorder 3G design ADR-039 settled, not the
-superseded single-full-duplex-device text ADR-039 flags) and
-`VideoInputFrameArrived` (retain the arrived frame — `AddRef` semantics via
-this project's own `ComPtr`, per `src/io/com_ptr.hpp`/ADR-031 — and push it
-into a `WU-20a::RingBuffer` instance, never blocking or allocating on this
-driver-owned callback thread, per architecture.md 6). **Files:**
-(sketch, not frozen) `src/io/decklink_input.hpp`, `src/io/decklink_input.cpp`
-(both new), `tests/test_decklink_input.cpp` (new); plus `CMakeLists.txt`
-(added to the existing `scatter-decklink` target). **Accept:** (sketch, not
-frozen) format detection correctly restarts the input stream at the newly
-detected mode rather than silently continuing at a stale one; arrived
+`IDeckLinkInputCallback` implementation `wip`
+See `DECISIONS.md` ADR-047 for the full design and for why this session
+built WU-20b as one unit rather than splitting it further (this session's
+own first job, per this project's established practice for DeckLink work:
+re-read the real SDK's `IDeckLinkInput`/`IDeckLinkInputCallback`/
+`IDeckLinkVideoInputFrame` shape and the three real capture samples again,
+not just ADR-046's own summary of last session's reading, before finalizing
+scope). Targets the **UltraStudio Recorder 3G** by name — see `DECISIONS.md`
+ADR-039. Mirrors `io/decklink_output.hpp`'s own `LoopedFramePlayback` shape
+(ADR-032): implements `IDeckLinkInputCallback` directly, real `IUnknown`
+refcounting, `ComPtr::adopt()` on `create()`.
+**Files:** `src/io/decklink_input.hpp`, `src/io/decklink_input.cpp` (both
+new), `tests/test_decklink_input.cpp` (new); plus `CMakeLists.txt`
+(`decklink_input.cpp` added to the existing `scatter-decklink` target,
+`test_decklink_input` added alongside `test_decklink_device`/
+`test_decklink_output` — CMakeLists.txt edits have never counted against the
+"3 source files" cap in any earlier unit either).
+**Accept:** `CaptureSource::create()` against a real device that both
+supports capture and reports `BMDDeckLinkSupportsInputFormatDetection`
+succeeds (a device without format-detection support is out of scope for
+this unit and `create()` is designed to fail on one, not proceed silently);
+over a bounded several-second run, with the UltraStudio Monitor 3G's own SDI
+output physically patched into the Recorder 3G's SDI input (a genuine
+loopback signal — both devices are already this project's real target
+hardware, ADR-037, so this needs no third piece of equipment), arrived
 frames are retained correctly (no use-after-release, no leaked reference —
-`architecture.md` 12's own "reference-count leaks lock the device" risk)
-and pushed into the ring without loss under normal-rate arrival; a real,
-by-eye confirmation against the real UltraStudio Recorder 3G, the same
-category of thing WU-14/WU-15a's own accept lines needed. Real scoping —
-firm `Files:`/`Accept:` lines — is this unit's own first job when a session
-picks it up, the same as every other unit in this project; this paragraph
-is a sketch to orient that session, not a frozen scope.
+architecture.md 12's own "reference-count leaks lock the device" risk) and
+pushed into the ring without loss under normal-rate arrival, with
+`stats().framesArrived` nonzero and the unconditional accounting invariant
+`framesPushed + ring.droppedCount() <= framesArrived` holding throughout;
+`stop()` returns cleanly. Without the loopback connected, `create()`/`stop()`
+still must run cleanly and the accounting invariant still must hold — the
+same "the mechanics are what a session's own automated checks gate on, a
+human (here, a cable) supplies the rest" division of labour WU-15a's own
+`Accept:` already used for its own by-eye clause. Does not include, and does
+not claim, anything about `VideoInputFormatChanged()`'s own real-mode-change
+behaviour with a live changing source, or reading pixel bytes out of a
+retained frame — that is WU-21's job ("Full loop through at 576i25"), not
+this one's.
+*Status:* implemented in a Linux cloud sandbox with no Blackmagic SDK and no
+AppleClang/Xcode toolchain at all, the same shape ADR-031/032/046 already
+used for WU-14/WU-15a/WU-20a's own DeckLink-dependent half — reasoned
+through against the real SDK headers and the three real capture samples
+re-read this session, written straight to the real machine via the device
+bridge. Still needs Steve's own real-terminal build, the loopback cable
+described above connected, and `./tools/close.sh 20b` before this line can
+go `green` — nothing here has been compiled or run by this session at all.
 ### WU-21 — Full loop through at 576i25 `todo`
 ### WU-22 — Diagnostic coverage view `todo`
 

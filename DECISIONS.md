@@ -3710,3 +3710,237 @@ this need its own header" judgement is applied again, the same way, to
 capture, but with zero DeckLink dependency of its own, the same reasoning
 that already placed `file_source.cpp`/`file_sink.cpp` in `scatter-core`
 despite living under `src/io/`.
+
+**ADR-047 — WU-20b (DeckLink capture object) built this session as one
+unit, not split further; the ring capacity, pixel-format-on-restart and
+no-input-source-frame questions ADR-046 left open, all decided; the real
+SDK's own `CaptureStills` signal-recovery restart reused directly; and why
+this sandbox cannot compile or run any of it. Frozen at WU-20b, Phase 5's
+second unit.**
+
+`WORK-UNITS.md`'s own WU-20b entry, going into this session, was a sketch
+only — ADR-046's own closing paragraph named `src/io/decklink_input.hpp`/
+`.cpp` and `tests/test_decklink_input.cpp` but explicitly declined to freeze
+`Files:`/`Accept:`, per this project's own "the sketch's own session does the
+real scoping" discipline. This session's own first job, per that discipline
+and per `SESSION-PROTOCOL.md`'s own reading-before-scoping rule: re-read the
+real SDK's `IDeckLinkInput`/`IDeckLinkInputCallback`/`IDeckLinkVideoInputFrame`
+shape directly (not just ADR-046's own summary of it), re-read the three real
+capture samples' own frame-retention and format-change-restart code (not just
+ADR-046's own account of what they do), and re-read this project's own
+`decklink_device.hpp`/`.cpp`, `com_ptr.hpp`, `decklink_output.hpp`/`.cpp` and
+`ring_buffer.hpp` for established idiom — all done this session before any
+line of `decklink_input.hpp`/`.cpp` was written. Confirmed against the real
+headers/samples: every shape ADR-046 recorded (the `IDeckLinkInput`/
+`IDeckLinkInputCallback` member lists, `bmdVideoInputEnableFormatDetection`,
+the three samples' own disagreeing frame-handoff and restart behaviour) reads
+exactly as that entry describes — nothing corrected, nothing re-litigated.
+
+**The split question: does WU-20b itself fit one session, or does it need
+its own further split (`SESSION-PROTOCOL.md`'s "touch at most 3 source files
+plus its test... if a unit cannot meet this, split it before starting")?**
+Decided, after the reading above, not before it — the same order every prior
+split in this project used (WU-12a/b, WU-15a/b, WU-16a/b, WU-19a/b, WU-20a/b
+itself). **No further split.** ADR-046's own sketch already named exactly two
+new source files (`decklink_input.hpp`, `decklink_input.cpp`) plus one test —
+comfortably within the cap, with a full file to spare, the same shape WU-14
+(`com_ptr.hpp` plus `decklink_device.hpp`/`.cpp`) and WU-15a
+(`decklink_output.hpp`/`.cpp`) both already used for their own single-session
+DeckLink units. The candidate splits the session's own brief named going in —
+"`EnableVideoInput` + format detection" versus "the callback/retention/
+ring-push wiring" — do not correspond to two independently useful pieces the
+way WU-12a/WU-12b (shape versus compositing) or WU-16a/WU-16b (PASS 2 versus
+PASS 1) did: `EnableVideoInput` with format detection *only* matters because
+something is listening for the frames and format-change notifications it
+produces, and the callback/retention/ring-push wiring *only* matters once
+video input is actually enabled — splitting them would produce two units
+where neither is independently useful on its own, violating
+`SESSION-PROTOCOL.md`'s own "independently useful" requirement rather than
+satisfying its file-count cap. This mirrors `LoopedFramePlayback` (WU-15a)
+exactly: one class that both enables the stream and implements the
+completion callback, not two. A candidate real-hardware-endurance split (the
+WU-15a/WU-15b shape — "this session cannot itself assert the real thing
+green") was also weighed and rejected for this unit specifically: WU-15b's
+own reason for existing was a genuinely unattended *one-hour* run, longer
+than one sitting can sensibly mean; nothing about WU-20b's own `Accept:`
+(below) asks for anything beyond a bounded, few-second smoke run of the same
+order WU-15a's own test already uses — if a future session's own real-hardware
+experience surfaces a genuine need for an unattended capture endurance run,
+that is its own unit to scope then, with real evidence behind it, not
+invented here on spec (the same "not decided here, no evidence yet"
+discipline ADR-044 already used for WU-19b's own throughput question).
+
+**Real `Files:`/`Accept:`, frozen — see `WORK-UNITS.md`'s own updated WU-20b
+entry for the literal text; recorded here for the reasoning.** `Files:`
+`src/io/decklink_input.hpp`, `src/io/decklink_input.cpp` (both new),
+`tests/test_decklink_input.cpp` (new); plus `CMakeLists.txt`
+(`decklink_input.cpp` added to the existing `scatter-decklink` target,
+`test_decklink_input` added alongside `test_decklink_device`/
+`test_decklink_output` — CMakeLists.txt edits have never counted against the
+"3 source files" cap in any earlier unit either).
+
+**`CaptureSource`, mirroring `LoopedFramePlayback`'s own shape (ADR-032)
+exactly, applied to input for the first time.** Implements
+`IDeckLinkInputCallback` directly — this class *is* the callback registered
+with `SetCallback` — with a real, non-trivial `IUnknown` reference count,
+`ComPtr::adopt()` on `create()` for the constructor's own initial reference,
+the identical pattern this project already has one working instance of on
+the output side. `create()` confirms `IDeckLinkProfileAttributes::GetFlag(
+BMDDeckLinkSupportsInputFormatDetection, ...)` reports true (`CapturePreview`'s
+own checked-not-assumed idiom, already cited in ADR-046) — a hard requirement
+of this unit, not a soft fallback, since WU-20's own line names "format
+detection" as one of its three original pieces (`WORK-UNITS.md`) — confirms
+`DoesSupportVideoMode()` for the caller's requested display mode (the same
+precautionary check `LoopedFramePlayback::startWith()` already makes on the
+output side), then follows `CaptureStills`'/`CapturePreview`'s own call order
+(`SetCallback`, `EnableVideoInput`, `StartStreams`) rather than inventing a
+different one.
+
+**Three design questions ADR-046 explicitly left open, decided now:**
+
+- **Ring capacity: 8, a fixed compile-time constant
+  (`kCaptureRingCapacity`), not a caller-supplied template parameter.**
+  architecture.md 7 names "3-4 frames end-to-end... 60-80ms at 50p" as the
+  expected buffering depth; 8 is double the high end of that range —
+  headroom over the documented expectation, not the bare minimum, the same
+  margin WU-15a's own preroll (half a second of frames, not the SDK's
+  illustrative "3-frame" figure) already chose for a comparable buffering
+  decision. Fixed rather than caller-configurable for the same reason
+  ADR-023's `maxK` and ADR-024's supersample thresholds are configurable
+  *parameters* while `kLatticeSize`/`kTileSize` are fixed *constants* — this
+  is a property of a data structure this project fixes once, not an
+  operating point a caller chooses per use, and nothing about WU-20b's own
+  scope gives a caller a reason to want a different one. Not tuned against a
+  real measured capture-to-consume latency — WU-21's job, once a consumer
+  actually drains this ring; flagged, not resolved, the same "not decided
+  here, no evidence yet" deferral ADR-044 already used for WU-19b's own
+  throughput question.
+- **Pixel format never changes on a format-change restart — every
+  `EnableVideoInput()` call, initial or restarted, requests
+  `bmdFormat10BitYUV` regardless of `detectedSignalFlags`.** `CaptureStills`/
+  `CapturePreview` both pick a pixel format from the detected signal's own
+  RGB-vs-YUV and bit-depth flags, reasonable for a general-purpose capture
+  utility built to accept whatever a user points an HDMI source at. This
+  project is not that: ADR-005 already fixes 4:2:2 v210 as the only
+  supported I/O format anywhere in this codebase (no RGB unpack exists, no
+  8-bit or 12-bit path exists), and ADR-039 already names the real target
+  hardware as a fixed-format SDI device, the UltraStudio Recorder 3G — there
+  is no legitimate signal this project's own pipeline could receive that
+  would make adapting pixel format on the fly anything other than a silent
+  no-op followed by a pipeline that cannot read the result. A restart whose
+  detected signal genuinely is not 10-bit YUV (a misconfigured or
+  wrong-standard source) is therefore an honest failure, not a case to
+  paper over: `EnableVideoInput()` at a mismatched pixel format returns
+  something other than `S_OK`, and `VideoInputFormatChanged()`'s own handling
+  of that (below) stops the object cleanly rather than silently continuing
+  in some indeterminate state.
+- **A `bmdFrameHasNoInputSource` frame is filtered before ever attempting a
+  push, not queued for a future consumer to filter.** Consistent with this
+  project's own established "never fabricate a destination the warp never
+  produced" reasoning (ADR-024's off-raster-sample drop is the closest
+  precedent), a frame carrying no real signal is not real capture content;
+  handing one to a future consumer indistinguishably from a genuine frame
+  would be exactly that kind of fabrication, one step earlier in the
+  pipeline than any ADR before this one has drawn that line. `CaptureStills`'
+  own signal-recovery restart — on the first valid frame after an invalid
+  one, `StopStreams()`/`FlushStreams()`/`StartStreams()` before accepting
+  frames as good, and that first recovery frame itself is not queued either
+  — is reused directly, not reinvented: a real, shipped Blackmagic sample's
+  answer to a real problem (transient garbage immediately after signal
+  reacquisition), the same "reuse a working SDK idiom rather than
+  hand-roll a differently-shaped one" preference ADR-031 already applied to
+  `ComPtr` and ADR-032 already applied to the preroll/refill mechanism —
+  in contrast to WU-20a's own ring buffer, which *was* a new design, because
+  architecture.md's own requirement for it was stricter than anything any
+  sample provided. No such gap exists here: nothing in architecture.md
+  contradicts `CaptureStills`' own recovery-restart behaviour, so there is no
+  reason to invent a different one.
+
+**Two failure paths — a failed format-change restart, a failed
+signal-recovery restart — both call a shared `stopFromCallback()` rather than
+`stop()` itself, and both are unverified in a way this project has not
+previously flagged.** Every prior "stop cleanly on failure" path in this
+project (`LoopedFramePlayback::create()`'s own failure branches, ADR-032) is
+called from a normal call stack, not from inside a callback the SDK itself is
+in the middle of invoking. `stopFromCallback()` — `StopStreams()`,
+`SetCallback(nullptr)`, `DisableVideoInput()`, guarded by the same
+`m_stopping` compare-exchange `stop()` itself uses, so a later external
+`stop()` call or a second callback-driven failure is a no-op — is reasoned
+through against the real SDK's own documented behaviour (nothing in
+`DeckLinkAPI.h` forbids calling `SetCallback`/`DisableVideoInput` from within
+a callback the callback interface itself is currently executing, and
+`CaptureStills`' own `VideoInputFrameArrived()` already calls
+`StopStreams()`/`FlushStreams()`/`StartStreams()` — a comparable
+call-from-within-the-callback pattern — on its own signal-recovery path) but
+**not confirmed safe by execution**, the same category of gap ADR-031's own
+`setWorkerQoS()` note and ADR-042's own AppleClang-vs-mainline-Clang note
+already used for a piece of a unit reasoned through but not itself run. If
+this turns out unsafe at the real terminal, it is this unit's own bug to fix
+there, not a case for weakening the reasoning above without evidence.
+
+**Real-hardware test design: a genuine loopback, not a synthetic
+stand-in.** Unlike WU-15a's own test (which could manufacture its own file
+source — a real signal on the *output* side is just data this project's own
+pipeline already knows how to produce), a capture unit's own smoke test has
+no equivalent: this sandbox cannot synthesize an SDI signal for the Recorder
+3G to receive. `tests/test_decklink_input.cpp`'s own header comment
+documents the concrete real-hardware setup that makes its own
+`stats().framesArrived` check meaningful rather than moot: the UltraStudio
+Monitor 3G's own SDI output, physically patched into the Recorder 3G's own
+SDI input. Both devices are already this project's real target hardware
+(ADR-037) sitting on the same desk, so this needs no third piece of
+equipment, only a cable between two units already in hand — a real-hardware
+precondition this test's own `Accept:` states explicitly, the same way
+WU-15a's own `Accept:` states "a broadcast monitor" as a precondition of its
+own by-eye clause rather than leaving it implicit. Without that loopback
+connected, `CaptureSource::create()`/`stop()` still need to run cleanly (the
+mechanics this test's automated `CHECK`s gate on: create-succeeds,
+zero-frames-arrived does not by itself indicate a defect, and the accounting
+invariant `framesPushed + ring.droppedCount() <= framesArrived` holds
+unconditionally by construction, real signal or not) — the same division of
+labour ADR-032/WU-15a already drew between what an automated check can
+assert and what a human, or in this case a physical cable, has to supply.
+
+**This entire unit is unverified by this session — deliberately, the same
+discipline ADR-031/032/046 already established for every DeckLink-touching
+unit before it, extended here to a third consecutive one.** No Blackmagic
+SDK and no AppleClang/Xcode toolchain exist in the Linux cloud sandbox this
+session drafted in — the same gap ADR-031 named for WU-14, ADR-032 named for
+WU-15a, and ADR-046 already named for this unit's own sketch going in.
+`decklink_input.hpp`/`.cpp` and `tests/test_decklink_input.cpp` are reasoned
+through against the real SDK headers and the three real capture samples this
+session re-read (this entry's own citations above, extending ADR-046's own)
+rather than compiled or run by this session at all. `WORK-UNITS.md`'s own
+WU-20b line stays `wip`, not `green`, until built and run at the real
+terminal, including the loopback setup this entry's own "Real-hardware test
+design" section names as a precondition of its own `Accept:` — not merely
+`cmake --build` succeeding.
+
+Not decided here, deliberately, and named for whoever picks up WU-21 ("Full
+loop through at 576i25"): the consumer side of the ring — draining
+`CaptureFrameRing` into `runFrame()`/`runFrameFile()`, and reading pixel bytes
+out of a retained `IDeckLinkVideoInputFrame` for the first time anywhere in
+this project (the `IDeckLinkVideoBuffer`/`StartAccess`/`EndAccess` pattern
+ADR-032 already established for output, extended to input the same way
+ADR-046 already extended the `GetBytes()`-is-not-on-the-frame finding) — is
+that unit's own job, not this one's; genlock/clock-domain drift between the
+Recorder 3G's own capture clock and the Monitor 3G's own output clock
+(ADR-037's own second follow-up, still open); and whether
+`kCaptureRingCapacity`'s chosen value of 8 actually matches real observed
+buffering depth once WU-21 gives this project its first real consumer to
+measure against.
+
+Does not reopen `docs/architecture.md`, ADR-005, ADR-024, ADR-031, ADR-032,
+ADR-037, ADR-039 or ADR-046 — same relationship every ADR since ADR-020 has
+to the document; ADR-005's v210-only I/O scope and ADR-039's own device
+naming are read as fixed inputs, not revisited; ADR-024's "do not fabricate a
+destination the warp never produced" reasoning is extended to a second,
+earlier pipeline stage (a whole frame, not a single fragment), not altered;
+ADR-031's `ComPtr` (its existing borrowing constructor, exercised here for a
+second genuinely-borrowed callback parameter) and ADR-032's `LoopedFramePlayback`
+shape (real `IUnknown` refcounting, `ComPtr::adopt()` on `create()`, fail-clean
+on any startup error) are both reused directly, not modified; and ADR-046's own
+WU-20b sketch is completed, not amended — every question that entry explicitly
+left open for this unit is decided above, and nothing this entry decides
+contradicts what that entry already froze (the real `IDeckLinkInput`/
+`IDeckLinkInputCallback` shape, the WU-20a/WU-20b split itself).
