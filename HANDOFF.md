@@ -4,255 +4,175 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 24
-**Tag:** `wu-18-green` stands, confirmed — Steve's own `git show wu-18-green
---no-patch --format="%H %s"` vs `git log -1 --format="%H %s"` check (the one
-loose end session 23's own handoff left) came back matching before this
-session started work, per Steve's own brief at session open. No tag from
-this session yet — WU-19a stays `wip` until Steve's own real-terminal build/
-test/`close.sh` run, the same procedural reason every other unit's line has
-had.
-**Phase:** 4 (Threading and NEON) was already done in full going into this
-session (WU-16a/16b, WU-17, WU-18 all green). This session opened WU-19, the
-phase's last unit, and — after real scoping, per Steve's own brief — split
-it into WU-19a (this session: a persistent, caller-owned `ThreadPool`) and
-WU-19b (not this session: real-time measurement at 576i25 on the M1 Max,
-Steve's own job). `DECISIONS.md` now runs through ADR-044; `CORRECTIONS.md`
-is unchanged this session, still through C-015 (nothing was claimed and
-found wrong this session).
+**Tag:** `wu-18-green` stood, confirmed at session open. `wu-19a-green` was
+tagged this session per the "What to run at your terminal" runbook this
+handoff's own earlier draft gave — see the commands below; not
+independently re-verified (this session's own recurring "the assistant
+does not run `close.sh`" limit) but expected clean, the same "one known
+exception, nothing else" pattern every close since WU-15a has hit.
+**Phase:** 4 (Threading and NEON) is now genuinely done in full — WU-16a/
+16b, WU-17, WU-18 (all already green going in), WU-19a (this session:
+persistent, caller-owned `ThreadPool`, ADR-044) and WU-19b (this session,
+via Steve's own real-terminal measurement: confirmed "at frame rate" on
+the real M1 Max) all closed out. `DECISIONS.md` now runs through ADR-045;
+`CORRECTIONS.md` unchanged this session, still through C-015.
 
-**This session's own first job, per Steve's own brief and
-`SESSION-PROTOCOL.md`'s own discipline: real scoping before any code.**
-`WORK-UNITS.md`'s own WU-19 line was barer going in than any prior unit's
-own line has been — not even WU-16's or WU-17's one-line accept criterion,
-just a title ("Real time at 576i25"). Read `docs/architecture.md` section
-10's own Phase 4 "done when" line ("8-thread output is bit-identical to
-single-threaded, at frame rate"), section 6 (the threading model) and
-section 11's own budget/splat discussion, plus `src/core/pipeline.cpp`/
-`.hpp` (ADR-040/041's own current threading implementation) and
-`src/video/v210.cpp`/`chroma.cpp` (ADR-042/043's own two NEON paths) — all
-in full, before deciding what this unit actually covers, exactly as the
-brief asked.
+## This session in full
 
-**The scoping question this session actually had to answer, unlike every
-correctness-oriented unit before it: this unit's own accept criterion is
-partly a real-hardware timing claim, and this project's own Linux cloud
-sandbox CPU has no relationship to the M1 Max's actual throughput.** Every
-prior Phase-4 unit's own accept criterion was pure correctness (bit-
-identical output; bit-identical to scalar reference) — fully checkable in
-this sandbox. "At frame rate" is not: it is a wall-clock claim against
-576i25's own 40ms/frame budget, and nothing this sandbox measures says
-anything true or false about whether the same code meets that budget on 8
-M1 Max performance cores. See `DECISIONS.md` ADR-044's own opening section
-for the full reasoning — this is a different *kind* of gap than ADR-031/
-032's own "cannot compile here at all" (this sandbox compiles and runs this
-unit's own code just fine; the number it would produce just would not mean
-what it needs to mean).
+**Part 1 — WU-19a.** `WORK-UNITS.md`'s own WU-19 line was barer going in
+than any prior unit's — just a title, "Real time at 576i25." Read
+architecture.md section 10's own Phase 4 "done when" line, section 6
+(threading model) and section 11 (budget/splat discussion), plus
+`core/pipeline.cpp`/`.hpp` and `video/v210.cpp`/`chroma.cpp`, before scoping
+anything. The central finding: "at frame rate" is a real-hardware timing
+claim this project's own Linux cloud sandbox CPU cannot produce meaningful
+evidence about — a different kind of gap than ADR-031/032's own "cannot
+compile here at all" (this sandbox compiles and runs the code fine; the
+number it would produce just wouldn't mean anything for the M1 Max). Split
+into WU-19a (a correctness-preserving refactor this sandbox *can* fully
+verify) and WU-19b (the real measurement, Steve's own job).
 
-**What this session actually built: the one concrete piece of
-implementation work every prior Phase-4 ADR already named by number as
-WU-19's own job.** ADR-040's own "Per-frame `ThreadPool` construction, not a
-caller-owned persistent pool — deliberately left for WU-19": `runFrame()`
-was spawning and joining `params.threads` OS threads on every single call.
-This session built `PipelineParams::pool` (`core/resolve.hpp`) — an
-optional, caller-owned, already-constructed `ThreadPool*` — so a caller can
-build one once and reuse it across many `runFrame()` calls instead. This is
-a correctness-preserving refactor, not a throughput claim: I6 still
-guarantees bit-identical output to the `threads <= 1` oracle regardless of
-whether `runFrame()` constructs its own pool or is handed one, and that is
-exactly what this session's own new test checks, directly, not just reasons
-through.
+WU-19a built `PipelineParams::pool` (`core/resolve.hpp`) — an optional,
+caller-owned, already-constructed `ThreadPool*`, default `nullptr` — so a
+caller can build one `ThreadPool` once and reuse it across many
+`runFrame()` calls instead of paying WU-16a/16b's own per-call spawn/join
+cost every time. `core/pipeline.cpp`'s own threaded PASS-1/PASS-2 body was
+factored out unchanged into `runThreaded(..., ThreadPool&, ...)`, callable
+against either a fresh per-call pool (unchanged WU-16a/16b behaviour) or
+the caller's persistent one. New `tests/test_persistent_pool.cpp` (2 562
+778 checks) verified: a pool reused across ten calls matches the
+single-threaded oracle every time; a pool whose size deliberately
+disagrees with `PipelineParams::threads` still produces correct output
+(the direct regression check that `pool->size()`, not `threads`, governs);
+a pool reused across different frame geometries in sequence doesn't leak
+state. Full sandbox matrix — Clang 18/GCC 13 x Release/Debug x tile 4/5,
+GCC 13 ASan+UBSan both tile sizes, GCC 13 ThreadSanitizer both tile
+sizes — all clean, all seventeen tests green, zero warnings. See
+`DECISIONS.md` ADR-044.
 
-**Split, decided before writing any code, the same discipline ADR-028/032/
-040 already used for WU-12a/b, WU-15a/b, WU-16a/b — though for a different
-underlying reason this time (not the 3-file cap; WU-19a alone is nowhere
-near it) — see `DECISIONS.md` ADR-044 for the full record:**
+**Part 2 — WU-19b.** Steve ran a small, deliberately uncommitted
+`std::chrono` scratch benchmark (per ADR-044's own reasoning: a sandbox-CPU
+benchmark tool would report numbers meaningless for the real question, so
+nothing was committed for this) against the real M1 Max, linked directly
+against `libscatter-core.a`, using WU-19a's own persistent-pool mechanism,
+timing a genuinely warped (cylinder-over-zone-plate) 720x576 frame across
+200 iterations after a 20-iteration warmup, at four thread counts, at
+**both** tile sizes:
 
-- **WU-19a (this session).** The persistent-pool mechanism, verified for
-  correctness in full in this sandbox.
-- **WU-19b (not this session — Steve's own real-time measurement at his own
-  terminal).** Time `runFrame()`/`runFrameFile()` at 576i25 with a real,
-  persistent pool on the real M1 Max, confirm the 40ms/frame budget — the
-  same "hands-on verification, not a session's own job to assert from a
-  terminal" category WU-15b was for its own hour-long endurance run. No new
-  committed tooling for this — a `std::chrono` wrap at the terminal is
-  enough; a benchmarking tool was considered this session and deliberately
-  **not** built (its own numbers, from this sandbox's CPU, would mean
-  nothing for the real question — see ADR-044).
+| threads | 2^5 (32x32) ms/frame | 2^4 (16x16) ms/frame |
+|---|---|---|
+| 1 | 48.766 (over 40ms budget — expected) | 50.269 (over budget) |
+| 2 | 24.665 | 25.710 |
+| 4 | 13.101 | 14.349 |
+| 8 | 6.868 (5.8x headroom) | 7.528 (5.3x headroom) |
 
-**1. `src/core/resolve.hpp`, extended (not new).** One new field on
-`PipelineParams`: `ThreadPool* pool = nullptr` (`ThreadPool` forward-
-declared, not `#include`d — a pointer needs no complete type, and this
-keeps the header's own dependency graph unchanged). Default `nullptr`:
-every existing caller (WU-10 through WU-18) compiles and behaves exactly as
-before. When non-null, `pool->size()` alone decides the worker count used;
-`PipelineParams::threads` is not consulted at all in that branch — a
-caller does not need to keep the two fields in sync, and there is no way
-for a mismatch to silently corrupt output (I6; see ADR-044's own
-"Precedence" section and this session's own dedicated regression test,
-below).
+architecture.md 10's own Phase 4 "done when" line ("8-thread output is
+bit-identical to single-threaded, at frame rate") is now satisfied in full
+— bit-identical by WU-16a/16b/19a's own I6 checks, frame-rate by this
+measurement, at architecture.md's own named 8-worker configuration, with
+wide margin at both tile sizes.
 
-**2. `src/core/pipeline.cpp`, extended.** The threaded PASS-1/PASS-2 body
-WU-16b already wrote — per-worker generation-time bin arenas, the row-band
-`runOnAll()` call, the barrier, the tile-parallel `runOnAll()` call — is
-factored out unchanged into a new `runThreaded(..., ThreadPool&, ...)`
-helper. `runFrame()` becomes a three-way branch: `pool == nullptr &&
-threads <= 1` takes the untouched single-threaded oracle loop (WU-10's own
-body, still never touched by anything since); `pool != nullptr` calls
-`runThreaded()` against the caller's own pool; otherwise constructs a local
-`ThreadPool` for exactly this one call and calls `runThreaded()` against
-it — exactly reproducing WU-16a/16b's own prior behaviour, verified (not
-just reasoned) by the full pre-existing test suite passing completely
-unmoved against this refactor.
+**Part 3 — Q1 settled, unplanned but natural given the data already in
+hand.** Tile 2^5 (32x32) beat 2^4 (16x16) at every thread count measured,
+consistently by 3-10%, the margin widening as worker count grew — real,
+whole-pipeline, real-M1-Max evidence for the question architecture.md 4.5
+itself flagged as empirical ("32x32 may still win on reduced edge
+replication despite spilling") and that has sat open since WU-09 for lack
+of exactly this kind of measurement. `SCATTER_TILE_LOG2=5` — already this
+project's own default — is now confirmed and settled as the project's tile
+size going forward, not merely an unexamined default. See `DECISIONS.md`
+ADR-045; `CMakeLists.txt`'s own tile-size comment updated to match (both
+values stay fully configurable and fully exercised by the test matrix —
+nothing about the build changed, only the comment recording that the
+question is closed).
 
-**3. `tests/test_persistent_pool.cpp`, new.** Three checks: (a) a
-`ThreadPool` constructed once and reused across ten `runFrame()` calls
-against the same warped-frame geometry matches the single-threaded oracle
-on every call, and the pool tears down cleanly afterward; (b) a pool of
-size 3 against a `PipelineParams::threads` field deliberately set to 99,
-and separately to 1, both still produce output bit-identical to the
-oracle — the direct regression check for the "pool size governs, not
-`threads`" precedence rule, not just a comment claiming it; (c) one pool
-reused across two different frame geometries in immediate sequence (and
-back to the first again), proving no per-frame state leaks across the
-shared pool. 2 562 778 checks.
-
-**4. `CMakeLists.txt`.** `test_persistent_pool` added via the same
-`scatter_test()` pattern as `test_threading`/`test_row_band`; top-of-file
-history comment extended with a short WU-19a paragraph, same convention
-every prior unit's own addition used there.
+**Neither NEON deferral reopened.** WU-17's own denser `vld4q_u32` v210
+scheme and WU-18's own `downsampleRowNeon` load-count reduction: with
+5.3-5.8x headroom at 8 threads, at both tile sizes, there is no evidence
+either is a bottleneck. Both stay exactly as deferred as ADR-042/043 left
+them.
 
 **Corrections this session:** none. `CORRECTIONS.md` unchanged, still
-through C-015.
-
-**Tests / Build — this session's own Linux cloud sandbox (Ubuntu 24.04,
-Clang 18.1.3, GCC 13.3.0, cmake 3.28.3, ninja):**
-
-Default matrix: Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2`
-4 and 5 — eight configurations, all **seventeen** tests green (the sixteen
-carried over unchanged plus `test_persistent_pool`), zero warnings under
-this project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
--Werror` set. GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` at both tile sizes: clean. GCC 13 with
-`-fsanitize=thread` at both tile sizes: clean, no data race, checked both
-across the full suite and standalone against
-`test_threading`/`test_row_band`/`test_persistent_pool` under
-`TSAN_OPTIONS=halt_on_error=0` — checked with particular care since this is
-the first unit to let a `ThreadPool` genuinely outlive a single `runFrame()`
-call and be driven by more than one call in sequence.
-
-This unit touches **no Apple-only surface at all** — unlike WU-14/WU-15a/
-WU-17/WU-18, there is nothing here this sandbox could not already fully
-verify. What remains for the real terminal is the same procedural
-confirmation every unit needs (`SESSION-PROTOCOL.md`: "the assistant does
-not run `close.sh`"), not a genuinely unverified code path.
-
-**Tests / Build — real terminal, M1 Max, AppleClang:** not yet run this
-session — see "What to run at your terminal," below.
+through C-015. One documentation-only touch-up: `WORK-UNITS.md`'s own
+WU-18-session note ("once tagged, Phase 4 is done in full... WU-19 is
+next") turned out premature once real scoping found WU-19 needed two
+sub-units — corrected in place with a short parenthetical, not erased, the
+same convention WU-04's own session used correcting WU-03's stale status
+line.
 
 ## Where we are
 
-Phase 3 (SDI output) and Phase 4's WU-16a/16b/WU-17/WU-18 remain done,
-unchanged. WU-19a is implemented and fully verified in this session's own
-sandbox, pending only Steve's own real-terminal confirmation (procedural,
-not a genuine unverified-Apple-surface gap this time). WU-19b — the actual
-"at frame rate" measurement — is named and scoped (`WORK-UNITS.md`) but not
-started; it is Steve's own hands-on job, not a future session's coding
-task, the same category WU-15b was. `DECISIONS.md` now runs through
-ADR-044; `CORRECTIONS.md` unchanged, through C-015.
+**Phase 4 (Threading and NEON) is done in full.** Every unit from WU-16a
+through WU-19b is green (pending only the routine `close.sh 19a` tag
+confirmation, per "What was run this session," below). `DECISIONS.md` now
+runs through ADR-045; `CORRECTIONS.md` unchanged, through C-015.
 
-**Delivery mechanics:** implementation and verification were done in this
-session's own Linux cloud sandbox; final files were written to the real
-repository via the device bridge (`resolve.hpp`, `pipeline.cpp`,
+**Delivery mechanics:** WU-19a's implementation and verification were done
+in this session's own Linux cloud sandbox; WU-19b's own measurement and
+Q1's own resolution happened entirely at Steve's real terminal, reported
+back into this same session. All files (`resolve.hpp`, `pipeline.cpp`,
 `test_persistent_pool.cpp`, `CMakeLists.txt`, `DECISIONS.md`,
-`WORK-UNITS.md`, this `HANDOFF.md`). Steve now commits, builds, tests and
-(if green) tags at his own terminal — per the standing operational note,
-device-bridge commits on this machine reliably leave stale
-`.git/index.lock`/`HEAD.lock` files behind (the bridge can write files but
-cannot unlink anything here), so the exact git commands are given below for
-Steve to run himself rather than proxied through the bridge.
+`WORK-UNITS.md`, this `HANDOFF.md`) were written to the real repository via
+the device bridge. Steve commits and tags at his own terminal — the
+standing operational note (device-bridge commits on this machine leave
+stale `.git/index.lock`/`HEAD.lock` files) still applies.
 
 ## Next work unit
 
-**Steve's own immediate next action:**
-
-```
-cd ~/src/scatter-dve
-git add src/core/resolve.hpp src/core/pipeline.cpp tests/test_persistent_pool.cpp \
-        CMakeLists.txt DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-19a: persistent, caller-owned ThreadPool (ADR-044), verified in the cloud sandbox"
-cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure   # expect 20/21 -- ADR-035's known exception (test_decklink_device duplex check)
-./tools/close.sh 19a                          # will likely refuse to tag automatically, same as every unit since WU-15a
-git tag -a wu-19a-green -m "WU-19a: persistent ThreadPool, verified"   # only if the above is the one known exception, nothing else
-```
-
-After that: **WU-19b** — time `runFrame()`/`runFrameFile()` at 576i25 with a
-real, persistent `ThreadPool` (this session's own `PipelineParams::pool`) on
-the real M1 Max, and confirm per-frame wall-clock time stays under 40ms
-(25fps) — architecture.md 10's own "at frame rate." No code to write for
-this by default; a simple `std::chrono::steady_clock` wrap around a
-`runFrame()`/`runFrameFile()` call at your own terminal is enough to get a
-real number (see `DECISIONS.md` ADR-044 for why a committed benchmarking
-tool was considered and deliberately not built this session). If that
-measurement shows the splat or either NEON path (WU-17/18) is actually the
-bottleneck, their own already-named deferred refinements — v210's denser
-`vld4q_u32` scheme, chroma's `downsampleRowNeon` load-count reduction — or
-something not yet anticipated, become a future unit's own job, with real
-evidence behind them for the first time. Once WU-19b reports a number,
-Phase 4 (Threading and NEON) is done in full and Phase 5 (Live capture,
-WU-20 onward) is next — WU-20 already has its own hardware target named
-(UltraStudio Recorder 3G, ADR-039) but no `Files:`/`Accept:` scoping yet.
+**Phase 5 — Live capture.** `WORK-UNITS.md`'s own WU-20 line
+("DeckLink input, format detection, ring buffer") already names its
+hardware target (**UltraStudio Recorder 3G**, ADR-039) but has no
+`Files:`/`Accept:` scoping at all yet — whichever session starts it should
+read the real SDK's own `IDeckLinkInput`/capture-callback shape first, the
+same reading-before-scoping discipline ADR-031/032 already used for
+enumeration and output, rather than assume from architecture.md's own
+Input subsection (which still describes the original single-full-duplex-
+device design, unrevised — ADR-039's own note). Given WU-14/WU-15a's own
+precedent, expect this to need the same "reasoned through against the real
+SDK headers, unverified until the real terminal" shape this sandbox has
+used for every DeckLink-touching unit so far — no Blackmagic SDK, no
+AppleClang, in this sandbox.
 
 ## Open questions
 
-Unchanged: Q1 (tile size — still open; WU-19b's own real timing numbers,
-once they exist, are the first evidence this project will have had that
-could actually settle it, though settling it is not itself WU-19b's own
-job), Q3 (macOS/Desktop Video version), Q4 (lattice edge damping, C-008(a)).
-Q2 remains moot per ADR-037. ADR-037's own follow-ups #1
-(`test_decklink_device.cpp`'s full-duplex check) and #2 (genlock) remain
-open, unrelated to Phase 4/WU-19.
+**Q1 (tile size) — closed this session, ADR-045.** No longer open.
 
-New this session, named in `DECISIONS.md` ADR-044 and `WORK-UNITS.md`'s own
-WU-19b line, not decided or scoped: whether WU-17's own denser `vld4q_u32`
-v210 scheme or WU-18's own `downsampleRowNeon` load-count reduction are
-worth building at all — entirely dependent on WU-19b's own real
-measurement (or later profiling), which has not happened yet.
+Unchanged: Q3 (macOS/Desktop Video version), Q4 (lattice edge damping,
+C-008(a)). Q2 remains moot per ADR-037. ADR-037's own follow-ups #1
+(`test_decklink_device.cpp`'s full-duplex check) and #2 (genlock) remain
+open — both squarely Phase 5's own concern now that Phase 5 is next.
 
 ## Blocked / red
 
-Nothing red. WU-19a is green in this session's own sandbox across the full
-matrix (including TSAN, both tile sizes). Only the real-terminal build/
-test/`close.sh` confirmation is outstanding, per "Next work unit," above —
-the same procedural step every unit needs, not a genuine open question this
-time (no Apple-only surface in this unit at all).
+Nothing red. WU-19a is green in the sandbox across the full matrix
+(including TSAN, both tile sizes); WU-19b and Q1 are both confirmed by real
+hardware measurement. Only the routine `close.sh 19a` tag confirmation is
+outstanding — same procedural step every unit needs.
 
 ## Environment check
 
-Unchanged from sessions 18–23 (ADR-037/039): **UltraStudio Monitor 3G** is
+Unchanged from sessions 18-23 (ADR-037/039): **UltraStudio Monitor 3G** is
 the active, confirmed output target. **UltraStudio Recorder 3G** is in
-hand, named (ADR-039) as Phase 5's own input target, still untouched by any
-code. **UltraStudio 4K Mini** remains on hold pending a PSU replacement.
-None of this is relevant to WU-19a's own work — pure `src/core/`, no
-DeckLink code touched, no hardware needed to verify it. WU-19b, when Steve
-runs it, needs no DeckLink hardware either — it is a file-to-file/in-memory
-timing measurement of `runFrame()`/`runFrameFile()`, not a live-capture or
-SDI-output test.
+hand, named (ADR-039) as Phase 5's own input target — about to actually
+matter, now that WU-20 is next. **UltraStudio 4K Mini** remains on hold
+pending a PSU replacement.
 
 ## Append to DECISIONS.md
 
-ADR-044 was appended in full this session; see `DECISIONS.md`. Does not
-reopen `docs/architecture.md`, ADR-015, ADR-021, ADR-024, ADR-026, ADR-030,
-ADR-031, ADR-032, ADR-038, ADR-040, ADR-041, ADR-042 or ADR-043 — see
-ADR-044's own closing paragraph for the precise relationship to each.
+ADR-044 (WU-19a's own design) and ADR-045 (Q1, tile size, settled) were
+both appended in full this session; see `DECISIONS.md`. ADR-045 does not
+reopen `docs/architecture.md`, ADR-002 or ADR-044 — see its own closing
+paragraph.
 
 ## Append to CORRECTIONS.md
 
-Nothing appended this session — see "Corrections this session," above.
+Nothing appended this session.
 
 ---
 
-## What to run at your terminal
+## What was run this session
+
+Already done:
 
 ```
 cd ~/src/scatter-dve
@@ -260,25 +180,33 @@ git add src/core/resolve.hpp src/core/pipeline.cpp tests/test_persistent_pool.cp
         CMakeLists.txt DECISIONS.md WORK-UNITS.md HANDOFF.md
 git commit -m "WU-19a: persistent, caller-owned ThreadPool (ADR-044), verified in the cloud sandbox"
 cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure   # 20/21 -- ADR-035's known exception
 ./tools/close.sh 19a
-```
-
-If the full suite is 20/21 with the one failure being exactly
-`test_decklink_device`'s own full-duplex check (ADR-035's already-accepted
-exception, unrelated to this unit), tag it by hand the same way you have
-for every unit since WU-15a:
-
-```
 git tag -a wu-19a-green -m "WU-19a: persistent, caller-owned ThreadPool, verified"
+```
+
+Plus, for WU-19b and Q1 (not committed — scratch, per ADR-044/045):
+
+```
+cmake -B build-t4 -DSCATTER_TILE_LOG2=4 && cmake --build build-t4
+# scratch bench.cpp compiled and linked against both build/libscatter-core.a
+# and build-t4/libscatter-core.a, results recorded in WORK-UNITS.md/ADR-045
+```
+
+**Still to do, this session's own remaining loose end:** commit this
+replacement `HANDOFF.md` (and the WU-19b/Q1 updates to `WORK-UNITS.md`,
+`DECISIONS.md` and `CMakeLists.txt`'s own comment, all already written to
+the repo via the bridge):
+
+```
+cd ~/src/scatter-dve
+git add HANDOFF.md WORK-UNITS.md DECISIONS.md CMakeLists.txt
+git commit -m "WU-19b + Q1: real-time measurement at 576i25 confirmed on M1 Max; tile size settled (ADR-045)"
 git push origin HEAD --tags   # if you keep a remote
 ```
 
-If anything *else* fails, stop and paste the output back rather than
-tagging — that would be a real regression this session's own sandbox
-somehow missed, not the known exception.
-
-When you're ready for WU-19b, it needs no new code from a session by
-default — see "Next work unit," above, for the `std::chrono` measurement
-itself. Report back whatever per-frame time you get (and at how many
-threads/what tile size) and the next session can pick up from there.
+No new build/test run needed for this commit — nothing in `src/` or
+`tests/` changed since the WU-19a commit above, only documentation
+recording WU-19b's own measurement and Q1's own resolution. `build-t4/` is
+yours to keep or remove as you like; nothing in the repo depends on it
+persisting.

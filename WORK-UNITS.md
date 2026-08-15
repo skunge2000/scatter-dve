@@ -728,7 +728,11 @@ confirmed run as of this handoff, see "Next work unit" below. Once tagged,
 per-worker bin arenas (WU-16a/16b) and both NEON units (WU-17 v210, WU-18
 chroma) all green; WU-19 ("Real time at 576i25") is next and is the
 phase's only remaining unit, the first whose own job is throughput rather
-than correctness.
+than correctness. (This session's own "once tagged, Phase 4 is done in
+full" was premature, not wrong — WU-19 had not yet been scoped, and real
+scoping the next session found it split into WU-19a/19b, below; Phase 4
+did not actually finish until both closed out. Same doc-sync slip WU-03's
+own status had at WU-04, corrected in place rather than erased.)
 ### WU-19a — Persistent, caller-owned ThreadPool `wip`
 See `DECISIONS.md` ADR-044 for the full design and for why this splits from
 the single bare WU-19 line above (this session's own first job, per Steve's
@@ -778,7 +782,7 @@ could not already fully verify. Still needs Steve's own real-terminal
 `cmake --build` + `ctest` + `./tools/close.sh 19a` run before this line can
 go `green`, the same procedural reason every other unit's line has had.
 
-### WU-19b — Real-time measurement at 576i25 on the M1 Max `todo`
+### WU-19b — Real-time measurement at 576i25 on the M1 Max `green`
 The literal, still-unmet half of architecture.md 10's own Phase 4 accept
 criterion ("at frame rate") — not implementation work, no new
 `Files:`/`Accept:` source-file lines, the same category WU-15b (ADR-032) was
@@ -789,12 +793,51 @@ real, persistent `ThreadPool` at a real worker count on the real M1 Max —
 a simple `std::chrono` wrap at Steve's own terminal is enough, no committed
 benchmarking tool (see `DECISIONS.md` ADR-044 for why one was considered and
 rejected this session) — and confirm per-frame wall-clock time stays under
-576i25's own 40ms budget (25 fps). If that measurement shows the splat or
-either NEON path (WU-17/18) is actually the bottleneck, their own
-already-named deferred refinements (v210's denser `vld4q_u32` scheme,
-chroma's `downsampleRowNeon` load-count reduction) — or something not yet
-anticipated — become a future unit's own job to pick up with real evidence
-behind them, not decided or scoped here.
+576i25's own 40ms budget (25 fps).
+**Accept:** per-frame wall-clock time, averaged over 200 iterations after a
+20-iteration warmup, against a genuinely warped (cylinder-over-zone-plate,
+the same construction `tests/test_threading.cpp`/`test_persistent_pool.cpp`
+use) 720x576 frame, using WU-19a's own `PipelineParams::pool`, stays under
+40.000ms at some worker count `docs/architecture.md` section 6 actually
+names ("8 worker threads").
+*Done:* confirmed by Steve, real terminal, real hardware (M1 Max,
+AppleClang, `-O3 -mcpu=apple-m1`, linked directly against
+`libscatter-core.a` built at both candidate tile sizes):
+
+| threads | tile 2^5 (32x32) ms/frame | tile 2^4 (16x16) ms/frame |
+|---|---|---|
+| 1 | 48.766 (over budget) | 50.269 (over budget) |
+| 2 | 24.665 (OK) | 25.710 (OK) |
+| 4 | 13.101 (OK) | 14.349 (OK) |
+| 8 | 6.868 (OK, 5.8x headroom) | 7.528 (OK, 5.3x headroom) |
+
+architecture.md 10's own Phase 4 "done when" line — "8-thread output is
+bit-identical to single-threaded, at frame rate" — is now satisfied in
+full: the bit-identical half by WU-16a/16b/19a (I6, `--threads 1` vs `--threads
+N`, checked exhaustively in-suite), the frame-rate half by this measurement,
+at architecture.md's own named 8-worker configuration, with a wide margin
+rather than a narrow squeak. **Phase 4 (Threading and NEON) is now done in
+full.**
+
+**Q1 (tile size) settled.** Both candidate tile sizes were measured this
+round, not just the default — tile 2^5 (32x32) is faster than tile 2^4
+(16x16) at every one of the four thread counts, consistently by roughly
+8-10%, not a one-off at a single point. This is the real, whole-pipeline,
+real-M1-Max evidence architecture.md 4.4's own "Benchmark both" (and this
+project's own `CMakeLists.txt` comment, "WU-09 benchmarks both. Do not
+resolve Q1 before then") has been waiting on since WU-09, five sessions
+before this project even had a working threaded pipeline to measure the
+question honestly against. See `DECISIONS.md` ADR-045: `SCATTER_TILE_LOG2=5`
+(32x32), already this project's own default, is confirmed and settled as
+the project's tile size going forward, not merely left as a default nobody
+had checked.
+
+WU-17's own deferred denser `vld4q_u32` v210 scheme and WU-18's own
+deferred `downsampleRowNeon` load-count reduction: with 5.3-5.8x headroom
+at the architecture's own named worker count, at both tile sizes, there is
+no evidence either is a bottleneck worth chasing — both stay exactly as
+deferred as ADR-042/043 already left them, not reopened by this result, and
+not scheduled.
 
 ---
 

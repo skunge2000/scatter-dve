@@ -3281,3 +3281,87 @@ own "reasoned through here, verified for real only at the terminal, no
 committed machinery for a hardware-only one-off" discipline is extended to
 a measurement problem, the first time this project has hit that particular
 shape of gap rather than a missing-SDK or missing-toolchain one.
+
+**ADR-045 — Tile size (Q1) settled: `SCATTER_TILE_LOG2=5` (32x32),
+already this project's own default since WU-01, confirmed as the project's
+tile size going forward. Frozen at WU-19b, on real M1 Max whole-pipeline
+throughput evidence.**
+
+`CMakeLists.txt`'s own tile-size comment has read "Q1, open... WU-09
+benchmarks both. Do not resolve Q1 before then" since WU-01, and every
+session's own `HANDOFF.md` "Open questions" section has carried Q1
+forward, unresolved, straight through WU-09 and every unit since — WU-09's
+own accept criterion asked only that both tile sizes *build and pass the
+same tests* (`SCATTER_TILE_LOG2` 4 and 5, part of this project's own
+standing verification matrix since that unit), not that either be timed
+against the other; nothing before this project had a working threaded
+pipeline to measure a whole-frame throughput question against honestly in
+the first place — a single-threaded splat microbenchmark could only ever
+speak to cache behaviour in isolation, not to the question architecture.md
+4.5 itself poses ("32x32 may still win on reduced edge replication despite
+spilling. This is an empirical question, not an architectural one").
+
+**WU-19b's own real-time measurement is the first evidence this project has
+had that can actually answer it, and it was run at both tile sizes for
+exactly that reason** — not originally scoped as part of WU-19b's own
+accept criterion (`WORK-UNITS.md`'s own WU-19b line names no particular
+tile size), but a natural, cheap extension once the measurement mechanism
+already existed: rebuild `scatter-core` at `SCATTER_TILE_LOG2=4`, relink
+the same scratch benchmark (`DECISIONS.md` ADR-044's own "no committed
+tool" scratch-file shape, reused unchanged for a second build), rerun the
+identical warped-frame/thread-count sweep. Result, both tile sizes, same
+warped 720x576 cylinder-over-zone-plate frame, same 20-iteration warmup and
+200-iteration average, same M1 Max, same session:
+
+| threads | 2^5 (32x32) ms/frame | 2^4 (16x16) ms/frame | 2^5 advantage |
+|---|---|---|---|
+| 1 | 48.766 | 50.269 | 3.1% |
+| 2 | 24.665 | 25.710 | 4.2% |
+| 4 | 13.101 | 14.349 | 9.5% |
+| 8 | 6.868 | 7.528 | 9.6% |
+
+32x32 is faster at every thread count measured — not a one-off at a single
+point, and the margin widens rather than narrows as worker count grows
+(3-4% at 1-2 threads, up to ~9.5% at 4-8), consistent with architecture.md
+4.5's own stated tradeoff: 32x32's accumulator (128 KB across four banks)
+exactly saturates the M1 P-core's own 128 KB L1D, where 16x16's (32 KB)
+comfortably fits with margin to spare — the plausible mechanism being that
+16x16's own extra edge-replication overhead (architecture.md 4.4: "roughly
+6% at 32x32, 12% at 16x16") costs more, at real per-tile fragment volumes
+and worker counts, than any cache-fit advantage its smaller footprint buys,
+the same tradeoff 4.5's own table already flagged as needing a real
+measurement rather than an assumption either way.
+
+**Decision: `SCATTER_TILE_LOG2=5` is confirmed and settled as this
+project's own tile size going forward** — not a new choice (it has been
+`CMakeLists.txt`'s own default since WU-01), but no longer merely an
+unexamined default sitting on an explicitly "open" question. `Q1` is
+closed. Both values remain fully configurable and fully exercised by this
+project's own standing verification matrix (`SCATTER_TILE_LOG2` 4 and 5,
+every unit's own sandbox verification since WU-09) — nothing about this
+decision removes tile 4 from the build or the test matrix, the same way
+confirming `bmdModePAL` (ADR-033) did not remove `bmdModePALp` from the
+codebase's own vocabulary, only from being the thing actually used. A
+future unit revisiting resolution (Phase 6's own WU-25, "1080p25, then
+1080p50; tile-size tuning") is where this question would need re-asking,
+not before — this entry's own evidence is 720x576-scale only, and
+architecture.md 4.5's own cache-fit reasoning (128 KB tile exactly matching
+L1D size) is itself resolution-independent in principle but untested at
+any resolution larger than this session's own measurement.
+
+**Scope, stated precisely: this settles which tile size, not whether the
+splat generally, or either NEON path, needs further work.** That question
+— already asked and answered "no evidence either is a bottleneck" by this
+same session's own WU-19b entry in `WORK-UNITS.md`, at both tile sizes now
+— is unaffected by which of the two turned out faster; both stayed
+comfortably under the 40ms/8-thread budget architecture.md 10 names.
+
+Does not reopen `docs/architecture.md`, ADR-002 or ADR-044 — same
+relationship every ADR since ADR-020 has to the document; ADR-002's
+four-bank split (the reason a "tile" has an accumulator at all) is
+unaffected — this entry settles the tile's own edge length, not whether to
+tile or how the four banks are addressed; ADR-044's own WU-19b scope
+("time `runFrame()`/`runFrameFile()`... at a real worker count on the real
+M1 Max... no committed benchmarking tool") is extended to a second build
+configuration using the exact same uncommitted scratch mechanism, not
+altered or reopened.

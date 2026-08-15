@@ -153,12 +153,16 @@ if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
 endif()
 
 # ---------------------------------------------------------------------------
-# Tile size (Q1, open)
+# Tile size (Q1, settled — WU-19b, DECISIONS.md ADR-045)
 #
 #   cmake -B build -DSCATTER_TILE_LOG2=4     # 16x16,  32 KB across four banks
-#   cmake -B build -DSCATTER_TILE_LOG2=5     # 32x32, 128 KB   (default)
+#   cmake -B build -DSCATTER_TILE_LOG2=5     # 32x32, 128 KB   (default, confirmed)
 #
-# WU-09 benchmarks both. Do not resolve Q1 before then.
+# WU-19b measured both, whole-pipeline, on the real M1 Max, across every
+# worker count architecture.md 6 names: 2^5 (32x32) wins at all of them, by
+# roughly 8-10%, not a one-off. Still both configurable here (nothing about
+# the build breaks at 2^4), but 2^5 is this project's own settled choice
+# going forward, not merely an unexamined default.
 # ---------------------------------------------------------------------------
 set(SCATTER_TILE_LOG2 "5" CACHE STRING "log2 of tile edge in pixels (4 or 5)")
 target_compile_definitions(scatter-core PUBLIC
