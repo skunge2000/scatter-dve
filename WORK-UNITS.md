@@ -1192,6 +1192,31 @@ and a previously unanticipated cold-start green-frame finding (named, not
 fixed). Confirmed `green` in substance; the `wu-21c-green` git tag itself is
 Steve's own next action at his own real terminal.
 
+### WU-21d — Cold-start black fill for `LiveFramePlayback`'s own pool `todo`
+Recorded ahead of this unit's own real scoping session so it isn't lost, the
+same "Steve's own stated preference, noted here for whoever scopes this
+unit" convention WU-23's own entry below already uses — not a decision made
+now, and not itself a real `Files:`/`Accept:` scope. WU-21c's own real-
+hardware verification (`DECISIONS.md` ADR-050's own same-session addendum)
+found that `LiveFramePlayback`'s pool buffers, scheduled during
+`startWith()`'s own preroll loop before `CaptureConsumer` has produced its
+own first output, are left holding whatever `CreateVideoFrame()` first
+allocated them with — effectively zero-filled `v210` — which decodes as a
+strongly saturated green once converted for display, seen by eye on the
+Monitor 3G's own HDMI-mirrored output as a few seconds of solid green before
+real content appears. Candidate fix named there: fill each pool buffer with
+black immediately after `CreateVideoFrame()`, before the preroll loop
+schedules any of them, so a cold start shows black rather than green. Also
+candidate territory for whoever scopes this unit, not yet decided: the
+literal one-hour endurance run and by-eye live-content confirmation
+`WORK-UNITS.md`'s own WU-21c `Accept:` text deferred here; and real
+measurement of whether WU-21c's own measured `framesRepeated` rate (~15% on
+one 5-second run) stays acceptable over a longer run, with a possible
+timestamp-alignment refinement if not — both already named in ADR-050 as
+"not decided here." Whether all of this stays one unit or splits (the same
+a/b/c discipline this project already uses when a unit's scope grows past
+the 3-file/400-line cap) is that session's own call, not decided here.
+
 ### WU-22 — Diagnostic coverage view `todo`
 
 ---
