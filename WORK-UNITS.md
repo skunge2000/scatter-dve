@@ -526,6 +526,15 @@ is satisfied across WU-14, WU-15a and WU-15b together.
 ## Phase 5 — Live capture
 
 ### WU-20 — DeckLink input, format detection, ring buffer `todo`
+Targets the **UltraStudio Recorder 3G** by name — see `DECISIONS.md`
+ADR-039, which completes ADR-037's own third follow-up. Not otherwise
+scoped: no `Files:`/`Accept:` lines yet — whichever session starts this
+should read the real SDK's own `IDeckLinkInput`/capture-callback shape
+first, per this project's own established practice for new hardware
+surfaces (ADR-031/032's own reading-before-scoping discipline), rather
+than assume from `docs/architecture.md`'s own Input subsection, which
+still describes the original single-full-duplex-device (4K Mini) design
+unrevised.
 ### WU-21 — Full loop through at 576i25 `todo`
 ### WU-22 — Diagnostic coverage view `todo`
 

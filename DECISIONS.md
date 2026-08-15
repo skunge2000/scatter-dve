@@ -1932,3 +1932,64 @@ implicit (it fixed WU-15b's *scope*, not its *invocation mechanism*), the
 same relationship ADR-033's `bmdModePAL` confirmation and ADR-029's
 `compositeLayered()` freeze both already have to their own respective
 "not decided here" notes.
+
+**ADR-039 — Names the UltraStudio Recorder 3G, not a generic "input
+device," as the target for all future capture-side work. Completes
+ADR-037's own third named follow-up; does not scope WU-20.**
+
+ADR-037 already decided the going-forward hardware split — UltraStudio
+Monitor 3G for output, UltraStudio Recorder 3G for input — and named three
+follow-ups it explicitly declined to resolve itself, the third being:
+"`WORK-UNITS.md`'s WU-15b (`todo`) and any future capture-side work should
+target the Recorder 3G/Monitor 3G split directly rather than describing a
+single device, once either is actually touched by new `Files:`/`Accept:`
+scoping." WU-15b (session 18) already exercised the Monitor 3G half of
+that by name, with no ambiguity — its own `Accept:` line and every result
+reported named the Monitor 3G throughout, never a generic "the output
+device." The input half was still open: nothing in this project's own
+tracked state (`WORK-UNITS.md`'s bare WU-20 heading, `docs/architecture.md`'s
+own Input subsection) named the Recorder 3G anywhere; both still describe
+input purely in terms of the (now paused, ADR-034/037) UltraStudio 4K
+Mini.
+
+**Decided now, ahead of WU-20's own scoping, at Steve's own request: the
+UltraStudio Recorder 3G is the named input target for all future
+capture-side work in this project** — WU-20 (DeckLink input, format
+detection, ring buffer), WU-21 (full loop through), WU-22 (diagnostic
+coverage view), and anything else Phase 5 touches. Nothing else about
+Phase 5's own design changes here — no `Files:`/`Accept:` lines are
+written by this entry, and WU-20 itself remains `todo`, unscoped, for
+whichever future session actually starts writing `src/io/decklink_input.cpp`
+to pick up per `SESSION-PROTOCOL.md`'s own discipline (read the real SDK's
+`IDeckLinkInput`/capture-callback shape first, the same order ADR-031 and
+ADR-032 already used for enumeration and output, rather than assume from
+architecture.md's own summary). This entry only fixes *which physical
+device* that future scoping targets, closing the specific ambiguity
+ADR-037's own follow-up #3 named.
+
+**`docs/architecture.md` is not edited by this entry.** Section 7's Input
+subsection (and its scattered "4K Mini" references — the full-duplex claim
+at lines 303-304, "confirm the 4K Mini enumerates with both input and
+output" at line 436, among others) still describes the original
+single-full-duplex-device design ADR-006 named, unrevised. Consistent with
+this project's own established convention: no ADR since ADR-020 has ever
+edited `architecture.md` itself, including ADR-037, which superseded
+ADR-006's device choice without touching the document's own text —
+`DECISIONS.md`'s own ADRs are what a session actually trusts for current
+hardware truth, `architecture.md` remains reference material for the
+original design intent, and a future session reading its Input subsection
+should already know (from `SESSION-PROTOCOL.md`'s own reading order) to
+check `DECISIONS.md` for whether any later ADR superseded what it says,
+the same way this entry and ADR-037 both do for its now-stale
+4K-Mini-specific hardware claims.
+
+**Genlock (ADR-037's own second follow-up) is not addressed here** — still
+deferred to whichever session actually touches the Recorder 3G's own code,
+per ADR-037's own reasoning; naming the device does not by itself require
+reasoning about its clock domain.
+
+Does not reopen ADR-006, ADR-013, ADR-034 or ADR-037 — extends ADR-037's
+own device-naming decision to the one place it explicitly left open (the
+input device's own name in this project's *forward-looking* documentation,
+`WORK-UNITS.md`), the same "completes, does not reopen" relationship
+ADR-033/035/038 already have to the entries they complete.
