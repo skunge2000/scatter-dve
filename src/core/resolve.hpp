@@ -312,6 +312,41 @@ struct PipelineParams {
 void runFrame(const Lattice& lattice, const SourceRaster& src,
               const PipelineParams& params, video::Raster444& dest);
 
+// Full in-memory path -- architecture.md section 3's complete signal path
+// (v210 unpack, chroma upsample, runFrame() above, chroma downsample, v210
+// pack), operating on a caller-supplied packed-v210 byte buffer instead of
+// an already-4:4:4 raster (runFrame(), above) or a file (runFrameFile(),
+// below). WU-21's own reason for existing (DECISIONS.md ADR-048): a
+// captured IDeckLinkVideoInputFrame's own pixel bytes live in a
+// DeckLink-owned buffer for the duration of one StartAccess/EndAccess
+// bracket (ADR-032's own finding, extended to input by ADR-046/047) --
+// never a file -- so the file-to-file path below cannot be this project's
+// route from a retained capture frame into its own warp pipeline. This is
+// the exact shared middle both runFrame() callers already use (v210
+// unpack, chroma upsample, runFrame(), chroma downsample, v210 pack) with
+// the file-I/O bookends replaced by caller-supplied source/destination
+// pointers and strides.
+//
+// Preconditions, unchecked -- the same convention runFrame() above and
+// video::v210::unpackImage/packImage already use throughout this codebase:
+// srcBytes holds at least srcRowBytes * srcHeight bytes of packed v210
+// (video::v210::unpackImage's own precondition, unchanged); dstBytes holds
+// at least dstRowBytes * params.destHeight bytes, and dstRowBytes is at
+// least video::v210::rowBytesMin(params.destWidth) -- a caller passing a
+// DeckLink-buffer stride that legitimately exceeds the minimum (alignment
+// padding beyond one row's own packed content) is fine, exactly as
+// io/decklink_output.cpp's own fillFrameBuffer() already trusts the SDK's
+// own RowBytesForPixelFormat() rather than assuming rowBytesMin() agrees
+// (ADR-032). No bool return the way runFrameFile() has: unlike that
+// function, there is no file open/read/write step here that can fail --
+// runFrame() itself has no failure return, by construction, and neither do
+// v210::unpackImage/packImage or chroma::upsample/downsampleImage.
+void runFrameBytes(const Lattice& lattice,
+                    const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                    int srcWidth, int srcHeight,
+                    const PipelineParams& params,
+                    std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes);
+
 // Full file-to-file path -- architecture.md section 3's complete signal
 // path: v210 unpack, chroma upsample, runFrame() above, chroma downsample,
 // v210 pack. This is what this unit's own I7 identity-map check exercises,
@@ -320,6 +355,23 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
 // srcPath's v210 geometry; params.destWidth/destHeight describe dstPath's.
 // Returns false, writing nothing durable, if either v210 file operation
 // fails -- matching readV210File/writeV210File's own convention.
+//
+// Deliberately not implemented in terms of runFrameBytes() above, despite
+// running the identical middle sequence (unpack, upsample, runFrame,
+// downsample, pack) between its own file-read and file-write: the two
+// functions were written independently to keep this one's own existing,
+// already-tested body (WU-10, untouched by WU-21) at zero risk from a
+// refactor this unit's own accept criterion does not need -- unlike
+// ADR-040/041's resolveOneTile() extraction, where two hand-written copies
+// of genuinely complex, evolving multi-worker orchestration logic really
+// could quietly drift apart, this is a short, linear sequence of calls to
+// already independently-tested functions (v210::unpackImage/packImage,
+// chroma::upsample/downsampleImage, runFrame() itself), duplicated once,
+// not hand-rolled twice. Flagged here, not fixed speculatively, as a
+// candidate for consolidation if a third caller ever needs the same
+// sequence -- this project's own "not decided here" convention (e.g.
+// ADR-042/043's own deferred denser NEON schemes) applied to a much
+// smaller question.
 bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                    int srcWidth, int srcHeight, const PipelineParams& params,
                    const std::string& dstPath);

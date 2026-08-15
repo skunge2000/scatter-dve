@@ -843,7 +843,7 @@ not scheduled.
 
 ## Phase 5 — Live capture
 
-### WU-20a — Ring buffer: portable SPSC handle queue `wip`
+### WU-20a — Ring buffer: portable SPSC handle queue `green` (`wu-20a-green`)
 See `DECISIONS.md` ADR-046 for the full design and for why this splits from
 the single bare WU-20 line above (this session's own first job, per this
 project's own established practice for new hardware surfaces: read the real
@@ -887,10 +887,10 @@ inspection" standard WU-16a/ADR-040 established for this project's first
 concurrent code). No DeckLink dependency anywhere in this unit's own
 files — `EnableVideoInput()`/`IDeckLinkInputCallback`/format detection are
 WU-20b's own job, not built this session.
-*Status:* implemented and verified in this session's own Linux cloud
-sandbox — GCC 13 and Clang 18, Release and Debug, `SCATTER_TILE_LOG2` 4 and
-5 (eight configurations, all eighteen tests green — the seventeen carried
-over unchanged plus `test_ring_buffer`, 20036 checks, zero warnings under
+*Status:* implemented and verified in a Linux cloud sandbox — GCC 13 and
+Clang 18, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, all eighteen tests green — the seventeen carried over
+unchanged plus `test_ring_buffer`, 20036 checks, zero warnings under
 the project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
 -Werror` set), plus GCC 13 and Clang 18 both with
 `-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile sizes
@@ -906,12 +906,12 @@ target runtime libraries themselves unpacked and linked cleanly — not a
 project code issue, not logged in `CORRECTIONS.md`). This unit touches no
 Apple-only or DeckLink-only surface at all — unlike WU-14/WU-15a/WU-17/
 WU-18/WU-20b, there is no piece of it this sandbox could not already fully
-verify. Still needs Steve's own real-terminal `cmake --build` + `ctest` +
-`./tools/close.sh 20a` run before this line can go `green`, the same
-procedural reason every other unit's line has had.
+verify. Confirmed `green`, tagged `wu-20a-green` (verified directly against
+the real repository's own `git tag`/`git describe` this session — see
+`HANDOFF.md`).
 
 ### WU-20b — DeckLink capture: format-detection-aware `EnableVideoInput`,
-`IDeckLinkInputCallback` implementation `wip`
+`IDeckLinkInputCallback` implementation `green` (`wu-20b-green`)
 See `DECISIONS.md` ADR-047 for the full design and for why this session
 built WU-20b as one unit rather than splitting it further (this session's
 own first job, per this project's established practice for DeckLink work:
@@ -965,12 +965,91 @@ Recorder 3G's input, `cmake --build build` is now clean and
 `ctest --test-dir build --output-on-failure` shows `test_decklink_input`
 passing alongside the rest of the suite (`test_decklink_device`'s
 `foundDuplexDevice` failure is ADR-035's own already-accepted exception,
-unrelated). Still needs `./tools/close.sh 20b` and the tag before this
-line can go `green` — this session's own sandbox verified none of it by
-compiling or running it; Steve's real terminal has now verified the build
-and the test, but tagging is the one step this project's own discipline
-reserves for Steve alone.
-### WU-21 — Full loop through at 576i25 `todo`
+unrelated). Confirmed `green`, tagged `wu-20b-green` (verified directly
+against the real repository's own `git tag`/`git describe` this session —
+see `HANDOFF.md`) — this session's own sandbox verified none of it by
+compiling or running it; Steve's real terminal verified the build and the
+test, and has since tagged it.
+### WU-21a — `runFrameBytes()`: the in-memory sibling of `runFrame()`/
+`runFrameFile()` `wip`
+See `DECISIONS.md` ADR-048 for the full design and for why this session split
+WU-21 into three pieces (a/b/c) rather than building "full loop through at
+576i25" as one unit — the same "portable piece now, DeckLink-specific piece
+next" shape ADR-046 already used to split WU-20a/WU-20b, applied here because
+WU-21's own first job (drain WU-20b's own `CaptureFrameRing`,
+`src/io/decklink_input.hpp`, on a consumer thread, and read real pixel bytes
+out of a retained `IDeckLinkVideoInputFrame` for the first time anywhere in
+this project) genuinely splits into a portable byte-conversion half this
+sandbox can build and verify for real, and two DeckLink-specific halves
+(frame-byte extraction/ring-drain; continuous SDI re-output scheduling) it
+cannot. This session's own first job, per established practice: re-read the
+real SDK's `IDeckLinkVideoInputFrame`/`IDeckLinkVideoBuffer`/`StartAccess`/
+`EndAccess`/`GetBytes()` shape and the three real capture samples again (not
+just ADR-047's own summary), confirming none of the three samples reads
+pixel bytes via `IDeckLinkVideoBuffer` — this is genuinely new ground for the
+project. Mirrors `io/decklink_output.hpp`'s own `LoopedFramePlayback::
+fillFrameBuffer()` write-direction `StartAccess`/`GetBytes`/`EndAccess`
+pattern (WU-15a, ADR-032), the one this unit's own eventual WU-21b half will
+extend to the read direction.
+**Files:** `src/core/resolve.hpp`, `src/core/pipeline.cpp` (both extended:
+new `runFrameBytes()`, declared between `runFrame()` and `runFrameFile()`),
+`tests/test_pipeline_bytes.cpp` (new); plus `CMakeLists.txt`
+(`test_pipeline_bytes` registered via the existing `scatter_test()` function,
+alongside `test_zoneplate`/`test_threading` — CMakeLists.txt edits have never
+counted against the "3 source files" cap in any earlier unit either).
+**Accept:** two checks, both run for real in this sandbox, not reasoned
+through: (1) `runFrameBytes()` and `runFrameFile()` produce byte-identical
+output for the same lattice/source/params, checked exactly against a genuine
+off-centre affine warp (0.7x compression over a zone plate) — not the
+identity map's degenerate one-fragment-per-cell case; (2) `runFrameBytes()`
+itself satisfies I7 (identity map round-trips bit-exactly) directly, against
+flat-chroma content (`testpat::makeZonePlate()`, not a ramp — see
+`CORRECTIONS.md` C-006), the same foundational property
+`tests/test_zoneplate.cpp`'s own `testI7Pattern()` already established for
+`runFrameFile()`. Deliberately does not refactor `runFrameFile()` to call
+`runFrameBytes()` internally (see ADR-048 for the reasoning) and does not
+include, and does not claim, anything about draining `CaptureFrameRing`,
+reading bytes out of a retained `IDeckLinkVideoInputFrame`, or continuous SDI
+output — those are WU-21b's and WU-21c's own jobs, not this one's.
+*Status:* implemented and verified for real in this project's own Linux
+cloud sandbox — unlike WU-14/WU-15a/WU-20b, this unit touches no DeckLink or
+Apple-only surface at all, so there is no piece of it this sandbox could not
+already fully verify. GCC 13.3.0 and Clang 18.1.3, Release and Debug, at
+`SCATTER_TILE_LOG2` 4 and 5 (8 configurations total), all 19 project tests
+green; plus GCC 13 and Clang 18 both with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile sizes,
+clean. TSan not run — this unit introduces no new concurrency. One test bug
+caught and fixed within this same session, before any claim was made (not
+logged in `CORRECTIONS.md`, matching the C-015/ADR-043 precedent for routine
+iteration, not a design/reasoning error — see ADR-048): the I7 check first
+used `testpat::makeRamp()` and failed, because a ramp's own non-flat chroma
+does not survive `chroma::upsampleImage()`/`downsampleImage()` unchanged
+regardless of the lattice (C-006); fixed by switching to
+`testpat::makeZonePlate()`. Not yet built or run at Steve's own real
+terminal, not yet tagged — this line stays `wip` until that happens (matching
+every other unit's own convention).
+
+### WU-21b — DeckLink capture-side pixel read: drain `CaptureFrameRing` on a
+consumer thread, `StartAccess`/`GetBytes`/`EndAccess` against a retained
+`IDeckLinkVideoInputFrame` `todo`
+Not built this session — sketched here (matching the style ADR-046 used to
+sketch WU-20b before it was built) so whoever picks this up next isn't
+starting from nothing. See `DECISIONS.md` ADR-048's own "not decided here"
+section for the open questions this sketch deliberately leaves open
+(consumer-thread ownership/lifetime model against `CaptureSource::stop()`;
+whether the extracted bytes get copied into a pool buffer or handed to
+`runFrameBytes()` while still inside the `StartAccess`/`EndAccess` bracket;
+genlock/clock-domain drift, still open since ADR-047; whether
+`kCaptureRingCapacity=8` matches real observed buffering depth). Expected
+shape: a consumer object that pops `ComPtr<IDeckLinkVideoInputFrame>` off
+WU-20b's own `CaptureFrameRing`, obtains `IDeckLinkVideoBuffer` via
+`QueryInterface`, brackets `GetBytes()` with `StartAccess(bmdBufferAccessRead)`/
+`EndAccess(bmdBufferAccessRead)` (mirroring `LoopedFramePlayback::
+fillFrameBuffer()`'s own write-direction use of the same interface), and
+feeds the resulting bytes/`GetRowBytes()` into WU-21a's own `runFrameBytes()`.
+Continuous SDI re-output scheduling (closing the actual "full loop through"
+loop end to end) is WU-21c's own job, later still, not WU-21b's.
+
 ### WU-22 — Diagnostic coverage view `todo`
 
 ---

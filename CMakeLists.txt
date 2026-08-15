@@ -215,6 +215,12 @@ target_include_directories(test_persistent_pool PRIVATE ${CMAKE_CURRENT_SOURCE_D
 # only and platform-independent -- no tools/ include needed, unlike the
 # tests above that build a warped frame via tools/testpat.hpp.
 scatter_test(test_ring_buffer)
+# WU-21a -- runFrameBytes(), the in-memory sibling of runFrame()/
+# runFrameFile() (DECISIONS.md ADR-048). Portable, zero DeckLink dependency
+# -- builds a zone plate/ramp via tools/testpat.hpp the same way
+# test_zoneplate/test_threading/test_persistent_pool already do.
+scatter_test(test_pipeline_bytes)
+target_include_directories(test_pipeline_bytes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

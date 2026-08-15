@@ -3944,3 +3944,241 @@ WU-20b sketch is completed, not amended — every question that entry explicitly
 left open for this unit is decided above, and nothing this entry decides
 contradicts what that entry already froze (the real `IDeckLinkInput`/
 `IDeckLinkInputCallback` shape, the WU-20a/WU-20b split itself).
+
+**ADR-048 — WU-21 split into WU-21a (`runFrameBytes()`, the in-memory
+sibling of `runFrame()`/`runFrameFile()` — this session, genuinely built and
+run in the Linux cloud sandbox across the full portable-unit matrix) and
+WU-21b (the DeckLink-specific capture consumer that reads real pixel bytes
+out of a retained `IDeckLinkVideoInputFrame` and calls WU-21a's own new
+entry point — not this session, reasoned-through scope sketch only, same
+shape as WU-14/WU-15a/WU-20b); confirms `wu-20a-green`/`wu-20b-green` both
+actually exist, correcting `HANDOFF.md`'s own going-in uncertainty about
+them. Frozen at WU-21a, Phase 5's third unit.**
+
+**Tag state, confirmed before anything else, per this session's own brief.**
+`HANDOFF.md` going into this session flagged both `wu-20a-green` and
+`wu-20b-green` as session 26's own account of them, not itself re-confirmed
+by anything run that session. `git tag -l` and `git describe` against the
+real repository (via the device bridge, not this project's own Linux cloud
+sandbox, which has no access to it), run directly rather than trusted from
+that account, show both tags genuinely exist, `HEAD` sits at `wu-20b-green`
+exactly, and the working tree is clean — `524e48a`, the `WU-20b`
+verified-at-the-real-terminal commit `HANDOFF.md` itself names. Both units
+are therefore already `green`, not `wip` as `WORK-UNITS.md` still read going
+into this session; `WORK-UNITS.md`'s own WU-20a/WU-20b lines are corrected
+to say so (see `HANDOFF.md` for this session's own account, and the "What to
+run at your terminal" note this session leaves for the actually-outstanding
+items — none, for WU-20a/WU-20b specifically).
+
+**WU-21's own first job, per its own line in `WORK-UNITS.md` and per this
+project's established discipline for a new hardware surface (ADR-031's own
+reading-before-scoping precedent): re-read the real SDK's
+`IDeckLinkVideoInputFrame`/`IDeckLinkVideoBuffer`/`StartAccess`/`EndAccess`
+shape directly, not just ADR-046/047's own summary of it, before scoping
+anything.** Confirmed against `Mac/include/DeckLinkAPI.h` directly, this
+session: `IDeckLinkVideoBuffer` (`GetBytes`, `GetSize`, `StartAccess`,
+`EndAccess`) is unchanged from ADR-032's own account of the output side —
+the same interface, `IID_IDeckLinkVideoBuffer`, serves both directions, as
+ADR-046 already found and this session's own re-read confirms rather than
+merely repeats. `IDeckLinkVideoFrame` (`GetWidth`, `GetHeight`,
+`GetRowBytes`, `GetPixelFormat`, `GetFlags`, ...) and `IDeckLinkVideoInputFrame`
+(adding only `GetStreamTime`/`GetHardwareReferenceTimestamp`) both read
+exactly as ADR-046 already recorded — `GetRowBytes()`, not
+architecture.md 7's own misnamed `GetBytesPerRow()`; no `GetBytes()` of
+their own. `bmdBufferAccessRead`/`bmdBufferAccessWrite` are two independent
+bits of the same `BMDBufferAccessFlags` bitmask (`DeckLinkAPI.h` line ~140),
+confirming `io/decklink_output.cpp`'s own `fillFrameBuffer()`
+(`bmdBufferAccessWrite`) and this unit's own read side
+(`bmdBufferAccessRead`) are the same bracket, opposite direction, not two
+different mechanisms. Also checked directly, not assumed: none of the three
+real capture samples this project has already surveyed (`CaptureStills`,
+`InputLoopThrough`, `CapturePreview`) reads pixel bytes out of a retained
+input frame via `IDeckLinkVideoBuffer` at all —
+`grep -rl IID_IDeckLinkVideoBuffer` under `Mac/Samples` finds `SignalGenerator`
+(output, already ADR-032's own citation), `KeyerOutput`, `ExportToTape`,
+`ClosedCaptions`, `SignalGenHDR` and `PlaybackStills`, none of them a capture
+sample; `CaptureStills` itself reads pixel bytes on the *input* side via a
+different, macOS-specific interface (`IDeckLinkMacVideoBuffer`, a
+`CVPixelBufferRef` bridge used only to write a TIFF still), not
+`IDeckLinkVideoBuffer`. This confirms, by direct search rather than
+inference from absence, `HANDOFF.md`'s own framing of this as "the first
+time this project reads pixel bytes out of a retained
+`IDeckLinkVideoInputFrame`" — genuinely new ground, not adapted from an
+existing sample the way `ComPtr` (ADR-031) and the preroll/refill idiom
+(ADR-032) were, the same kind of finding ADR-046 already made for the ring
+buffer itself.
+
+**The split decision, made after that reading, not before it — the same
+order every prior split in this project used (WU-12a/b, WU-15a/b, WU-16a/b,
+WU-19a/b, WU-20a/b).** `WORK-UNITS.md`'s own WU-21 line, going into this
+session, named only its title and Phase-5 position, no `Files:`/`Accept:` at
+all. Architecture.md 10's own Phase 5 "done when" line — "live SDI in,
+warped, SDI out, one hour clean" — is the *whole* remaining phase, not one
+work unit's honest scope: it requires, at minimum, (a) draining
+`CaptureFrameRing` and reading a retained frame's own pixel bytes (SDK-
+dependent, unverified in this sandbox by construction, ADR-031/032/046/047's
+own established shape); (b) converting those bytes into something this
+project's own warp pipeline can consume, warping them, and packing the
+result back to v210 bytes (portable, with no DeckLink dependency of its
+own, once (a) has handed over a raw byte pointer and stride — the same
+"zero DeckLink dependency, genuinely testable here" distinction ADR-046
+already drew between the ring buffer and the capture object it feeds); and
+(c) scheduling the result continuously back out over SDI on the Monitor 3G
+— a materially different output mechanism from `LoopedFramePlayback`'s own
+WU-15a design, which loops one static, precomputed frame forever and has no
+facility to accept a new one each cycle. Combining (a) and (b) alone would
+already exceed `SESSION-PROTOCOL.md`'s own three-source-file cap (two new
+`src/io/` files for (a), two touched `src/core/` files for (b)); combining
+all three is not "one session, one work unit" by any reading. Chosen, the
+same "portable piece now, genuinely verified; SDK-dependent piece next,
+reasoned through only" shape ADR-046 already used for WU-20a/WU-20b:
+
+- **WU-21a (this session).** Piece (b) alone, built as `runFrameBytes()` —
+  see below.
+- **WU-21b (not this session, not yet scheduled in `WORK-UNITS.md`'s own
+  numbering beyond this note).** Piece (a): a new `CaptureConsumer` (working
+  name; `src/io/`, two new files plus a test, the same shape WU-20b used)
+  that drains a `CaptureFrameRing` on its own consumer thread, obtains each
+  retained frame's own raw packed-v210 bytes and row-byte stride via
+  `IDeckLinkVideoBuffer::StartAccess(bmdBufferAccessRead)`/`GetBytes`/
+  `EndAccess` (this entry's own SDK re-read above; mirrors
+  `io/decklink_output.cpp`'s own `fillFrameBuffer()`, read direction), and
+  calls WU-21a's own `runFrameBytes()` on the bytes while still inside that
+  `StartAccess`/`EndAccess` bracket — a captured frame's buffer contents are
+  only guaranteed valid between those two calls, so the unpack must happen
+  before `EndAccess`, not after, the same discipline `fillFrameBuffer()`
+  already established for the write direction. Produces warped v210 bytes
+  in memory; does **not** reschedule them onto `IDeckLinkOutput` — piece (c)
+  above is a further, not-yet-named unit's own job, since it needs a new
+  output-scheduling mechanism `LoopedFramePlayback` does not provide.
+  Reasoned-through-only when it is built, the same shape ADR-031/032/046/047
+  already used for every DeckLink-touching unit before it — this sandbox
+  has no Blackmagic SDK and no AppleClang/Xcode toolchain, unchanged.
+- **Piece (c)** (real, continuous SDI-out scheduling of a live-produced
+  frame stream) and the eventual one-hour endurance run architecture.md 10's
+  own "done when" line names (the same category of Steve's-own-hands-on-job
+  WU-15b/ADR-032 and WU-19b/ADR-044 already used for a comparable
+  unattended-hardware criterion) are named here but not scoped — a future
+  session's own job, once WU-21b exists to build against.
+
+**`runFrameBytes()`: the in-memory sibling of `runFrame()`/`runFrameFile()`,
+`core/resolve.hpp`/`core/pipeline.cpp` (both extended, not new).** Same
+signal path as `runFrameFile()` (v210 unpack, chroma upsample, `runFrame()`,
+chroma downsample, v210 pack) with the file-I/O bookends replaced by a
+caller-supplied source byte pointer/stride and a caller-supplied,
+already-sized destination byte pointer/stride — exactly the shape WU-21b's
+own `CaptureConsumer` needs, since a captured frame's own pixel bytes live
+in a DeckLink-owned buffer for the duration of one `StartAccess`/`EndAccess`
+bracket, never a file. No new header: `core/resolve.hpp` already declares
+`runFrame()` and `runFrameFile()` side by side (ADR-026); a third sibling
+declared next to them is the same "extend an existing, closely related
+header" judgement ADR-021/026/030/038/044 already made repeatedly, not a new
+one. No `bool` return the way `runFrameFile()` has: unlike that function,
+there is no file open/read/write step that can fail here — `runFrame()`
+itself has no failure return, by construction, and neither do
+`v210::unpackImage`/`packImage` or `chroma::upsample`/`downsampleImage`.
+
+**Deliberately not implemented by making `runFrameFile()` call it.** The two
+functions run the identical middle sequence (unpack, upsample, `runFrame()`,
+downsample, pack); `runFrameFile()`'s own body is left completely untouched
+rather than refactored to share it. Weighed directly, per this session's own
+brief: the risk of a refactor's own regression against a five-unit-old,
+already-frozen (WU-10), zero-margin-for-error function this session's own
+accept criterion does not need to touch, against the benefit of not
+duplicating roughly fifteen lines of straight-line calls to five already
+independently-tested functions (`v210::unpackImage`/`packImage`,
+`chroma::upsample`/`downsampleImage`, `runFrame()` itself) — genuinely
+different from ADR-040/041's own `resolveOneTile()` extraction, where two
+hand-written copies of *evolving, multi-worker orchestration logic* really
+could quietly drift apart under a later change to either path. Nothing here
+is hand-rolled twice; the same five already-tested functions are called in
+the same order twice, which is a much smaller and more inspectable kind of
+duplication. Flagged, not fixed speculatively — this project's own
+"not decided here" convention (e.g. ADR-042/043's own deferred denser NEON
+schemes) applied to a much smaller question — as a candidate for
+consolidation if a third caller ever needs the identical sequence.
+
+**Test: `tests/test_pipeline_bytes.cpp`, new.** Two checks, both genuinely
+run in this session's own Linux cloud sandbox (no DeckLink or platform
+dependency anywhere in `runFrameBytes()` itself, so — unlike WU-14/15a/20b —
+nothing here needs the real terminal to verify at all):
+
+- `runFrameBytes()` and `runFrameFile()` produce byte-identical output for
+  the same lattice/source/params, checked exactly against a genuine,
+  off-centre 0.7x-compression affine warp over a zone plate (not an
+  identity map — real fragment generation, splat and resolve, matching this
+  project's own "exercise the real thing, not the degenerate case"
+  preference wherever a differential check is cheap enough to do so).
+- `runFrameBytes()` itself satisfies I7 (identity map round-trips
+  bit-exactly) directly, against a *flat-chroma* pattern (zone plate, not a
+  ramp). A first draft of this check used `tools/testpat.hpp`'s own
+  `makeRamp()` and failed immediately — caught and fixed within the same
+  editing pass, before any claim was made based on the broken draft, the
+  same "routine iteration, not a design/reasoning error" distinction
+  `HANDOFF.md`/ADR-043 already drew for WU-17/18's own most-vexing-parse
+  mistakes and C-015 drew for a supersampling-signature assumption, not a
+  `CORRECTIONS.md` entry for the identical reason: CORRECTIONS.md C-006
+  already establishes, from WU-05's own session, that a *non-flat* chroma
+  signal (a ramp's own Cb/Cr planes are ramps too, per `tools/testpat.hpp`)
+  does not survive `chroma::upsampleImage()` followed by
+  `downsampleImage()` unchanged, regardless of the lattice, including the
+  identity map exercised here — this session's own first draft simply
+  picked the wrong one of `tests/test_zoneplate.cpp`'s own two already-
+  documented pattern categories (`chromaExpectedExact` true only for flat
+  chroma) rather than discovering anything new about the chroma path
+  itself. Fixed by switching to `makeZonePlate()`, whose chroma planes are
+  already held flat (`kChromaZero`) for exactly this reason, per that
+  function's own file header.
+
+**Verification.** Built and tested in this session's own Linux cloud
+sandbox (Ubuntu 24.04, GCC 13.3.0, Clang 18.1.3, CMake 3.28.3, Ninja) —
+genuinely, not reasoned through, the whole existing project (all nineteen
+tests, not `test_pipeline_bytes` in isolation) rebuilt and re-run at every
+point below: GCC and Clang, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5
+(eight configurations, all nineteen tests green — the eighteen carried over
+unchanged plus `test_pipeline_bytes`, zero warnings under this project's
+full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` set),
+plus GCC 13 with `-fsanitize=address,undefined -fno-sanitize-recover=all` at
+both tile sizes (clean, no ASan/UBSan report). No ThreadSanitizer run: unlike
+WU-20a, this unit adds no concurrency of any kind — `runFrameBytes()` is a
+plain, single-threaded sequence of calls (threading, when `PipelineParams`
+asks for it, is `runFrame()`'s own concern, unchanged and untouched by this
+unit). `WORK-UNITS.md`'s own WU-21a line stays `wip`, not `green`, for the
+same procedural reason every other unit's line has
+(`SESSION-PROTOCOL.md`, "the assistant does not run `close.sh`") — Steve's
+own real-terminal `cmake --build` + `ctest` + `./tools/close.sh 21a` run is
+still outstanding, even though nothing about this unit's own content is
+expected to behave differently there than in the sandbox above (no
+Apple-only or DeckLink-only surface anywhere in it).
+
+**Not decided here, deliberately, and named for whoever picks up WU-21b:**
+`CaptureConsumer`'s own exact name, signature and file layout (sketched
+above, not frozen — the same "sketch now, real scoping when that session
+starts" discipline ADR-046 already used for WU-20b); the ring's own drain
+policy while empty (polling with a short sleep, versus something WU-20a's
+own `RingBuffer` does not currently offer to block on — not decided here);
+whether a captured frame's own reported `GetWidth()`/`GetHeight()`/
+`GetRowBytes()` should be trusted directly per-frame or checked once against
+the display mode `CaptureSource::create()` was given (a mismatch after a
+format-change restart is exactly the kind of thing `VideoInputFormatChanged()`
+already exists to signal, per ADR-046/047, so there may be nothing new to
+check here — flagged, not resolved); and piece (c), continuous SDI-out
+scheduling of a live-produced frame stream, and the eventual one-hour
+endurance run, both above.
+
+Does not reopen `docs/architecture.md`, ADR-010, ADR-021, ADR-026, ADR-031,
+ADR-032, ADR-038, ADR-040, ADR-041, ADR-046 or ADR-047 — same relationship
+every ADR since ADR-020 has to the document; ADR-026's own `core/resolve.hpp`
+layout (declaring `runFrame()`/`runFrameFile()` side by side rather than in a
+new `pipeline.hpp`) is extended to a third sibling, not amended; ADR-032's
+`IDeckLinkVideoBuffer`/`StartAccess`/`EndAccess` finding is confirmed by a
+fresh, direct re-read (not merely cited) and named as the interface WU-21b
+will extend to input, the same way ADR-046 already extended it in words
+without yet building the code that uses it; ADR-046/047's own WU-20a/WU-20b
+split precedent is reused for a second, structurally similar split, not
+revisited; and ADR-010's free-running genlock scope, ADR-037's own still-open
+second follow-up (capture/output clock-domain drift) are both untouched --
+`runFrameBytes()` processes one already-arrived frame's worth of bytes and
+has no timing or clock-domain behaviour of its own to reason about, the same
+"naming a device does not require reasoning about its clock domain" logic
+ADR-039 already used for a different piece of this same phase.

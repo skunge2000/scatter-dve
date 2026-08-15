@@ -77,6 +77,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -425,6 +426,58 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     ThreadPool localPool(params.threads);
     runThreaded(lattice, src, params, dest, localPool, tilesX, totalTiles,
                 tilePixelsN);
+}
+
+void runFrameBytes(const Lattice& lattice,
+                    const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                    int srcWidth, int srcHeight,
+                    const PipelineParams& params,
+                    std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes) {
+    // v210 unpack (WU-02) straight out of the caller's own buffer -- no
+    // file, no intermediate copy of the packed bytes themselves.
+    video::Raster422 in(srcWidth, srcHeight);
+    v210::unpackImage(srcBytes, srcRowBytes, srcWidth, srcHeight,
+                              in.Y.data(), in.planeY().strideSamples,
+                              in.Cb.data(), in.Cr.data(), in.planeCb().strideSamples);
+
+    // Chroma upsample 4:2:2 -> 4:4:4 (ADR-005); luma passes straight
+    // through, same as runFrame()'s other two callers.
+    video::Raster444 full(srcWidth, srcHeight);
+    std::copy(in.Y.begin(), in.Y.end(), full.Y.begin());
+    chroma::upsampleImage(in.Cb.data(), in.planeCb().strideSamples,
+                           srcWidth, srcHeight,
+                           full.Cb.data(), full.planeCb().strideSamples);
+    chroma::upsampleImage(in.Cr.data(), in.planeCr().strideSamples,
+                           srcWidth, srcHeight,
+                           full.Cr.data(), full.planeCr().strideSamples);
+
+    SourceRaster src;
+    src.width = srcWidth;
+    src.height = srcHeight;
+    src.y = full.Y.data();
+    src.cb = full.Cb.data();
+    src.cr = full.Cr.data();
+
+    video::Raster444 warped(params.destWidth, params.destHeight);
+    runFrame(lattice, src, params, warped);
+
+    // Chroma downsample 4:4:4 -> 4:2:2 (ADR-005) before pack; luma again
+    // passes straight through.
+    video::Raster422 out(params.destWidth, params.destHeight);
+    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
+    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+                             params.destWidth, params.destHeight,
+                             out.Cb.data(), out.planeCb().strideSamples);
+    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+                             params.destWidth, params.destHeight,
+                             out.Cr.data(), out.planeCr().strideSamples);
+
+    // v210 pack (WU-02) straight into the caller's own buffer -- no file,
+    // no intermediate copy of the packed bytes themselves.
+    v210::packImage(out.Y.data(), out.planeY().strideSamples,
+                            out.Cb.data(), out.Cr.data(), out.planeCb().strideSamples,
+                            params.destWidth, params.destHeight,
+                            dstBytes, dstRowBytes);
 }
 
 bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
