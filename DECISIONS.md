@@ -4394,3 +4394,45 @@ fields WU-21a built, in particular, are used exactly as WU-21a left them).
 ADR-037's own genlock follow-up and WU-20b's own `stopFromCallback()` safety
 question (ADR-047) are both still open, named again above, not answered
 here.
+
+**Real-hardware verification, same session, run at Steve's own real
+terminal after this entry was first written.** `cmake --build build` clean
+-- the SDK found at `/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0`,
+`scatter-decklink` and every DeckLink-gated target (including the new
+`test_decklink_capture_consumer`) configured and built. `ctest --test-dir
+build --output-on-failure`: 24 of 25 tests passing, the sole failure the
+already-accepted `test_decklink_device`/`foundDuplexDevice` exception
+(ADR-035), unrelated to this unit. `./build/test_decklink_capture_consumer`
+run directly, with the Monitor 3G -> Recorder 3G SDI loopback connected,
+over its own bounded 5-second window: `framesArrived=123 framesPushed=89 |
+framesPopped=81 framesProcessed=81 framesFailed=0`, all 7 automated checks
+passing, including the `copyLatestFrame()` size check (only reached when
+`framesProcessed > 0`) -- the first genuine, real-signal confirmation
+anywhere in this project that a captured frame's own pixel bytes can be read
+through `IDeckLinkVideoBuffer`'s `StartAccess`/`GetBytes`/`EndAccess`
+bracket and fed into `runFrameBytes()` end to end, not merely reasoned
+through. `framesProcessed(81) + framesFailed(0) == framesPopped(81)` and
+`framesPopped(81) <= framesPushed(89)` both hold exactly, as this unit's own
+`Accept:` requires.
+
+The `framesArrived`/`framesPushed` gap (123 vs. 89, roughly 28% of arriving
+callbacks never reaching the ring) is the first real data this project has
+had for the `kCaptureRingCapacity=8` open question (ADR-046, named again at
+ADR-047/048/049): a nontrivial share of arriving frames were not queued at
+all during this run. `framesPushed(89) - framesPopped(81) == 8`, exactly the
+ring's own capacity, is consistent with the ordinary "up to one ring's worth
+left unconsumed when the bounded run stops" behaviour rather than a growing
+backlog, so the gap reads more like ring-full drops concentrated somewhere
+during the run (most plausibly at start, before the consumer thread has
+spun up and begun draining) than the consumer falling permanently behind.
+Not conclusively diagnosed here -- this session has no per-frame timing
+instrumentation to separate a startup burst from sustained backpressure --
+named as a real, now-measured data point for whoever next revisits
+`kCaptureRingCapacity`, not resolved.
+
+Confirmed `green`, tagged `wu-21b-green` (confirmed present on `git tag` at
+Steve's own real terminal, alongside every earlier tag through
+`wu-21a-green`). This addendum does not reopen anything named in this
+entry's own "Does not reopen" paragraph above -- it records a real-terminal
+result for a unit that paragraph already described as reasoned-through-only
+at the time it was written, nothing more.

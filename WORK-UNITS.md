@@ -1039,7 +1039,8 @@ tagged `wu-21a-green` (verified directly against the real repository's own
 ### WU-21b — DeckLink capture-side pixel read: `CaptureConsumer` drains
 `CaptureFrameRing` on a consumer thread, obtains `IDeckLinkVideoBuffer` via
 `QueryInterface`, brackets `GetBytes()` with `StartAccess`/`EndAccess`, and
-feeds the mapped bytes into WU-21a's own `runFrameBytes()` `wip`
+feeds the mapped bytes into WU-21a's own `runFrameBytes()` `green`
+(`wu-21b-green`)
 See `DECISIONS.md` ADR-049 for the full design and for the four questions
 ADR-048 explicitly left open for this unit, all decided there:
 consumer-thread ownership/lifetime is fully independent of `CaptureSource`'s
@@ -1091,15 +1092,28 @@ correctness is already genuinely verified in the cloud sandbox at WU-21a and
 this unit does not re-prove it. Does not include, and does not claim,
 anything about rescheduling the produced bytes onto `IDeckLinkOutput` — that
 is WU-21c's own job, not this one's.
-*Status:* reasoned through only, same shape as WU-14/WU-15a/WU-20b before
-it — drafted and written via the device bridge to the real repository this
-session, re-read back from there to confirm each write landed correctly
-(`SESSION-PROTOCOL.md` anti-drift rule 8), but not built or run anywhere:
-this sandbox cannot compile DeckLink-dependent code at all, and this session
-does not touch Steve's own real terminal. UNVERIFIED until built, tested, and
-run against the real Monitor 3G → Recorder 3G loopback. This line stays
-`wip`, not `green` — the assistant does not run `close.sh` or tag
-(`SESSION-PROTOCOL.md`).
+*Status:* delivered as reasoned-through-only, same shape as WU-14/WU-15a/
+WU-20b before it — drafted and written via the device bridge to the real
+repository, re-read back from there to confirm each write landed correctly
+(`SESSION-PROTOCOL.md` anti-drift rule 8) — then genuinely built, tested,
+and run at Steve's own real terminal within this same session:
+`cmake --build build` clean (the SDK found, `scatter-decklink` and every
+DeckLink-gated target configured), `ctest --test-dir build
+--output-on-failure` showing 24 of 25 tests passing (the sole failure the
+already-accepted `test_decklink_device`/`foundDuplexDevice` exception,
+ADR-035, unrelated), and `./build/test_decklink_capture_consumer` run
+directly against the real Monitor 3G → Recorder 3G SDI loopback:
+`framesArrived=123 framesPushed=89 | framesPopped=81 framesProcessed=81
+framesFailed=0` over its own bounded 5-second window, all 7 automated checks
+passing, including the `copyLatestFrame()` size check (only reached because
+`framesProcessed > 0`) — genuine, real-signal confirmation that a captured
+frame's own pixel bytes can be read through `IDeckLinkVideoBuffer` and fed
+into `runFrameBytes()` end to end, not merely reasoned through. See
+`DECISIONS.md` ADR-049's own real-hardware verification addendum for the
+full numbers and the new `kCaptureRingCapacity` data point they surface
+(123 arrived vs. 89 pushed — a real, now-measured gap, not conclusively
+diagnosed this session). Confirmed `green`, tagged `wu-21b-green`
+(confirmed present on `git tag` at Steve's own real terminal).
 
 ### WU-22 — Diagnostic coverage view `todo`
 
