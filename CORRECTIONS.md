@@ -409,6 +409,31 @@ edit produces, never in anything committed. Does not reopen ADR-032,
 ADR-033 or ADR-038 — this corrects a gap in ADR-038's own runbook
 completeness, not a design decision any of those entries freeze.
 
+**C-016 — this session told Steve `decklink_input.cpp`'s
+`-Wsign-conversion` fix was applied and ready to rebuild while the fix
+existed only in the assistant's own sandbox copy, never written to
+`~/src/scatter-dve` on the Mac.**
+*Claimed:* editing the file at the path the assistant had read it from
+constituted fixing it — "the fix is in, rebuild" — with no separate step
+to confirm the change had actually reached the real repository.
+*Correct:* the assistant's own sandbox and `~/src/scatter-dve` are two
+independent filesystems; a device-bridge write-back is a distinct,
+fallible action, not an automatic consequence of editing a file the
+assistant happened to read over that bridge earlier in the session.
+Steve reran `cmake --build build` and hit the identical error at the
+identical line, which is what surfaced this — the sandbox edit had simply
+never left the sandbox. Only caught because Steve pasted the second build
+log rather than taking "fixed" on trust. No claim about the SDK, the
+project's own code, or any ADR is wrong here — this is purely a session
+mechanics failure, logged because `SESSION-PROTOCOL.md`'s own discipline
+("this is how a fresh session avoids repeating them") applies just as much
+to how the assistant delivers a fix as to what the fix contains.
+`SESSION-PROTOCOL.md` now states this explicitly (Session close, and
+anti-drift rule 8): no file is "delivered" until written back via the
+device bridge and re-read from the real repository to confirm, and no
+session may tell Steve to rebuild before that confirmation happens. Does
+not reopen any ADR — this is a process gap, not a design decision.
+
 **C-015 — a decode()-by-colour-signature fragment-reassembly check (WU-16b's
 own `tests/test_row_band.cpp`, first draft) assumed a source pixel's own
 (px, py) signature identifies at most one `Frag` per tile, without

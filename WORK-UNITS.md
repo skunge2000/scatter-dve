@@ -954,10 +954,22 @@ this one's.
 AppleClang/Xcode toolchain at all, the same shape ADR-031/032/046 already
 used for WU-14/WU-15a/WU-20a's own DeckLink-dependent half — reasoned
 through against the real SDK headers and the three real capture samples
-re-read this session, written straight to the real machine via the device
-bridge. Still needs Steve's own real-terminal build, the loopback cable
-described above connected, and `./tools/close.sh 20b` before this line can
-go `green` — nothing here has been compiled or run by this session at all.
+re-read this session. Steve's own real-terminal build caught one genuine
+first-compile defect this sandbox could not (`-Wsign-conversion` on
+`GetFlags() & bmdFrameHasNoInputSource`, `_BMDFrameFlags` to `BMDFrameFlags`
+— see `CORRECTIONS.md` C-016, both for the fix and for a session-mechanics
+error in how it was first delivered); fixed, confirmed written to the real
+repository via the device bridge and re-read from there. With the
+UltraStudio Monitor 3G's own SDI output physically patched into the
+Recorder 3G's input, `cmake --build build` is now clean and
+`ctest --test-dir build --output-on-failure` shows `test_decklink_input`
+passing alongside the rest of the suite (`test_decklink_device`'s
+`foundDuplexDevice` failure is ADR-035's own already-accepted exception,
+unrelated). Still needs `./tools/close.sh 20b` and the tag before this
+line can go `green` — this session's own sandbox verified none of it by
+compiling or running it; Steve's real terminal has now verified the build
+and the test, but tagging is the one step this project's own discipline
+reserves for Steve alone.
 ### WU-21 — Full loop through at 576i25 `todo`
 ### WU-22 — Diagnostic coverage view `todo`
 

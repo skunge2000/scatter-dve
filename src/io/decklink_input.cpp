@@ -141,7 +141,8 @@ HRESULT CaptureSource::VideoInputFrameArrived(IDeckLinkVideoInputFrame* videoFra
 
     ++m_stats.framesArrived;
 
-    const bool inputFrameValid = (videoFrame->GetFlags() & bmdFrameHasNoInputSource) == 0;
+    const bool inputFrameValid =
+        (videoFrame->GetFlags() & static_cast<BMDFrameFlags>(bmdFrameHasNoInputSource)) == 0;
 
     if (!inputFrameValid) {
         ++m_stats.noInputSourceFrames;

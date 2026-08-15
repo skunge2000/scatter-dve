@@ -4,23 +4,32 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 26
-**Tag:** `wu-20a-green` should already stand from session 25's own close (not
-re-confirmed this session — no `git`/`ctest` access from this sandbox). This
-session's own work, WU-20b, is implemented in full but entirely unverified —
-no Blackmagic SDK, no AppleClang/Xcode toolchain in this sandbox, the same
-gap every DeckLink-touching unit before it has had. `WORK-UNITS.md`'s WU-20b
-line is `wip`, not `green`.
+**Tag:** `wu-20a-green` should already stand from session 25's own close, still
+not re-confirmed by anything run this session (`test_ring_buffer` passed in
+Steve's own full-suite run below, but the `close.sh 20a`/tag step itself was
+not re-verified). WU-20b was built this session, reasoned through only at
+first, then genuinely verified at Steve's own real terminal: build clean,
+`test_decklink_input` passing with the Monitor 3G → Recorder 3G loopback
+connected. `WORK-UNITS.md`'s WU-20b line is still `wip`, not `green` —
+`./tools/close.sh 20b` and the tag are the only things left, and tagging is
+Steve's own step, not the assistant's.
 **Phase:** 5 (Live capture) continues. WU-20a (ring buffer) should already be
 closed from last session. WU-20b (DeckLink capture object:
 format-detection-aware `EnableVideoInput`, `IDeckLinkInputCallback`
-implementation, retained frames pushed into a WU-20a `RingBuffer`) is built
+implementation, retained frames pushed into a WU-20a `RingBuffer`) was built
 this session — real `Files:`/`Accept:` scoping done first, then the code —
-but needs Steve's own real-terminal build, a physical SDI loopback cable
-(Monitor 3G output → Recorder 3G input), and `./tools/close.sh 20b` before it
-can go green. `DECISIONS.md` now runs through ADR-047; `CORRECTIONS.md`
-unchanged this session, still through C-015 — nothing this session claimed
-was found wrong, the reading against the real SDK confirmed ADR-046's own
-prior account exactly.
+and is now confirmed at Steve's real terminal. One genuine first-compile
+defect this sandbox could not catch: `-Wsign-conversion` on
+`videoFrame->GetFlags() & bmdFrameHasNoInputSource` (`_BMDFrameFlags` to
+`BMDFrameFlags`), fixed with an explicit `static_cast<BMDFrameFlags>(...)`.
+`DECISIONS.md` now runs through ADR-047; `CORRECTIONS.md` now runs through
+C-016 — one entry appended this session, and it is not about the SDK: the
+fix above was first delivered only to the assistant's own sandbox copy, not
+written to `~/src/scatter-dve` on the Mac, so Steve's first rebuild hit the
+identical error. Caught because Steve pasted the second build log rather
+than trusting "fixed." `SESSION-PROTOCOL.md` was updated this session (new
+Session-close paragraph, anti-drift rule 8) so no future session tells Steve
+to rebuild before a device-bridge write-back is confirmed.
 
 ## This session in full
 
@@ -110,21 +119,24 @@ WU-14/WU-15a/WU-20b's own DeckLink-dependent half already were. See
 including the one genuinely new unverified-behaviour flag
 (`stopFromCallback()`, above).
 
-**Corrections this session:** none logged. This session's own re-read of the
-real SDK headers and the three capture samples confirmed ADR-046's own prior
-account of them exactly — nothing this project earlier claimed about the SDK
-was found wrong.
+**Corrections this session:** one, C-016 — not about the SDK. This session's
+own re-read of the real SDK headers and the three capture samples confirmed
+ADR-046's own prior account of them exactly, nothing there was found wrong.
+The correction is about delivery: a real `-Wsign-conversion` defect Steve's
+build caught was fixed in the assistant's own sandbox copy but not, at
+first, written back to the real repository — see C-016 and the top of this
+file.
 
 ## Where we are
 
 **Phase 5 (Live capture) continues.** WU-20a (ring buffer) should already be
-`green` from session 25's own close (not re-confirmed this session — no
-`git`/`ctest` access from this sandbox; Steve's own last handoff said it was
-implemented and verified in full, pending only his own `close.sh`/tag step).
-WU-20b (DeckLink capture object) is implemented this session, `wip` pending
-Steve's real-terminal build and the physical loopback cable this unit's own
-`Accept:` needs. `DECISIONS.md` now runs through ADR-047; `CORRECTIONS.md`
-unchanged, through C-015.
+`green` from session 25's own close, still not re-confirmed by a `close.sh
+20a`/tag check this session (`test_ring_buffer` did pass in Steve's own full
+run). WU-20b (DeckLink capture object) is implemented and now genuinely
+verified at Steve's real terminal — build clean, `test_decklink_input`
+passing with the physical loopback connected — `wip` in `WORK-UNITS.md`
+only because `./tools/close.sh 20b` and the tag are still outstanding.
+`DECISIONS.md` now runs through ADR-047; `CORRECTIONS.md` through C-016.
 
 **Delivery mechanics:** WU-20b's implementation was done entirely reasoned
 through against the real SDK headers and samples in this session's own cloud
@@ -132,10 +144,14 @@ sandbox — no compile, no run, the same shape every DeckLink-touching unit has
 had. All files (`decklink_input.hpp`, `decklink_input.cpp`,
 `test_decklink_input.cpp`, `CMakeLists.txt`, `DECISIONS.md`, `WORK-UNITS.md`,
 this `HANDOFF.md`) were written to the real repository via the device
-bridge. Steve builds, tests, and tags at his own terminal — the standing
-operational note (device-bridge commits on this machine leave stale
-`.git/index.lock`/`HEAD.lock` files) still applies; git commands are not run
-via the bridge this session either.
+bridge — except `decklink_input.cpp`'s own post-build fix, which initially
+was not (C-016); it has since been written back and re-read to confirm.
+`SESSION-PROTOCOL.md` itself was also changed this session (Session close,
+anti-drift rule 8) and is now written to the real repository too. Steve
+builds, tests, and tags at his own terminal — the standing operational note
+(device-bridge commits on this machine leave stale `.git/index.lock`/
+`HEAD.lock` files) still applies; git commands are not run via the bridge
+this session either.
 
 ## Next work unit
 
@@ -182,12 +198,10 @@ one way to exercise this deliberately).
 
 ## Blocked / red
 
-Nothing red. WU-20b is not started as far as this sandbox can verify — it is
-implemented and reasoned through in full, but genuinely unbuilt, unrun,
-un-tested by any compiler or hardware this session had access to. Not
-blocked; deliberately deferred to the real terminal, the same shape every
-DeckLink-touching unit in this project has had (WU-14, WU-15a, and now
-WU-20b).
+Nothing red. WU-20b has now been built and tested at Steve's real terminal —
+clean build (after the C-016 fix), `test_decklink_input` passing with the
+physical loopback connected. Only the close/tag step remains, which is
+Steve's own action, not a block.
 
 ## Environment check
 
@@ -213,10 +227,14 @@ ADR-032, ADR-037, ADR-039 or ADR-046 — see its own closing paragraph.
 
 ## Append to CORRECTIONS.md
 
-Nothing appended this session. This session's own re-read of the real SDK
-headers and the three capture samples (per this project's own established
-practice for DeckLink work) confirmed ADR-046's own prior account of them
-exactly — nothing this project earlier claimed was found wrong.
+C-016 appended this session — the `-Wsign-conversion` fix to
+`decklink_input.cpp` was initially delivered only to the assistant's own
+sandbox copy, not to `~/src/scatter-dve`, so Steve's first rebuild hit the
+identical error a second time. Not an SDK or design-decision correction —
+see `DECISIONS.md` ADR-047's own account of the SDK re-read, which found
+nothing wrong there. `SESSION-PROTOCOL.md`'s Session close section and a new
+anti-drift rule 8 now require a device-bridge write-back plus re-read
+confirmation before any file is called "delivered."
 
 ---
 
@@ -231,28 +249,16 @@ for you to run directly:
 cd ~/src/scatter-dve
 git add src/io/decklink_input.hpp src/io/decklink_input.cpp \
         tests/test_decklink_input.cpp CMakeLists.txt \
-        DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-20b: DeckLink capture object (format detection, IDeckLinkInputCallback, ring push) -- ADR-047, reasoned through only, unbuilt in the sandbox"
+        DECISIONS.md WORK-UNITS.md HANDOFF.md CORRECTIONS.md \
+        SESSION-PROTOCOL.md
+git commit -m "WU-20b: DeckLink capture object (format detection, IDeckLinkInputCallback, ring push) -- ADR-047, verified at the real terminal; C-016; SESSION-PROTOCOL.md device-bridge delivery rule"
 ```
 
-Then, before building: connect a physical SDI cable from the UltraStudio
-Monitor 3G's own output to the UltraStudio Recorder 3G's own input — this
-unit's own `Accept:` needs a genuine loopback signal, not just a build.
-
-```
-cmake -B build -DBLACKMAGIC_SDK_DIR="/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0"
-cmake --build build
-ctest --test-dir build --output-on-failure   # expect 21/22 -- ADR-035's known exception, unrelated, plus the new test_decklink_input
-```
-
-If `test_decklink_input` itself fails or hangs, the most likely first things
-to check, in order: the loopback cable actually connected and the Monitor
-3G actually playing something (not just powered on — `test_decklink_output`
-or Media Express both work as a source); whether `stopFromCallback()`'s own
-call-from-within-a-callback pattern is in fact the problem (see "Open
-questions," above) if the failure looks like a hang or crash specifically
-during a format-change event, as opposed to a clean `framesArrived == 0`
-result with no crash (which just means "no loopback connected," not a bug).
+Build, test, and loopback cable are already done — this session's own
+real-terminal run already showed a clean `cmake --build build` and
+`test_decklink_input` passing (`test_decklink_device`'s `foundDuplexDevice`
+failure is ADR-035's own already-accepted exception, unrelated). Straight to
+close:
 
 ```
 ./tools/close.sh 20b
@@ -262,4 +268,8 @@ git tag -a wu-20b-green -m "WU-20b: DeckLink capture object, verified against re
 If WU-20a's own tag from last session was never confirmed run, it's still
 outstanding too — `./tools/close.sh 20a` and `git tag -a wu-20a-green ...`,
 per session 25's own handoff, unrelated to this session's own work but not
-re-verified here either.
+re-verified here either. `close.sh` will likely report the `test_decklink_device`
+exception as a suite failure and refuse to tag on its own (it has no
+knowledge of ADR-035); that is expected — the manual `git tag -a` commands
+above are how every unit since ADR-035 has actually been closed, per
+`DECISIONS.md`'s own account of `wu-15a-green`.
