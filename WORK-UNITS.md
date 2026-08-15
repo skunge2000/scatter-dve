@@ -1122,6 +1122,14 @@ diagnosed this session). Confirmed `green`, tagged `wu-21b-green`
 ## Phase 6 — Scale up
 
 ### WU-23 — Interlace and field mode `todo`
+Steve's own stated preference, noted here for whoever scopes this unit, not
+a decision made now: **if deinterlacing is pursued, the route is Weston
+3-field, for period accuracy** — not a simpler bob/weave or line-doubling
+approach. Recorded ahead of this unit's own real scoping session so it isn't
+lost or re-litigated from scratch when WU-23 actually starts; that session's
+own first job is still real `Files:`/`Accept:` scoping against this
+preference and against whatever this project's own interlace/field-mode
+needs turn out to be by then, same discipline as every other unit.
 ### WU-24 — Adaptive supersampling `todo`
 ### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`
 
