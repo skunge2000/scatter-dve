@@ -2764,3 +2764,247 @@ proven identical on the NEON path by construction (see above) rather than
 re-decided; ADR-031's "gate an entire executable at the CMake level, not
 via scattered `#ifdef`" shape is reused for a second, unrelated
 platform-availability question.
+
+**ADR-043 — NEON chroma resampling: the module-layout question checked
+directly rather than assumed, the interior/edge vectorisation shape (a
+sliding-window boundary clamp, not v210's fixed bit-interleave), the
+associativity argument for why NEON's own multiply-accumulate order is
+still bit-exact, and reuse of ADR-042's sandbox verification capability and
+CMake guard unchanged — frozen at WU-18, Phase 4's second NEON unit.**
+
+`WORK-UNITS.md`'s own WU-18 line, going into this session, was barer than
+WU-17's own line was before ADR-042 (WU-17 at least already had "bit-
+identical to scalar reference" written down; WU-18 had neither that nor a
+`Files:` line). This session's own first job, per Steve's own brief and
+`SESSION-PROTOCOL.md`'s own discipline: real scoping before any code —
+reading `src/video/chroma.hpp`/`.cpp` (ADR-020's own frozen filter
+coefficients, rounding convention and edge handling, and a frozen
+interface) and `tests/test_chroma.cpp` closely, the same order ADR-042
+already used for `v210.hpp`/`.cpp`/`test_v210.cpp`.
+
+**The module-layout question, checked directly rather than carried over
+from ADR-042's own precedent unexamined.** `docs/architecture.md` section
+8's own module-layout sketch names `v210.hpp/.cpp` as "unpack/pack, scalar
+reference + NEON" explicitly, but its `chroma.hpp/.cpp` line reads only
+"422↔444 polyphase," with no "+ NEON" — a real difference in how much
+detail the two one-line comments carry, worth checking rather than
+assuming the same "extend the existing file pair" answer automatically
+carries over. Two independent pieces of evidence resolve it the same way
+ADR-042 already went, without reopening `docs/architecture.md` itself:
+
+- `chroma.hpp`'s own top comment, written at WU-04 — before this session,
+  before WU-17 even existed — already says: "the scalar reference here is
+  the oracle WU-18's NEON path is diffed against — the same relationship
+  v210.cpp already has to WU-17." The file's own header already commits to
+  this exact relationship; the module-layout sketch's terser comment is an
+  omission of detail, not a contrary design signal.
+- `docs/architecture.md`'s own Phase 4 "done when" line, section 10: "8-
+  thread output is bit-identical to single-threaded, at frame rate," under
+  a phase titled "Threading and NEON... Thread pool, QoS, NEON v210 and
+  chroma paths" — chroma is one of exactly two modules this document ever
+  names for a NEON path, on equal standing with v210, in the one place
+  that actually states which modules get one. The module-layout table's
+  per-line comments are simply not uniformly detailed (`splat.hpp/.cpp`'s
+  own line likewise says nothing about NEON, yet a *different* section
+  entirely — the bin-traffic prose — is what actually states splat stays
+  scalar, "NEON has no scatter instruction"); the table itself is not
+  where this document records which modules do or do not get a NEON path.
+
+**Decided: no new header/`.cpp` pair — `src/video/chroma.hpp`/`.cpp`,
+extended, exactly ADR-042's own precedent for `v210.hpp`/`.cpp`.** `Files:`
+for this unit is `src/video/chroma.hpp`, `src/video/chroma.cpp` (both
+extended, not new) plus `tests/test_chroma_neon.cpp` (new) — two source
+files plus its test, the same shape WU-17 used.
+
+**Design: new NEON-suffixed sibling functions — `upsampleRowNeon`,
+`downsampleRowNeon`, `upsampleImageNeon`, `downsampleImageNeon` — guarded
+by `#if defined(__ARM_NEON)`, the scalar `upsampleRow`/`downsampleRow`/
+`upsampleImage`/`downsampleImage` (WU-04) untouched forever.** Same
+reasoning ADR-042 already gave for v210: this unit's own accept criterion
+("bit-identical to scalar reference," `WORK-UNITS.md`) needs "the scalar
+implementation, specifically" to remain callable to diff against, which
+internal platform dispatch would remove.
+
+**Vectorisation shape: genuinely different from v210's own, because the
+irregularity is a different kind.** v210's own NEON path (ADR-042)
+vectorises a *fixed per-group bit interleave* — the same shape for every
+group, entirely independent of row width, with the irregular part (which
+of 12 fixed lane positions holds Y/Cb/Cr) confined to 12 scalar reads/
+writes per group, never growing with the image. Chroma's own filters have
+no such fixed-shape irregularity: their irregularity is `clampIndex()`'s
+boundary replication (ADR-020), which is a no-op at every interior index
+and only actually replicates a sample at a handful of indices near either
+end of a row — a *sliding-window* problem, not a *fixed-layout* one. The
+two units therefore cannot share a vectorisation shape even though both
+are "the second/first NEON unit in this project" — chosen for chroma,
+checked against the real edge-index arithmetic before writing any
+intrinsic, not assumed from v210's own precedent:
+
+- **Interior indices — where every tap's `clampIndex()` call is
+  provably a no-op — are vectorised, four lanes of `int32x4_t` per batch.**
+  For `upsampleRowNeon`'s halfway samples: interior is `1 <= i <= cw-3`
+  (derived from the two clamped taps, `i-1 >= 0` and `i+2 <= cw-1`); for
+  `downsampleRowNeon`: interior is `3 <= i <= cw-3` (from the widest tap,
+  `2i-5 >= 0` and `2i+5 <= width-1`). Both bounds are worked from the exact
+  same `clampIndex(idx, n)` the scalar functions call, not approximated.
+  The co-sited half of `upsampleRowNeon` (`out[2i] = in[i]`) never needs
+  clamping at all — `in[i]` is always in range for `i` in `[0, cw)` — and
+  is left a plain scalar copy: there is no arithmetic there to diverge on,
+  and vectorising a copy buys nothing a decent compiler does not already
+  do for a linear loop.
+- **Edge indices — where a tap's `clampIndex()` call actually replicates
+  a boundary sample — are computed scalar, calling `clampIndex()` and
+  `roundShift()` directly, the identical helpers the scalar row functions
+  already use.** Upsample: index 0, plus whatever tail near `cw`'s own
+  edge does not fill a 4-lane batch. Downsample: the first three indices
+  (its wider 7-tap footprint needs more interior margin than upsample's
+  4-tap one), plus the equivalent tail. Same "vectorise the genuinely
+  uniform part, leave the irregular part scalar" discipline ADR-042
+  already used for v210's own field placement — applied here to a
+  boundary-clamp irregularity instead of a bit-interleave one, which is
+  why the *split itself* (interior batch vs. scalar remainder) differs
+  from v210's own (fixed vector extraction vs. fixed scalar placement)
+  even though the underlying principle is the same.
+- **`downsampleRowNeon`'s own load pattern: `vld2` deinterleaving loads
+  at six fixed offsets around `2i`, not a single contiguous load.** The
+  filter decimates by two (output index `i` centres on input `2i`), so
+  consecutive output lanes need input positions two apart — a plain
+  `vld1` at consecutive addresses does not line up with consecutive
+  lanes. `vld2_u16(ptr)` deinterleaves 8 elements into two 4-lane halves,
+  `val[0][k] = ptr[2k]` and `val[1][k] = ptr[2k+1]`; choosing `ptr = in +
+  2*i + offset` for each of the filter's odd tap offsets (and `in + 2*i`
+  itself for the even centre tap) makes `val[1]` (or `val[0]`, for the
+  centre) exactly the four lanes' worth of that tap, worked out
+  arithmetically before writing the intrinsics, not by trial and error.
+  Six loads cover the filter's seven nonzero-coefficient tap positions
+  (offset 0 and offset +1 share one load) — some redundancy, twelve total
+  sub-loads for seven distinct tap positions, accepted in exchange for a
+  design simple enough to verify by direct per-lane arithmetic, matching
+  this unit's own "correctness over throughput" scope (`WU-19`'s job, not
+  this one's, the same deferral ADR-042 already made for v210's own denser
+  `vld4q_u32` alternative). Output here is contiguous (`out[i]`, no
+  interleave, unlike the halfway samples' strided `out[2i+1]`), so the
+  result vector is stored with a single `vst1_u16` — no gather/scatter
+  needed on the store side at all.
+- **Arithmetic is 4-lane `int32x4_t`, matching the scalar functions' own
+  `std::int32_t` accumulator width exactly, not 8-lane `int16x4_t`.**
+  Worst-case magnitude is ~1.18M for upsample's four terms and ~40M for
+  downsample's seven (both terms bounded by `chroma.hpp`'s own stated
+  worst-case overshoot, 1/16 and 22/512 of a step respectively) — both far
+  under `int16`'s ~32K range but comfortably inside `int32`'s, exactly the
+  reason the scalar reference itself accumulates in `std::int32_t` rather
+  than `Sample`. Rounding uses `vshrq_n_s32`, C++20's guaranteed-
+  arithmetic right shift on a negative-capable `int32x4_t` lane, matching
+  `roundShift()`'s own `(sum + half) >> shift` exactly, tap for tap, lane
+  for lane; narrowing uses `vmovn_s32` (truncating, taking the low 16
+  bits), matching a `Sample(...)` conversion's own modulo-65536 narrowing
+  exactly — the same "no clamp beyond what the container can hold"
+  property `chroma.hpp`'s own comment already documents for the scalar
+  path, preserved bit-for-bit on the NEON one.
+- **Why reordering NEON's own multiply-accumulate terms relative to the
+  scalar functions' left-to-right sum is still guaranteed bit-exact — an
+  argument this unit needed and v210's own NEON path (bitfield mask/shift,
+  no multi-term sum at all) never had occasion to make.** Integer addition
+  and multiplication by a compile-time constant are associative and
+  commutative whenever no term overflows the accumulator's own width —
+  true here throughout `Sample`'s entire 16-bit domain, checked directly
+  against `chroma.hpp`'s own worst-case bounds above, not assumed. This is
+  explicitly *not* `CORRECTIONS.md` C-012's hazard: C-012's own lesson is
+  specific to floating point, where two differently-*shaped* expressions
+  for the same real number are not guaranteed to round identically (FMA
+  contraction, reassociation, transcendental-function noise); there is no
+  equivalent hazard in exact, non-overflowing integer arithmetic, where
+  any grouping of the same terms produces the same result. Worth stating
+  explicitly, once, in this entry — not because either filter's own
+  design changed as a result, but because a future session reusing this
+  unit's own reasoning for some other integer NEON path should not need
+  to re-derive why C-012 does not apply.
+
+**CMake: `test_chroma_neon` added to the exact same
+`CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$"` guard block
+`test_v210_neon` already uses, not a second guard.** Both executables'
+whole bodies call functions that do not exist to declare at all without
+`__ARM_NEON`, on the same processor-target reasoning ADR-042 already
+established; no reason to duplicate the condition. No new project-level
+cross-compilation infrastructure was added, same as ADR-042 — the aarch64
+toolchain file used for this session's own sandbox verification was ad
+hoc, outside the repository, not committed.
+
+**A genuine bug this unit's own aarch64 cross-compile caught, and why the
+x86_64 matrix alone would not have.** This session's own first draft of
+`tests/test_chroma_neon.cpp` used `std::vector<Sample> in(std::size_t(cw));`
+and the equivalent with `width` — the identical most-vexing-parse mistake
+`HANDOFF.md` already recorded for WU-17's own first draft of
+`test_v210_neon.cpp` ("`std::vector<Sample> Y(std::size_t(width)), ...`,
+which C++ grammar reads as a function declaration"). It compiled clean in
+every one of this session's own default x86_64 configurations, because
+`test_chroma_neon` is gated behind the same `CMAKE_SYSTEM_PROCESSOR`
+condition as `test_v210_neon` and is therefore never *compiled* there at
+all — only the aarch64 cross-compile actually built this file and
+surfaced the error. Fixed the same way WU-17's own session fixed it:
+naming a `const std::size_t` local first so the vector constructor's sole
+argument is a plain identifier, not a parenthesized cast expression. Not a
+`CORRECTIONS.md` entry — caught and fixed within the same edit, before any
+claim was ever made based on the broken draft, the identical "routine
+iteration, not a design/reasoning error" distinction `HANDOFF.md` already
+drew for WU-17's own instance of this exact mistake. Recorded here anyway,
+briefly, because it is direct evidence for why this session actually ran
+the aarch64 cross-compile rather than treating ADR-042's own established
+capability as a formality: an x86_64-only verification would have shipped
+this bug silently, to be caught only at the real M1 Max terminal.
+
+**Verification.** Built and run in this session's own Linux cloud sandbox
+(Ubuntu 24.04), reusing ADR-042's own established capability directly
+rather than re-deriving it — `g++-aarch64-linux-gnu`/`qemu-user-static`
+installed the same way, confirmed still available in this fresh sandbox
+rather than assumed persistent from a prior session:
+
+- Default x86_64 matrix (Clang 18.1.3/GCC 13.3.0, Release/Debug, tile 4/5,
+  eight configurations) plus GCC 13 ASan+UBSan at both tile sizes: all
+  green, sixteen tests each, `test_chroma_neon`/`test_v210_neon` both
+  correctly absent per the shared CMake gate — confirms this unit leaves
+  the existing sandbox matrix completely unaffected.
+- AArch64 cross-compile (GCC 13.3.0, ad hoc toolchain file, not committed)
+  + genuine `qemu-aarch64-static` execution: Release/Debug, tile 4/5, all
+  eighteen tests green (the sixteen carried over plus `test_v210_neon` and
+  the new `test_chroma_neon`) — this run is what caught the most-vexing-
+  parse bug above, on its first attempt, before any fix. GCC 13 with
+  `-fsanitize=undefined -fno-sanitize-recover=all` on AArch64: eighteen
+  tests green, clean, no UBSan report. `-fsanitize=address` on AArch64
+  reproducibly crashes `qemu-aarch64-static` itself
+  (`uncaught target signal 11`), confirmed again this session — the exact
+  sandbox/emulator limitation ADR-042 already named, not a code defect,
+  and not required by this unit's own accept criterion.
+- Clang 18.1.3 cross-compile (`--target=aarch64-linux-gnu
+  --gcc-toolchain=/usr`, standalone, no CMake — same shape ADR-042's own
+  Clang check used), run under `qemu-aarch64-static -L
+  /usr/aarch64-linux-gnu`: `PASS test_chroma_neon (34 checks)`, zero
+  warnings under this project's full `-Wall -Wextra -Wpedantic
+  -Wconversion -Wsign-conversion -Werror` set — confirming both compilers
+  this project's matrix already uses for x86_64 compile this unit clean,
+  not only GCC.
+
+`WORK-UNITS.md`'s own WU-18 line stays `wip`, not `green`, for the same
+procedural reason every other unit's line has (`SESSION-PROTOCOL.md`, "the
+assistant does not run `close.sh`") — Steve's own real-terminal `cmake
+--build` + `ctest` + `./tools/close.sh 18` run, natively on the M1 Max, is
+still outstanding. Every line this unit adds has already executed
+correctly, genuinely, in this session's own sandbox on real (emulated)
+AArch64 machine code, the same "not merely reasoned through against
+headers" standard ADR-042 already established for WU-17; what remains for
+the real terminal is confirming AppleClang agrees (a real, open question —
+this session's own verification used GCC and Clang's mainline cross
+target, not AppleClang) and ASan on native AArch64 hardware, which the M1
+Max can attempt without the qemu limitation this session's own sandbox
+hit.
+
+Does not reopen `docs/architecture.md`, ADR-004, ADR-020 or ADR-042 — same
+relationship every ADR since ADR-020 has to the document; ADR-020's frozen
+filter coefficients, rounding convention and edge handling are read as a
+fixed input and reproduced exactly, not altered — the NEON path computes
+the identical filter, not an approximation of it; ADR-042's sandbox
+verification capability, sibling-function design and CMake guard are
+reused directly, not re-derived, for exactly the parts genuinely common to
+both units, while the vectorisation shape itself is worked out fresh for
+chroma's own different kind of irregularity, per the "module-layout
+question" section above.

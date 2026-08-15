@@ -97,6 +97,13 @@ endif()
 # new test executable below (test_v210_neon), itself gated at the CMake
 # level (not by a runtime skip) since its whole body calls functions that do
 # not exist to declare or define at all without __ARM_NEON.
+#
+# WU-18 extends the existing src/video/chroma.hpp/.cpp with NEON-suffixed
+# siblings of the scalar upsample/downsample functions (DECISIONS.md
+# ADR-043), same shape and same #if defined(__ARM_NEON) guard as WU-17 --
+# no new source file for scatter-core itself, only its own new test
+# executable below (test_chroma_neon), gated the same way test_v210_neon
+# already is.
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -195,12 +202,17 @@ scatter_test(test_row_band)
 # to whether NEON intrinsics themselves are available, and this guard must
 # also match a non-Apple AArch64 Linux build (e.g. a cross-compiled
 # verification build, see ADR-042) that the APPLE-gated block never would.
+#
+# test_chroma_neon -- WU-18, same guard, same reasoning, reused rather than
+# re-derived (DECISIONS.md ADR-043): chroma.hpp's own NEON-suffixed
+# functions are equally declared only under #if defined(__ARM_NEON).
 # ---------------------------------------------------------------------------
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     scatter_test(test_v210_neon)
-    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} -- test_v210_neon configured")
+    scatter_test(test_chroma_neon)
+    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR} -- test_v210_neon, test_chroma_neon configured")
 else()
-    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}, not arm64/aarch64 -- skipping test_v210_neon (WU-17's NEON path is not declared at all without __ARM_NEON)")
+    message(STATUS "scatter-dve: CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}, not arm64/aarch64 -- skipping test_v210_neon, test_chroma_neon (WU-17/WU-18's NEON paths are not declared at all without __ARM_NEON)")
 endif()
 
 # ---------------------------------------------------------------------------

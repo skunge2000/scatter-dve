@@ -609,7 +609,7 @@ is untouched — but per this project's own convention the assistant does
 not run `close.sh`; the full suite and `./tools/close.sh 16b` still need
 a real-terminal run before this can be tagged `wu-16b-green`.
 
-### WU-17 — NEON v210 unpack and pack `wip`
+### WU-17 — NEON v210 unpack and pack `green` (`wu-17-green`, pending Steve's manual tag)
 See `DECISIONS.md` ADR-042 for the full design and for this session's own
 scoping work (this line was as bare going in as WU-16's own line was
 before ADR-040 split it): the sandbox's own real cross-compile-and-run
@@ -646,12 +646,72 @@ UBSan — seventeen tests green in every configuration, `test_v210_neon`
 itself 53 checks, zero warnings under this project's full `-Wall -Wextra
 -Wpedantic -Wconversion -Wsign-conversion -Werror` set on both GCC and
 Clang. ASan specifically crashes `qemu-aarch64-static` itself (a known
-sandbox/emulator limitation, not a code defect — see ADR-042) and is
-deferred to the real M1 Max, alongside AppleClang's own first compile of
-this unit (this session's own aarch64 verification used GCC/Clang's
-mainline cross target, not AppleClang) and `./tools/close.sh 17`. Still
-needed before this line goes `green`: that real-terminal run.
-### WU-18 — NEON chroma resampling `todo`
+sandbox/emulator limitation, not a code defect — see ADR-042) and remains
+untried on any platform — not required by this unit's own accept criterion.
+*Done:* confirmed at the real terminal, M1 Max, AppleClang: full suite 18
+of 19 passing, `test_v210_neon` itself green (0.01s) — AppleClang compiled
+this unit clean on the first attempt, no cloud/AppleClang divergence
+(unlike WU-11's own C-012). The one failure, `test_decklink_device`'s
+full-duplex check, is ADR-035's own already-accepted exception (the
+UltraStudio Monitor 3G is playback-only), unrelated to this unit.
+`./tools/close.sh 17` correctly refused to tag automatically (its own gate
+cannot distinguish an accepted exception from a real failure, by design);
+Steve tagged `wu-17-green` by hand, the same way he did for
+`wu-15a-green`/`wu-16a-green`/`wu-16b-green`.
+### WU-18 — NEON chroma resampling `wip`
+See `DECISIONS.md` ADR-043 for the full design and for this session's own
+scoping work (this line was barer going in than WU-17's own line was
+before ADR-042 — WU-17 at least already had "bit-identical to scalar
+reference" written down): the module-layout question checked directly
+(`chroma.hpp/.cpp`'s own architecture.md line lacks v210's "+ NEON" suffix,
+resolved via `chroma.hpp`'s own WU-04-era comment plus architecture.md's
+Phase 4 "done when" line, both already naming chroma alongside v210 for a
+NEON path), the interior/edge vectorisation shape (a sliding-window
+boundary clamp, not v210's fixed bit-interleave), and reuse of ADR-042's
+sandbox verification capability and CMake guard unchanged.
+**Files:** `src/video/chroma.hpp`, `src/video/chroma.cpp` (both extended,
+not new — `upsampleRowNeon`/`downsampleRowNeon`/`upsampleImageNeon`/
+`downsampleImageNeon`, guarded by `#if defined(__ARM_NEON)`; the scalar
+`upsampleRow`/`downsampleRow`/`upsampleImage`/`downsampleImage` are
+untouched), `tests/test_chroma_neon.cpp` (new); plus `CMakeLists.txt`
+(`test_chroma_neon` added to the same `CMAKE_SYSTEM_PROCESSOR` guard block
+`test_v210_neon` already uses).
+**Accept:** bit-identical to scalar reference. `tests/test_chroma_neon.cpp`
+diffs `upsampleRowNeon`/`downsampleRowNeon` against `upsampleRow`/
+`downsampleRow` directly over random full-16-bit-domain buffers at widths
+spanning `chromaWidth(width)` from 1 through 14 (covering zero interior
+batches, exactly one, and the transition into two, for both filters' own
+differently-sized interior margins) plus 720/1920, the two real widths —
+never a round trip through both filters, which C-006 already established
+is not bit-exact for non-flat content; and `upsampleImageNeon`/
+`downsampleImageNeon` against `upsampleImage`/`downsampleImage` over a
+whole 720x576 frame.
+*Status:* implemented and verified in this session's own Linux cloud
+sandbox — not only compiled but genuinely **executed** as real AArch64
+machine code, via cross-compilation (GCC 13.3.0 and Clang 18.1.3) and
+`qemu-aarch64-static`, reusing ADR-042's own established capability
+directly. Default x86_64 matrix (Clang 18/GCC 13, Release/Debug, tile 4/5,
+plus GCC 13 ASan+UBSan) confirms this unit leaves the existing sandbox
+build completely unaffected — sixteen tests green, `test_chroma_neon`
+correctly absent per its own CMake gate (shared with `test_v210_neon`).
+AArch64 cross-compile + `qemu-aarch64-static` execution: Release/Debug,
+tile 4/5, plus GCC 13 UBSan — eighteen tests green in every configuration
+(the sixteen carried over, `test_v210_neon` and the new `test_chroma_neon`
+— 34 checks, zero warnings under this project's full `-Wall -Wextra
+-Wpedantic -Wconversion -Wsign-conversion -Werror` set on both GCC and
+Clang). This session's own first draft hit the identical most-vexing-parse
+mistake `HANDOFF.md` recorded for WU-17's own first draft of
+`test_v210_neon.cpp` — caught by the aarch64 cross-compile specifically
+(the x86_64 matrix never compiles this file at all, per its own CMake
+gate), fixed the same way, before any claim was made based on the broken
+draft; see ADR-043's own "genuine bug" section. ASan on AArch64
+reproducibly crashes `qemu-aarch64-static` itself, the same sandbox/
+emulator limitation ADR-042 already named for WU-17, not a code defect,
+and remains untried on any platform — not required by this unit's own
+accept criterion.
+*Done:* not yet — Steve's own real-terminal `cmake --build` + `ctest` +
+`./tools/close.sh 18` run, natively on the M1 Max with AppleClang, is the
+next step (see HANDOFF.md).
 ### WU-19 — Real time at 576i25 `todo`
 
 ---

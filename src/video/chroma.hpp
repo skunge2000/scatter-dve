@@ -121,4 +121,50 @@ void downsampleImage(const Sample* in, std::ptrdiff_t inStrideSamples,
                      int width, int height,
                      Sample* out, std::ptrdiff_t outStrideSamples) noexcept;
 
+// ---------------------------------------------------------------------------
+// NEON operations — WU-18, ADR-043
+//
+// Present only when __ARM_NEON is defined (AArch64 always defines it), same
+// guard v210.hpp already uses (ADR-042) so scatter-core's object list and
+// every existing test are unaffected on x86_64.
+//
+// Same signatures, same preconditions as the scalar functions above. Unlike
+// v210's own NEON path — a fixed per-group bit-field interleave, uniform
+// across every group regardless of width — this filter's own irregularity
+// is a sliding window's boundary clamp (ADR-020's edge-replication choice),
+// present only at a handful of indices near either end of a row and absent
+// everywhere in the interior. The NEON siblings below vectorise exactly the
+// interior — four lanes of int32 multiply-accumulate per batch, matching
+// the scalar reference's own std::int32_t accumulator width, coefficients
+// and rounding exactly, lane for lane; the edge indices where a tap's
+// clampIndex() call actually replicates a boundary sample are computed
+// scalar, calling the identical clampIndex()/roundShift() helpers the
+// scalar row functions already use — the same "vectorise the uniform part,
+// leave the genuinely irregular part scalar" discipline ADR-042 established
+// for v210's own bit-interleave, applied here to a boundary-clamp
+// irregularity instead. Bit-identical to the scalar reference is this
+// unit's entire accept criterion (WORK-UNITS.md) — diffed against a call to
+// the same function (upsampleRow/downsampleRow) over the same input, never
+// a round trip through both filters, which C-006 already established is
+// not bit-exact for non-flat content and is not what this unit claims.
+// tests/test_chroma_neon.cpp checks this directly. See DECISIONS.md
+// ADR-043 for the full design.
+// ---------------------------------------------------------------------------
+
+#if defined(__ARM_NEON)
+
+void upsampleRowNeon(const Sample* in, int width, Sample* out) noexcept;
+
+void downsampleRowNeon(const Sample* in, int width, Sample* out) noexcept;
+
+void upsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
+                       int width, int height,
+                       Sample* out, std::ptrdiff_t outStrideSamples) noexcept;
+
+void downsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
+                         int width, int height,
+                         Sample* out, std::ptrdiff_t outStrideSamples) noexcept;
+
+#endif  // __ARM_NEON
+
 }  // namespace scatter::chroma
