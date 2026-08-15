@@ -100,4 +100,31 @@ private:
     std::vector<Vec3> vertices_;  // kLatticeSize * kLatticeSize, row-major
 };
 
+// WU-13: architecture.md 4.1's own "temporal interpolation between shape
+// lattices... Mirage's morph" — DECISIONS.md ADR-030 for the full design.
+// Returns a new Lattice whose every control vertex is the componentwise
+// blend from.at(row,col)*(1-t) + to.at(row,col)*t of the two inputs' own
+// vertices, covering (x, y, z) alike. Exactly two keyframes, not an
+// ordered sequence (ADR-030); the caller is responsible for selecting
+// which two keyframes bracket a given frame and for reducing that to this
+// single blend fraction t, exactly as a page-turn caller is responsible
+// for reducing "how far turned" to PageTurnParams::turnProgress before
+// calling buildPageTurnLattice() (ADR-028) — this function takes no frame
+// number or timestamp of its own.
+//
+// The blend formula is deliberately from*(1-t) + to*t, not the
+// algebraically equivalent from + t*(to-from): at t == 0.0, 1-t == 1.0
+// exactly, so this reduces to from*1.0 + to*0.0, exactly from (both
+// operations rounding-free per CORRECTIONS.md C-012); at t == 1.0,
+// 1-t == 0.0 exactly, so this reduces to exactly to. t is not clamped or
+// validated -- the same unchecked-precondition convention Lattice::at()'s
+// row/col bounds and PageTurnParams::turnProgress already use -- so a t
+// outside [0, 1] linearly extrapolates past whichever keyframe it
+// overshoots rather than being sanitised away.
+//
+// Not noexcept: default-constructs a fresh Lattice (a std::vector<Vec3>
+// allocation that can throw), the same reason buildCylinderLattice()/
+// buildSphereLattice()/buildPageTurnLattice() are not noexcept either.
+Lattice morphLattice(const Lattice& from, const Lattice& to, double t);
+
 }  // namespace scatter

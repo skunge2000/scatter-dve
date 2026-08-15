@@ -237,7 +237,26 @@ WU-12b's opaque-with-priority-tag). The WU-12a/WU-12b split above is not
 reconciled back into a single WU-12 entry — permanent record of how the
 work actually split, the same precedent WU-04's session set correcting
 WU-03's stale status line in place rather than erasing it.
-### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`
+### WU-13 — Keyframed lattices, temporal interpolation (morph) `wip`
+**Files:** `src/core/lattice.hpp`, `src/core/lattice.cpp`, `tests/test_morph.cpp`
+(new).
+**Accept:** see `DECISIONS.md` ADR-030 for the full design (keyframe count,
+blend formula and its rationale, and why `core/shapes/*`, `core/binner.cpp`,
+`core/splat.cpp`, `core/resolve.*` and `core/pipeline.cpp` need no change).
+`morphLattice(from, to, t)` at `t == 0` reproduces `from` exactly (every
+control vertex, `==`) and at `t == 1` reproduces `to` exactly, both by
+construction of the `from*(1-t) + to*t` blend formula (C-012: multiplying by
+an exact `0.0`/`1.0` is rounding-free); an interior `t` matches an
+independently-computed reference blend to a tight relative tolerance (C-012,
+not `==`); and `Lattice::jacobian()`'s analytic derivatives on a morphed
+lattice built from two distinct, genuinely curved keyframes (not two affine
+ones) agree with central differences of `eval()` (WU-06's own method,
+reused) across the lattice interior, at its edges, and at the flat/curl or
+angular-span seams either keyframe shape may itself contain — proving the
+interpolant differentiates correctly on real blended surface data. No
+`runFrame()`-level check — this unit sits at WU-06's own layer (pure lattice
+mathematics, proven against `Lattice`'s own public API), not the shape
+layer WU-11/WU-12a sit at; see ADR-030's own reasoning.
 
 ---
 

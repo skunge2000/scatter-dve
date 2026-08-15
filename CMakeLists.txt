@@ -67,6 +67,12 @@ endif()
 # (priority-tag opaque mode, architecture.md 4.7 phase 2, DECISIONS.md
 # ADR-028/ADR-029) -- no new source file for scatter-core itself, only its
 # own new test executable below.
+#
+# WU-13 adds morphLattice() to the existing src/core/lattice.cpp (keyframed
+# lattices, temporal interpolation -- architecture.md 4.1's own "morph",
+# DECISIONS.md ADR-030) -- no new source file for scatter-core itself,
+# same "extend an existing file" shape as WU-12b, only its own new test
+# executable below.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
@@ -142,6 +148,7 @@ target_include_directories(test_zoneplate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/to
 scatter_test(test_shapes)
 scatter_test(test_pageturn)
 scatter_test(test_layered_composite)
+scatter_test(test_morph)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

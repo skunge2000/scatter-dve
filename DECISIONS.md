@@ -908,3 +908,192 @@ ADR-028's own sketch, the relationship ADR-028's closing paragraph already
 describes for whichever unit finished it; ADR-009's k-buffer deferral is
 unchanged, and ADR-026's `composite()`/`Background` are reused unaltered,
 not modified, by this unit's own two calls to them.
+
+**ADR-030 — Keyframed lattices, temporal interpolation ("morph"):
+`morphLattice()`'s name, signature and blend formula; exactly two
+keyframes, not an ordered sequence; linear, not Catmull-Rom, interpolation
+in time; and `core/lattice.hpp`/`.cpp`, not a new header, as its home —
+frozen at WU-13.**
+`docs/architecture.md` 4.1 names the mechanism ("a shape is a function of
+`(u, v, t)`... Optionally keyframed, with temporal interpolation between
+shape lattices. This is Mirage's morph") without fixing what a keyframe is
+operationally, how many a single morph spans, the interpolation method, or
+where the function lives — the same kind of gap ADR-020 through ADR-029
+filled for earlier units. ADR-028 (WU-12a) already ruled out one candidate
+reading — a page turn's own `turnProgress` is *not* an instance of this
+`t` — and committed this unit's own scope in doing so: "WU-13's own morph
+is temporal interpolation between two whole, independently authored
+lattices (dissolve/interpolate control-vertex positions from lattice A to
+lattice B over N frames), a capability that has nothing to do with any one
+shape's own parametrisation and applies equally to any pair of lattices,
+curved or affine." This entry freezes the mechanism that sentence
+sketches.
+
+- **What a keyframe is, operationally, and how many a morph spans.** A
+  keyframe is nothing more than an already-built `Lattice` — the output of
+  any shape function (`buildCylinderLattice()`, `buildPageTurnLattice()`,
+  a plain affine one, or another `morphLattice()` call) or a hand-built
+  one, exactly as any of those already are on their own. No new struct
+  pairs a `Lattice` with a frame number or timestamp, and no ordered
+  keyframe *sequence* type is introduced. ADR-028's own sentence above
+  already commits to exactly two lattices per morph ("lattice A to lattice
+  B"), not a bracketing search over an ordered sequence — so that reading
+  is not this session's own choice to make, only to record. Deciding which
+  two keyframes bracket a given frame, and reducing that to a single blend
+  fraction, is orchestration: the same kind of caller-side responsibility
+  ADR-026 already left the k-buffer's background question to (WU-28, not
+  scheduled) and ADR-029 already left "the upper layer's tag as a
+  `PipelineParams` field" to (whichever future unit wires two-layer
+  opacity into `runFrame()`, not scheduled). Nothing between WU-01 and
+  WU-13 defines a shot's own timeline or keyframe list, so inventing a
+  type for one now would be answering a question no orchestration layer
+  has been reached yet to ask — the same reasoning ADR-026 gives for not
+  inventing a second raster before WU-28's k-buffer exists to need one.
+  `morphLattice()` itself therefore takes only the two already-selected
+  `Lattice`s and an already-computed blend fraction, exactly parallel to
+  how `buildPageTurnLattice()` takes an already-computed `turnProgress`,
+  not a turn start/end time.
+- **Interpolation method: linear, not Catmull-Rom.** Checked against the
+  module's existing cubic machinery before assuming the obvious answer,
+  per `SESSION-PROTOCOL.md` rule 3's spirit (do not silently re-decide a
+  frozen thing, but do check a new one against it): ADR-022's Catmull-Rom
+  basis governs *spatial* interpolation within one lattice's own
+  129×129 control mesh, where each cell's tangent is defined from its two
+  neighbouring control vertices — a 4-point stencil that requires values
+  on both sides to define a tangent, which is exactly why adjacent cells
+  agree at their shared knot (ADR-022's own C1 argument). A morph has no
+  such neighbourhood: exactly two keyframe lattices are defined, with no
+  third or fourth lattice to supply an incoming or outgoing tangent, and
+  nothing in architecture.md 4.1 asks for tangent continuity across a
+  morph in the first place — "dissolve" (ADR-028's own word, echoing
+  architecture.md's use elsewhere) names a cross-fade, not a spline.
+  Spatial (`u`, `v`) and temporal (`t`) interpolation are orthogonal axes
+  here, and only the spatial one has the 4-point neighbourhood a cubic
+  basis needs; the temporal one is exactly two endpoints, for which linear
+  is not a simplification of some fancier answer but the only interpolant
+  that does not invent data outside its own two inputs.
+- **Blend formula: `out = from*(1 - t) + to*t`, not the algebraically
+  equivalent `out = from + t*(to - from)`.** Chosen specifically for
+  `CORRECTIONS.md` C-012's own lesson — multiplying a finite value by an
+  exact `0.0` or exact `1.0` introduces no rounding, regardless of FMA
+  contraction, reassociation or platform `libm` differences, the same
+  reasoning C-012's own fix already relies on for its untouched `y`
+  check. At `t == 0.0`: `1.0 - 0.0 == 1.0` exactly, so `from*1.0 == from`
+  exactly and `to*0.0` contributes an exact (possibly negative) zero,
+  leaving the sum exactly `from`. At `t == 1.0`: `1.0 - 1.0 == 0.0`
+  exactly, so the sum is exactly `to`. The `from + t*(to - from)` form
+  does not have this property — `from + 1.0*(to - from)` is not
+  guaranteed bit-identical to `to` in IEEE 754 for arbitrary `from`/`to`,
+  since `to - from` followed by `from + (...)` is a different rounding
+  path than reading `to` back directly. This gives `morphLattice()` the
+  same "reduces exactly to the boundary case" property ADR-027 already
+  established for `angleSpan`/`angleSpanH`/`angleSpanV` shrinking to zero
+  and ADR-028 established for `turnProgress == 0` — here, at *both* of
+  the morph's own endpoints, checked with `==` in `tests/test_morph.cpp`
+  rather than a tolerance, since both operations involved (`* 1.0`, `*
+  0.0`, and the following exact-zero-preserving add) are provably
+  rounding-free, the same standard C-012 draws between its own loosened
+  `x`/`z` checks and untouched `y` check. Interior `t` values are not
+  claimed bit-exact against any independently-computed reference and are
+  checked with a tight relative tolerance instead, per C-012's general
+  lesson.
+- **`t` is not clamped or validated.** Same unchecked-precondition
+  convention `Lattice::at()`'s row/col bounds and
+  `PageTurnParams::turnProgress` already use (ADR-028): a `t` outside
+  `[0, 1]` linearly extrapolates past whichever keyframe it overshoots —
+  well-defined arithmetic, not undefined behaviour, and an extreme but
+  legitimate case rather than one sanitised away (I1-adjacent: this
+  project does not clamp its way out of extreme parameters elsewhere
+  either).
+- **Name and signature, declared in `core/lattice.hpp`, defined in
+  `core/lattice.cpp`:**
+  ```cpp
+  Lattice morphLattice(const Lattice& from, const Lattice& to, double t);
+  ```
+  Named for architecture.md 4.1's own term ("This is Mirage's morph"),
+  the same way `tests/test_layered_composite.cpp` was named for the
+  function it exercises rather than the shape that motivated it (ADR-029).
+  Not `noexcept`: unlike `Lattice::eval()`/`jacobian()`/`at()`, which touch
+  no new storage, `morphLattice()` default-constructs a fresh `Lattice` —
+  a `std::vector<Vec3>` allocation that can throw — the same reason
+  `buildCylinderLattice()`/`buildSphereLattice()`/`buildPageTurnLattice()`
+  are not `noexcept` either, despite also being pure functions of their
+  inputs otherwise.
+- **Home: an addition to `core/lattice.hpp`/`.cpp`, not a new
+  `core/keyframe.hpp`/`.cpp`, and not `core/shapes/shapes.hpp`.** Weighed
+  against both of this project's own precedents for "does this need its
+  own header": ADR-021 (`file_source.cpp`/`file_sink.cpp` declared in the
+  existing `video/raster.hpp`) and ADR-026 (`runFrame()`/`runFrameFile()`
+  declared in `core/resolve.hpp`, with no `pipeline.hpp` yet) both chose
+  an existing, closely related header over a new one when the new
+  function's own file-scope budget did not need a header of its own.
+  `morphLattice()` needs no new type — no params struct, unlike every
+  shape builder, since it has only two `Lattice` inputs and a scalar — so
+  a new header/`.cpp` pair would be pure overhead against
+  `SESSION-PROTOCOL.md`'s file cap for no structural benefit.
+  `core/shapes/shapes.hpp` was considered and rejected: every function
+  there *populates* a fresh `Lattice`'s control vertices from a parametric
+  surface definition (`CylinderParams`, `SphereParams`, `PageTurnParams`);
+  `morphLattice()` instead *consumes* two already-populated `Lattice`s,
+  however either was built, and produces a third — a lattice-to-lattice
+  operation, not a shape. `SESSION-PROTOCOL.md` rule 2 ("never rename or
+  refactor across module boundaries... names in headers are fixed") is
+  read here as forbidding a change to `Lattice`'s *existing* interface
+  (`at()`, `eval()`, `jacobian()`, all untouched), not as forbidding a new
+  addition to the same header — the same reading ADR-026 already relies
+  on when it adds `runFrame()`/`runFrameFile()` to `core/resolve.hpp`
+  alongside `composite()` without touching `composite()` itself. A free
+  function at namespace scope, not a `Lattice` member or static factory:
+  it needs no private access, and every existing shape builder is
+  likewise a free function returning `Lattice` by value, not a member —
+  `morphLattice()` matches that convention rather than the class's own
+  `at()`/`eval()`/`jacobian()` member style.
+- **No `core/shapes/*.cpp`, `core/binner.cpp`, `core/splat.cpp`,
+  `core/resolve.*` or `core/pipeline.cpp` change.** `morphLattice()`
+  returns a plain `Lattice` — the same type every shape builder already
+  returns — so `Lattice::eval()`/`jacobian()` and everything downstream of
+  a populated lattice (fragment generation, the four-bank splat,
+  normalise/composite) are already shape-agnostic (ADR-027's own framing,
+  reused verbatim: "everything downstream of a populated `Lattice`... is
+  shape-agnostic already"). `runFrame()` still takes exactly one
+  already-built `Lattice` per call, unchanged; producing a morphed
+  lattice to pass to it is the caller's own job, the same "caller
+  assembles, `runFrame()` stays a single-lattice convenience wrapper"
+  precedent ADR-028's own transparent-accumulation note and ADR-029's
+  scope note both already establish. This unit is proven entirely against
+  `Lattice`'s own public API in `tests/test_morph.cpp`, the same way
+  WU-06 proved `jacobian()` without any pipeline-level test at all —
+  `morphLattice()` sits at exactly WU-06's own layer (pure lattice
+  mathematics), not at the shape layer WU-11/WU-12a sit at, so it needs no
+  `runFrame()`-level check to be a complete, independently useful unit
+  (`SESSION-PROTOCOL.md`'s own "independently useful" sizing requirement).
+- **Test file: `tests/test_morph.cpp`, new.** Named for the mechanism
+  (architecture.md 4.1's own "morph"), the same convention
+  `tests/test_jacobian.cpp` and `tests/test_layered_composite.cpp` already
+  use — the function/mechanism under test, not the shape that happens to
+  populate the keyframes in any one test case. Checks, in order: the two
+  boundary reductions (`t == 0` exactly reproduces `from`, `t == 1`
+  exactly reproduces `to`, every control vertex, `==`, per the blend
+  formula's own bit-exactness argument above); a representative interior
+  `t` against an independently-computed reference blend, tight relative
+  tolerance (C-012); and `Lattice::jacobian()`'s analytic derivatives
+  agreeing with central differences (WU-06's own method, reused) on a
+  genuinely morphed, non-affine lattice (a blend of two distinct,
+  independently built curved keyframes — reusing
+  `shapes::buildCylinderLattice()`/`buildSphereLattice()`/
+  `buildPageTurnLattice()` from the test file only, exactly as
+  `tests/test_shapes.cpp` and `tests/test_pageturn.cpp` already do for
+  their own Jacobian checks — proving the interpolant differentiates
+  correctly on real blended surface data, not just synthetic single-shape
+  data). Duplicates no fixture from `tests/test_jacobian.cpp`,
+  `tests/test_shapes.cpp` or `tests/test_pageturn.cpp` — builds its own
+  keyframe lattices locally, per `SESSION-PROTOCOL.md` rule "one unit, one
+  test".
+
+Does not reopen `docs/architecture.md`, ADR-021, ADR-022, ADR-026, ADR-027
+or ADR-028 — same relationship every ADR since ADR-020 has to the
+document, and this unit's own choices extend ADR-021/ADR-026's
+"existing header when the new scope doesn't need one" precedent and
+ADR-022's Catmull-Rom basis rather than revisiting either; ADR-028's own
+`t`-scoping note is completed, not amended, by the mechanism this entry
+freezes.

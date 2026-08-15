@@ -135,6 +135,27 @@ Vec3 Lattice::eval(double u, double v) const noexcept {
     return blend(*this, bv, bu, cv.index, cu.index);
 }
 
+// WU-13: see core/lattice.hpp for the design note and DECISIONS.md
+// ADR-030 for the full rationale, in particular why the blend is written
+// as from*(1-t) + to*t rather than the algebraically equivalent
+// from + t*(to-from) -- this form alone is bit-exact at t == 0.0 and
+// t == 1.0.
+Lattice morphLattice(const Lattice& from, const Lattice& to, double t) {
+    Lattice out;
+    const double oneMinusT = 1.0 - t;
+    for (int row = 0; row < kLatticeSize; ++row) {
+        for (int col = 0; col < kLatticeSize; ++col) {
+            const Vec3& a = from.at(row, col);
+            const Vec3& b = to.at(row, col);
+            Vec3& o = out.at(row, col);
+            o.x = a.x * oneMinusT + b.x * t;
+            o.y = a.y * oneMinusT + b.y * t;
+            o.z = a.z * oneMinusT + b.z * t;
+        }
+    }
+    return out;
+}
+
 Jacobian Lattice::jacobian(double u, double v) const noexcept {
     const Cell cu = locate(u);
     const Cell cv = locate(v);
