@@ -196,11 +196,10 @@ report. `tests/test_pageturn.cpp`: 126512 checks (Clang 18, Release, tile
 all twelve tests passed, no cloud/AppleClang divergence this time (unlike
 WU-11's own C-012).
 
-### WU-12b — Page turn, priority-tag opaque `todo`
-**Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`, plus a new test
-file (name TBD when this unit starts — not `tests/test_pageturn.cpp`,
-which WU-12a already owns; SESSION-PROTOCOL.md's own "one unit, one test"
-convention, same as every unit since WU-06).
+### WU-12b — Page turn, priority-tag opaque `wip`
+**Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`, plus
+`tests/test_layered_composite.cpp` (new; name frozen this session — see
+`DECISIONS.md` ADR-029).
 **Accept:** reproduces US 4,563,703 FIG. 5's "opaque with priority tag set"
 mode (architecture.md 4.7 phase 2's own phrase; section 9), via
 `DECISIONS.md` ADR-028's own scope decision — a narrower, two-layer
@@ -215,6 +214,25 @@ accumulation-sums default (the two `AccumCell`s summed first, then
 normalised/composited once). No `core/shapes/*`, `core/binner.cpp` or
 `core/splat.cpp` change — exercised against WU-12a's own
 `buildPageTurnLattice()` (or any earlier shape) unmodified.
+*Status:* implemented and verified in a Linux cloud sandbox —
+`compositeLayered()` added to `core/resolve.hpp`/`.cpp` per `DECISIONS.md`
+ADR-029 (name, signature and behaviour frozen there), `tests/
+test_layered_composite.cpp` new (28 checks: four direct `AccumCell`
+unit-test cases covering the tag-mismatch sum path and the opaque path's
+full/zero/partial-alpha edges exactly, plus two pipeline-level checks
+reusing WU-12a's own page-turn flap/page-behind construction, checked
+exactly against an independent local re-derivation of the read-replace-
+write formula, not a tolerance). Full matrix green: Clang 18 and GCC 13,
+Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, zero
+warnings, checked explicitly in the build logs — not just exit codes —
+under the project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes: clean, no ASan or UBSan
+report. All thirteen tests pass at every configuration (336976 checks
+total, Clang 18 Release tile 2^5). **Not yet run:** `./tools/close.sh 12b`
+on the M1 Max with AppleClang — this session ran entirely in the cloud
+sandbox per SESSION-PROTOCOL.md's own process; see `HANDOFF.md` for the
+request to run it. Remains `wip`, not `green`, until that comes back clean.
 ### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`
 
 ---

@@ -62,6 +62,11 @@ endif()
 # portability as every other shapes/ file -- no core/splat.cpp or
 # core/resolve.cpp changes needed; see ADR-028 and HANDOFF.md for why
 # priority-tag opaque mode is a separate unit, WU-12b, not yet built.
+#
+# WU-12b adds compositeLayered() to the existing src/core/resolve.cpp
+# (priority-tag opaque mode, architecture.md 4.7 phase 2, DECISIONS.md
+# ADR-028/ADR-029) -- no new source file for scatter-core itself, only its
+# own new test executable below.
 # ---------------------------------------------------------------------------
 add_library(scatter-core STATIC
     src/video/v210.cpp
@@ -136,6 +141,7 @@ scatter_test(test_zoneplate)
 target_include_directories(test_zoneplate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 scatter_test(test_shapes)
 scatter_test(test_pageturn)
+scatter_test(test_layered_composite)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

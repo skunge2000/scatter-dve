@@ -785,3 +785,126 @@ relationship every ADR since ADR-020 has to the document; ADR-009's
 k-buffer deferral is unchanged (WU-12b's own two-layer mechanism is not a
 k-buffer and does not claim to be one), and ADR-027's cylinder cross-
 section formula is reused, not altered, by this unit's own curled branch.
+
+**ADR-029 — `compositeLayered()`: name, signature and behaviour frozen at
+WU-12b; implemented as two calls to `composite()` rather than a hand-rolled
+blend; the opaque tag is a function parameter, confirming rather than
+reopening ADR-028's own sketch.**
+ADR-028 (WU-12a) sketched priority-tag opacity's mechanism in full but
+explicitly left "the actual name and signature" for this unit to freeze
+"once written and tested". This session wrote and tested it; this entry
+freezes what came out.
+
+- **Signature, declared in `core/resolve.hpp`, implemented in
+  `core/resolve.cpp`:**
+  ```cpp
+  CompositedCell compositeLayered(const AccumCell& lower, const AccumCell& upper,
+                                   std::uint8_t upperTag, std::uint8_t opaqueTag,
+                                   const Background& bg = kDefaultBackground) noexcept;
+  ```
+  Name kept as `compositeLayered` — ADR-028's own placeholder — since
+  nothing surfaced while implementing it that made a different name clearer;
+  no reason found to depart from the sketch's own choice. Parameter order
+  (`lower`, `upper`, then the two tags, then `bg` last with the same
+  default-to-`kDefaultBackground` convention `composite()` above it already
+  uses) mirrors `composite()`'s own shape as closely as a two-layer function
+  can, so a reader who already knows `composite()` needs to learn only what
+  is different: two cells instead of one, and the two tags that decide how
+  they combine.
+
+- **Only `upper`'s tag is read.** `lower`'s own tag, if a caller happens to
+  be tracking one, plays no part in the decision — not an oversight, the
+  literal reading of ADR-028's own sketch ("the upper layer's own tag, a
+  caller-configured opaque tag") and of architecture.md 4.7 phase 2's
+  "opaque with priority tag set" for a page-turn flap: it is the flap (the
+  upper layer here) whose own tag can force opacity, not whatever is
+  beneath it. A caller with a lower layer that also needs to force its own
+  opacity against something still further down is a three-or-more-layer
+  case this unit's own two-layer scope does not claim to handle — ADR-009's
+  k-buffer (WU-28), unchanged.
+
+- **Implemented as two calls to `composite()` (declared just above it in
+  `core/resolve.hpp`), not a hand-rolled blend.** The opaque branch's own
+  "read" step — composite `lower` against `bg` — is literally a call to
+  `composite(lower, bg)`; its result, `CompositedCell{Y, Cb, Cr}`, is then
+  reinterpreted as a `Background{Y, Cb, Cr}` (`asBackground()`,
+  `resolve.cpp`, an anonymous-namespace helper — the two structs are the
+  same three `Sample` fields under different names for different pipeline
+  stages, so this is a relabelling, not a conversion) and handed to a
+  second `composite(upper, ...)` call for the "write" step. This was not
+  the only way to implement ADR-028's own read-replace-write description —
+  a version written directly against `AccumCell`/`Sample` fields, calling
+  `normaliseCell()` and a per-channel blend once each rather than
+  `composite()` twice, would also satisfy it — but composing two calls to
+  an already-tested public function is simpler, touches strictly fewer
+  lines of new arithmetic in `core/resolve.cpp`, and gets partial upper
+  coverage correct for free rather than by extra casework: `composite()`'s
+  own alpha-clamp means `upper.w == 0` makes the second call return
+  `afterRead` unchanged (lower alone — the "unaffected" half of WU-12b's
+  own accept criterion) and `upper.w >= kWeightUnity` makes it return
+  upper's own resolved colour outright, independent of `afterRead` (the
+  "resolves close to the flap's own colour" half) — both fall out of
+  `composite()`'s existing, already-verified behaviour rather than needing
+  their own new tests of a duplicated blend. `tests/
+  test_layered_composite.cpp`'s own Part A checks this composition
+  directly and exactly (not just by pipeline-level inference) at both of
+  those edges and at a genuine partial-alpha point in between.
+- **The transparent (tag-mismatch) branch sums via a small local
+  `sumCells()` helper** (`core/resolve.cpp`, anonymous namespace) —
+  component-wise `Y`/`Cb`/`Cr`/`w`, `reserved` left at its value-initialised
+  0 since nothing reads it — then calls `composite()` once. Exact, per I6
+  (integer addition is associative), the same identity `tests/
+  test_pageturn.cpp`'s own
+  `test_pipeline_pageturn_transparent_accumulates_over_page_behind()`
+  already established for two real splatted layers; this unit's own
+  contribution is wiring that identity into `compositeLayered()`'s own
+  fallback branch, not re-deriving it.
+
+- **The opaque tag is a function parameter, not a `PipelineParams` field.**
+  ADR-028's own sketch already described the mechanism this way ("a
+  caller-configured opaque tag" listed alongside the two `AccumCell`s and
+  `Background` as one of the function's own inputs), so implementing it
+  as a parameter confirms that sketch rather than deciding something new —
+  recorded here because the session's own brief asked whether this
+  surfaced as a real open question once actually implementing, and it is
+  worth being explicit that it did not: no alternative was seriously
+  in play. A `PipelineParams`-style field would only make sense once some
+  orchestration entry point (`runFrame()` or a future two-layer sibling)
+  calls `compositeLayered()` on a caller's behalf and needs somewhere
+  caller-wide to park the value; nothing in WU-12b's own scope adds such an
+  entry point — `core/resolve.hpp`/`.cpp` only, no `core/pipeline.cpp`
+  change, matching WU-12a's own precedent of exercising its two-layer
+  identity directly against `TileBins`/`TileAccum` rather than through
+  `runFrame()`. `PipelineParams::tag` (ADR-026) already exists but serves a
+  single-layer `runFrame()` call passing one tag through to
+  `generateFragments()`; it has no natural generalisation to "the upper
+  layer's tag" and "the opaque tag" as a pair without inventing an
+  orchestration shape this unit was not asked to build. Left for whichever
+  future unit actually wires two-layer opacity into `runFrame()` (not
+  scheduled) to decide, the same way ADR-026 itself left the k-buffer's own
+  background question to WU-28.
+
+- **Test file: `tests/test_layered_composite.cpp`, new** — WORK-UNITS.md's
+  own WU-12b line names no file (left "TBD when this unit starts"); chosen
+  to name the function it tests' own subject (a layered composite) rather
+  than the shape that motivates it (a page turn, already `tests/
+  test_pageturn.cpp`'s own name, WU-12a's), since `compositeLayered()`
+  itself is shape-agnostic — it operates on two `AccumCell`s and two tags,
+  nothing about a page turn specifically. Two parts: direct, hand-built
+  `AccumCell` unit tests of the function alone (exact equality throughout —
+  integer arithmetic, I6, not the cross-platform floating-point
+  bit-exactness CORRECTIONS.md C-012 warns against for differently-shaped
+  expressions), and the pipeline-level scenario HANDOFF.md's own "Next work
+  unit" section suggested (a page-turn flap over a full-canvas page behind,
+  duplicated locally from `tests/test_pageturn.cpp` per SESSION-PROTOCOL.md
+  rule 2), checked exactly against an independent local re-derivation of
+  the read-replace-write formula rather than a fuzzy tolerance, since
+  nothing about this path involves the kind of cross-compiler
+  floating-point noise C-012 found — normalise, blend and sum are all
+  fixed-point.
+
+Does not reopen `docs/architecture.md`, ADR-009 or ADR-028 — completes
+ADR-028's own sketch, the relationship ADR-028's closing paragraph already
+describes for whichever unit finished it; ADR-009's k-buffer deferral is
+unchanged, and ADR-026's `composite()`/`Background` are reused unaltered,
+not modified, by this unit's own two calls to them.

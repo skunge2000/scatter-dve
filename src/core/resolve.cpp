@@ -81,4 +81,42 @@ CompositedCell composite(const AccumCell& cell, const Background& bg) noexcept {
     return out;
 }
 
+namespace {
+
+// compositeLayered()'s own "read" step (resolve.hpp) hands its
+// CompositedCell result to the "write" step's composite() call as a
+// Background. Both structs are the same three Sample fields (Y, Cb, Cr) by
+// construction -- this is a lossless relabelling, not a conversion, the
+// same way ResolvedCell and CompositedCell are also the same three fields
+// with different names for different pipeline stages.
+Background asBackground(const CompositedCell& c) noexcept {
+    return Background{c.Y, c.Cb, c.Cr};
+}
+
+// WU-12a's own accumulation-sums default (architecture.md 4.7 phase 1):
+// component-wise sum of two AccumCells, exact (I6: integer addition is
+// associative). AccumCell::reserved (core/types.hpp) is unused padding in
+// both inputs, so the summed cell's own reserved is left at its
+// value-initialised 0 rather than summing it too -- nothing reads it.
+AccumCell sumCells(const AccumCell& a, const AccumCell& b) noexcept {
+    AccumCell out{};
+    out.Y  = a.Y + b.Y;
+    out.Cb = a.Cb + b.Cb;
+    out.Cr = a.Cr + b.Cr;
+    out.w  = a.w + b.w;
+    return out;
+}
+
+}  // namespace
+
+CompositedCell compositeLayered(const AccumCell& lower, const AccumCell& upper,
+                                 std::uint8_t upperTag, std::uint8_t opaqueTag,
+                                 const Background& bg) noexcept {
+    if (upperTag == opaqueTag) {
+        const CompositedCell afterRead = composite(lower, bg);
+        return composite(upper, asBackground(afterRead));
+    }
+    return composite(sumCells(lower, upper), bg);
+}
+
 }  // namespace scatter

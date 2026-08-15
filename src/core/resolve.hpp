@@ -121,6 +121,55 @@ CompositedCell composite(const AccumCell& cell,
                           const Background& bg = kDefaultBackground) noexcept;
 
 // ---------------------------------------------------------------------------
+// Layered composite -- WU-12b, priority-tag opacity (architecture.md 4.7
+// phase 2's own phrase, "opaque with priority tag set"; section 13's own
+// "priority tag for forcing opacity"). DECISIONS.md ADR-028 sketches this
+// mechanism at WU-12a; ADR-029 freezes the name, signature and behaviour
+// below, once written and tested, per ADR-028's own closing note that this
+// was left for this unit to do.
+//
+// Not a k-buffer (ADR-009 unchanged, WU-28's own job): exactly two layers,
+// caller-ordered (lower, upper), no per-pixel depth sorting among more than
+// two surfaces. This is the narrowest thing that can honestly be called
+// "opaque with priority tag set" for a page-turn flap (upper) over a page
+// behind (lower) -- the only two-surface case WU-12a's own accept criterion
+// exercises.
+// ---------------------------------------------------------------------------
+
+// Combines two already-splatted AccumCell layers -- `lower` and `upper`, in
+// that caller-fixed order -- against `bg`, taking one of two branches
+// depending on whether `upperTag` equals the caller-configured `opaqueTag`.
+// Only `upper`'s tag is consulted; `lower`'s own tag (if a caller is
+// tracking one) plays no part in the decision -- see ADR-029.
+//
+// - upperTag == opaqueTag: architecture.md 4.7 phase 2's own
+//   "read-replace-write". `lower` is composited against `bg` first -- the
+//   "read" -- and `upper`'s own resolved colour is then composited over
+//   *that* result using upper's own alpha (`upper.w` clamped to
+//   [0, kWeightUnity], composite()'s own convention) -- the "write",
+//   replacing what was read. Implemented as two calls to composite() above
+//   (see resolve.cpp), not a hand-rolled blend: composite(lower, bg) IS the
+//   read, and its result, reinterpreted as a Background (both structs are
+//   the same three Sample fields), is exactly the surface the second
+//   composite() call needs to write onto. This also makes partial upper
+//   coverage fall out correctly with no extra branching: where upper.w is
+//   0, composite(upper, afterRead) returns afterRead unchanged (lower
+//   alone); where upper.w is at or above kWeightUnity, it returns upper's
+//   own resolved colour outright, independent of afterRead -- exactly
+//   HANDOFF.md's own "flap's own well-covered pixels resolve close to the
+//   flap's own colour" and "pixels with only page-behind coverage are
+//   unaffected".
+// - upperTag != opaqueTag: WU-12a's own accumulation-sums default
+//   (architecture.md 4.7 phase 1) -- `lower` and `upper` summed
+//   component-wise first (exact, I6: integer addition is associative, the
+//   same identity tests/test_pageturn.cpp's own
+//   test_pipeline_pageturn_transparent_accumulates_over_page_behind()
+//   already establishes), then composited once via composite() above.
+CompositedCell compositeLayered(const AccumCell& lower, const AccumCell& upper,
+                                 std::uint8_t upperTag, std::uint8_t opaqueTag,
+                                 const Background& bg = kDefaultBackground) noexcept;
+
+// ---------------------------------------------------------------------------
 // Pipeline orchestration -- WU-10; implemented in src/core/pipeline.cpp.
 //
 // architecture.md section 3's signal path, run for one whole frame,
