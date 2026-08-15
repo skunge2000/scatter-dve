@@ -3,285 +3,317 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 27
-**Tag:** `wu-20a-green` and `wu-20b-green` both confirmed to actually exist
-this session — verified directly against the real repository's own `git
-tag`/`git describe` (not trusted from session 26's own handoff account, which
-described both as uncertain/unconfirmed going in). `WORK-UNITS.md`'s WU-20a
-and WU-20b lines are corrected from `wip` to `green` accordingly. WU-21a
-(`runFrameBytes()`, the in-memory sibling of `runFrame()`/`runFrameFile()`)
-was built and genuinely verified in this session's own cloud sandbox, then
-built, tested, and tagged at Steve's own real terminal within the same
-session: `cmake --build build` clean, `ctest` green except the already-accepted
-`test_decklink_device` exception (ADR-035), `./tools/close.sh 21a` correctly
-refused to auto-tag over that exception, `git tag -a wu-21a-green ...` run
-manually per the standing ADR-035 convention, confirmed present on `git tag`.
-`WORK-UNITS.md`'s WU-21a line is now `green` (`wu-21a-green`) — the first
-unit this project has had a tag confirmed within the very session it was
-built, rather than at the start of the next one.
-**Phase:** 5 (Live capture) continues. WU-21 ("full loop through at 576i25")
-was scoped this session — real `Files:`/`Accept:` text, done only after the
-reading below, same discipline as every prior unit — and split into three
-pieces (WU-21a/b/c), the same "portable piece now, DeckLink-specific piece(s)
-next" shape ADR-046 already used for WU-20a/WU-20b. Only WU-21a (portable
-byte-conversion) was built this session. WU-21b (DeckLink capture-side pixel
-read, draining `CaptureFrameRing`) is sketched in `WORK-UNITS.md` but not
-built. WU-21c (continuous SDI re-output scheduling, closing the actual "full
-loop through" loop end to end) is named but not yet sketched in detail.
-`DECISIONS.md` now runs through ADR-048; `CORRECTIONS.md` still runs through
-C-016 — no new entry this session (see below for why).
+**Session:** 28
+**Tag:** `wu-21a-green` confirmed to actually exist this session — verified
+directly against the real repository's own `git tag`/`git log` (not trusted
+from session 27's own handoff account). `HEAD` sits at `0d2b004` ("WU-21a:
+mark green, tagged wu-21a-green (session 27 close)"), and that commit
+already includes `WORK-UNITS.md` and `HANDOFF.md` — the pair session 27's
+own `HANDOFF.md` flagged as possibly still uncommitted going into this
+session was in fact already committed; that uncertainty is resolved, not
+merely repeated. No new tag this session — the assistant does not tag;
+that remains Steve's own action at his own terminal, once WU-21b is built
+and tested there.
+**Phase:** 5 (Live capture) continues. WU-21b (DeckLink capture-side pixel
+read — `CaptureConsumer` draining WU-20b's own `CaptureFrameRing`,
+`StartAccess`/`GetBytes`/`EndAccess` against a retained
+`IDeckLinkVideoInputFrame`, feeding the mapped bytes into WU-21a's own
+`runFrameBytes()`) was scoped this session — real `Files:`/`Accept:` text,
+done only after the reading below — and built: `src/io/
+decklink_capture_consumer.hpp`/`.cpp` (new), `tests/
+test_decklink_capture_consumer.cpp` (new), `CMakeLists.txt` (extended).
+Reasoned through only, same shape as WU-14/WU-15a/WU-20b/WU-21a's own
+DeckLink-touching predecessors before it — this sandbox has neither the
+Blackmagic SDK nor an AppleClang/Xcode toolchain, so none of it is built or
+run here; UNVERIFIED until Steve's own real terminal builds, tests, and runs
+it against the Monitor 3G → Recorder 3G loopback. `WORK-UNITS.md`'s own
+WU-21b line moves from `todo` to `wip` (not `green` — the assistant does not
+run `close.sh` or tag). `DECISIONS.md` now runs through ADR-049;
+`CORRECTIONS.md` still runs through C-016 — no new entry this session (see
+below for why). WU-21c (continuous SDI re-output) remains named but not yet
+sketched in detail.
 
 ## This session in full
 
 **Reading, before anything else.** Per `SESSION-PROTOCOL.md`'s own reading
-table, in full: `HANDOFF.md` (session 26's), `INVARIANTS.md`, `DECISIONS.md`
-in full (through ADR-047 going in, including C-016's own lesson and the
-resulting Session-close/anti-drift rule 8 — explicitly treated as binding on
-this session too), `CORRECTIONS.md` (through C-016), `WORK-UNITS.md`.
+table, in full: `HANDOFF.md` (session 27's), `INVARIANTS.md`, `DECISIONS.md`
+in full through ADR-048 (not skimmed), `CORRECTIONS.md` through C-016,
+`WORK-UNITS.md` — including C-016's own lesson and the resulting
+Session-close/anti-drift rule 8, explicitly treated as binding on this
+session too.
 
-**Folder access and tag confirmation, before anything else.** Requested and
-received device-bridge access to both `~/src/scatter-dve` (the repo) and
-`~/src/Blackmagic DeckLink SDK 16.0` (the SDK); the SDK path resolved
-directly, no fallback needed. Then, per the explicit instruction not to trust
-`HANDOFF.md`'s own account of tag state: ran the real repository's own `git
-status`/`git tag`/`git log` via the device bridge (`tools/context.sh` was not
-used directly — `git` itself was queried instead, equivalent information).
-Result: working tree clean, `HEAD` at `524e48a`, both `wu-20a-green` and
-`wu-20b-green` present. `WORK-UNITS.md`'s own WU-20a/WU-20b lines corrected
-from `wip` to `green` to match.
+**Folder access and tag/commit-state confirmation, before anything else.**
+Requested and received device-bridge access to both `~/src/scatter-dve` (the
+repo) and `~/src/Blackmagic DeckLink SDK 16.0` (the SDK); the SDK path
+resolved directly, no fallback needed. Note for next session: the mounted
+paths as actually reachable from this session's own tools are
+`~/mnt/scatter-dve` and `~/mnt/Blackmagic DeckLink SDK 16.0` when using
+`device_bash` specifically (that tool's own `$HOME` differs from the
+`device_stage_files`/`device_commit_files` tools, which accept
+`~/src/scatter-dve` directly) — cost some early back-and-forth this session,
+worth remembering next time rather than rediscovering. Then, per the
+explicit instruction not to trust `HANDOFF.md`'s own account of tag/commit
+state: ran the real repository's own `git tag`/`git log --oneline -8`/`git
+status --short` directly via the device bridge. Result: `wu-21a-green`
+present, alongside every earlier tag through it; `HEAD` at `0d2b004`, which
+already carries `WORK-UNITS.md`/`HANDOFF.md`'s own WU-21a-green update — so
+the "possibly still uncommitted pair" session 27's own handoff flagged was
+in fact already committed before this session began. Working tree otherwise
+clean at that point (before this session's own new files were written).
+Also found: a stale, empty `.git/index.lock` sitting in the working tree,
+left over from an earlier full-form `git status` run via the device bridge
+earlier in this same session — `device_bash` cannot unlink files on a
+mounted folder, so git's own attempted write-then-remove of an
+index-refresh lock left the empty file behind. Read-only git commands
+(`status`, `log`, `tag`, `show`) all still worked fine with it present, but
+it should be removed before your own next `git commit` or `close.sh`, in
+case those are less tolerant of it — see "What to run at your terminal"
+below.
 
-**WU-21's own first job: re-reading the SDK again.** Per this project's own
-established practice for DeckLink work (ADR-031/032/046/047): re-read the
-real SDK's own `DeckLinkAPI.h` (`IDeckLinkVideoInputFrame`,
-`IDeckLinkVideoBuffer`, `StartAccess`/`EndAccess`, `GetBytes()`,
-`GetRowBytes()`, `BMDBufferAccessFlags`) and the three real capture samples
-(`CaptureStills`, `InputLoopThrough`, `CapturePreview`) again — not just
-ADR-047's own summary. Confirmed: `IDeckLinkVideoBuffer` is the same
-interface obtained via `QueryInterface` for both the read and write
-directions (the one `LoopedFramePlayback::fillFrameBuffer()`, WU-15a, ADR-032,
-already uses on the output side); the accessor is `GetRowBytes()`, not
-`GetBytesPerRow()`; and — the key finding — none of the three existing
-capture samples reads pixel bytes out of a retained frame via
-`IDeckLinkVideoBuffer` at all. Reading real pixel bytes out of a retained
-`IDeckLinkVideoInputFrame` is genuinely new ground for this project, matching
-the original task's own framing. Also reread `src/io/decklink_output.hpp`/
-`.cpp` (the write-direction pattern this unit's own eventual WU-21b half
-extends to input), `src/io/decklink_input.hpp`/`.cpp` (WU-20b, the ring this
-work drains), `src/core/ring_buffer.hpp` (WU-20a), and `docs/architecture.md`
-sections 3, 6, 7, 9, 12 plus ADR-037/039 (real target hardware unchanged:
-UltraStudio Recorder 3G for input, UltraStudio Monitor 3G for output).
+**WU-21b's own first job: re-reading the SDK and this project's own related
+code again.** Per this project's own established practice for DeckLink work
+(ADR-031/032/046/047/048): re-read the real SDK's own `DeckLinkAPI.h`
+directly (`IDeckLinkVideoBuffer`, `IDeckLinkVideoFrame`,
+`IDeckLinkVideoInputFrame`, `StartAccess`/`EndAccess`, `GetBytes()`,
+`GetRowBytes()`) — confirmed unchanged from ADR-032/048's own account, the
+same interface obtained via `QueryInterface` both directions. Also reread
+`src/io/decklink_output.hpp`/`.cpp` (`LoopedFramePlayback::
+fillFrameBuffer()`, the write-direction pattern this unit mirrors),
+`src/io/decklink_input.hpp`/`.cpp` (WU-20b, the `CaptureSource`/
+`CaptureFrameRing` this unit drains), `src/core/ring_buffer.hpp` (WU-20a,
+confirming `tryPop()` has no blocking form), `src/core/resolve.hpp`'s
+`runFrameBytes()` declaration and `PipelineParams` (WU-21a), and
+`docs/architecture.md` sections 3, 6, 7, 9, 12 plus ADR-037/039. The three
+real capture samples (`CaptureStills`, `InputLoopThrough`, `CapturePreview`)
+were re-consulted via the extensive prior cross-referencing already recorded
+in ADR-046/047/048 rather than reread line by line a second time this
+session — no new finding beyond what those entries already recorded from
+them.
 
-**The split decision.** WU-21's full ambition ("full loop through at
-576i25") does not fit one session's own 3-file/~400-line cap, and — more
-importantly — does not fit this sandbox's own verification ability in one
-piece: draining `CaptureFrameRing` and reading bytes out of a retained
-`IDeckLinkVideoInputFrame` is DeckLink-only surface this sandbox cannot
-compile or run, exactly the same shape that has forced every other
-DeckLink-touching split in this project (WU-12a/b, WU-15a/b, WU-16a/b,
-WU-19a/b, WU-20a/b). Split into three: WU-21a (portable byte-conversion,
-`runFrameBytes()` — no DeckLink dependency at all, buildable and genuinely
-testable here), WU-21b (DeckLink capture-side pixel read/ring-drain,
-DeckLink-only, next session's own job), WU-21c (continuous SDI re-output
-scheduling, closing the loop end to end, later still). Only WU-21a was built
-this session. See `DECISIONS.md` ADR-048 for the full reasoning.
+**The four questions ADR-048 left open, decided.** Consumer-thread
+ownership/lifetime is fully independent of `CaptureSource`'s own (the two
+objects share only the ring). Extracted bytes are handed to
+`runFrameBytes()` synchronously, still inside the `StartAccess`/`EndAccess`
+bracket — no pool buffer. The ring's own drain policy while empty is a short
+(1ms) poll sleep, since `RingBuffer` has no blocking pop and this consumer
+thread, unlike the driver's own callback thread, is free to wait. A
+captured frame's own reported `GetWidth()`/`GetHeight()`/`GetRowBytes()` are
+trusted directly, per frame, never checked against the display mode
+`CaptureSource::create()` was given; destination geometry is instead fixed
+once, at construction, via `PipelineParams::destWidth`/`destHeight`. Full
+reasoning in `DECISIONS.md` ADR-049 and, duplicated in substance, in
+`src/io/decklink_capture_consumer.hpp`'s own header comment.
 
-**WU-21a itself.** `src/core/resolve.hpp`/`src/core/pipeline.cpp` (both
-extended): new `runFrameBytes()`, the in-memory sibling of `runFrame()`
-(raster-to-raster) and `runFrameFile()` (file-to-file) — takes packed v210
-bytes plus row strides in memory, unpacks, upsamples chroma, calls the
-existing `runFrame()`, downsamples chroma, packs back to v210 bytes in
-memory. This exists because a captured frame's own pixel bytes live inside a
-DeckLink-owned buffer for the duration of one `StartAccess`/`EndAccess`
-bracket, never as a file on disk — so `runFrameFile()`'s own file-to-file
-path cannot be the route from a captured frame into this project's own warp
-pipeline; WU-21b will need exactly this entry point. Deliberately does
-**not** refactor `runFrameFile()` to call `runFrameBytes()` internally (the
-two remain independently written) — per this project's own "never
-rename/refactor across module boundaries mid-unit" discipline, and because
-`runFrameFile()` is untouched, already-verified WU-14/WU-16 code with no
-reason to risk it for a refactor this unit's own `Accept:` does not need.
-`tests/test_pipeline_bytes.cpp` (new): two checks, both run for real —
-`runFrameBytes()` matches `runFrameFile()`'s own output exactly for a
-genuine off-centre affine warp (0.7x compression over a zone plate, not the
-identity map's degenerate case); `runFrameBytes()` itself satisfies I7
-(identity map round-trips bit-exactly) against flat-chroma content, the same
-foundational property `test_zoneplate.cpp`'s own `testI7Pattern()` already
-established for `runFrameFile()`. `CMakeLists.txt`: `test_pipeline_bytes`
-registered via the existing `scatter_test()` function.
+**WU-21b itself.** `src/io/decklink_capture_consumer.hpp`/`.cpp` (new):
+`CaptureConsumerStats` (`framesPopped`/`framesProcessed`/`framesFailed`,
+atomic) and `CaptureConsumer` — constructed from a caller-owned
+`CaptureFrameRing&`, a `Lattice` and a `PipelineParams` (both copied in);
+`start()`/`stop()` mirror `CaptureSource`/`LoopedFramePlayback`'s own
+`compare_exchange_strong` idiom; `run()` polls the ring on a private thread;
+`processOne()` checks the pixel format defensively, reads width/height/row
+bytes off the frame with explicit casts (SDK returns `long`, this project's
+`-Wconversion -Wsign-conversion -Werror` needs the cast), obtains
+`IDeckLinkVideoBuffer` via `QueryInterface`, brackets `GetBytes()` with
+`StartAccess`/`EndAccess`, calls `scatter::runFrameBytes()` inside that
+bracket, and stores the result into `m_latestFrame` under a mutex only on
+full success; `copyLatestFrame()` retrieves it. `tests/
+test_decklink_capture_consumer.cpp` (new): mirrors `test_decklink_input.cpp`'s
+own style — device enumeration, `CaptureSource::create()` at `bmdModePAL`, a
+`CaptureConsumer` built against a locally-duplicated identity lattice, a
+bounded 5-second run, then two accounting-invariant checks that hold
+unconditionally, and a NOTE-not-fail path if zero frames were processed
+(nothing physically connected). `CMakeLists.txt`: `decklink_capture_consumer
+.cpp` added to `scatter-decklink`'s own source list; new
+`target_link_libraries(scatter-decklink PRIVATE scatter-core)` — the first
+time that library has needed one, since this is the first
+`scatter-decklink` file calling into `scatter-core`; a new
+`test_decklink_capture_consumer` executable registered, linking both
+libraries, the same dual-link pattern `test_decklink_output` already uses.
 
-**One test bug caught and fixed within this same session, before any claim
-was made** (not logged in `CORRECTIONS.md` — see below): the I7 check first
-used `testpat::makeRamp()` and failed (`CHECK(dstBytes == srcBytes)`), because
-`CORRECTIONS.md` C-006 already establishes that a ramp's own non-flat chroma
-does not survive `chroma::upsampleImage()`/`downsampleImage()` unchanged,
-regardless of the lattice — true for the identity map too. Fixed by switching
-to `testpat::makeZonePlate()` (flat chroma), matching `test_zoneplate.cpp`'s
-own `chromaExpectedExact=true` convention. Also fixed one genuine compile
-error during the same editing pass: `video::v210::unpackImage`/`packImage`
-(wrong — `pipeline.cpp` is in `namespace scatter` directly, and `v210` is a
-sibling of `video`, not nested under it) corrected to unqualified
-`v210::unpackImage`/`v210::packImage`, matching the file's own existing
-pattern for `video::readV210File`/`chroma::upsampleImage`.
+**One gap caught and fixed within this same session, before any claim was
+made** (not logged in `CORRECTIONS.md` — see below): this session's own
+first `CMakeLists.txt` edit added the new library source and the new
+`target_link_libraries` line, but omitted the new test's own
+`add_executable`/`target_link_libraries`/`target_include_directories`/
+`add_test` block entirely. Found by rereading the file straight back from
+the real repository after the first delivery — the anti-drift rule 8
+re-read step this project already requires — and comparing it against the
+neighbouring `test_decklink_input` block; not by any build, since this
+sandbox cannot build DeckLink code at all. Fixed and re-delivered before
+this handoff was written.
 
-**Verification.** GCC 13.3.0 and Clang 18.1.3, Release and Debug, at
-`SCATTER_TILE_LOG2` 4 and 5 (8 configurations total) — all 19 project tests
-green in every configuration. Plus GCC 13 and Clang 18 both with
-`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile sizes —
-clean, no ASan or UBSan report. TSan not run — this unit introduces no new
-concurrency, unlike WU-20a. This unit touches no DeckLink or Apple-only
-surface at all — unlike WU-14/WU-15a/WU-20b, there is no piece of it this
-sandbox could not already fully verify for real.
+**Verification: none possible in this sandbox, by design.** Unlike WU-21a
+(portable, fully built and tested here), WU-21b touches only DeckLink-only
+surface — this Linux cloud sandbox has neither the Blackmagic SDK nor an
+AppleClang/Xcode toolchain, so nothing here has been compiled or run. Every
+file was, however, written to the real repository via the device bridge and
+re-read back from there — twice, for `CMakeLists.txt`, once the gap above
+was found — to confirm each write landed byte-for-byte, per
+`SESSION-PROTOCOL.md`'s own anti-drift rule 8 (C-016's own lesson, applied
+here exactly as it was meant to be): nothing in this handoff is asserted
+from a write call returning without error alone.
 
-**Corrections this session:** none. The chroma-test and namespace-
-qualification bugs above were both caught and fixed within the same editing
-pass, before any claim of "done" was made to anyone — matching the C-015/
-ADR-043 precedent that routine self-caught iteration during genuine
-build/test execution is not a `CORRECTIONS.md`-worthy event; a correction
-entry is for something that was claimed fixed/delivered and then found
-wrong. Nothing here was ever claimed working before it actually was.
+**Corrections this session:** none. The `CMakeLists.txt` gap above was
+caught and fixed within the same session, before any claim of "delivered"
+was made to Steve — matching the C-015/ADR-043 precedent that self-caught
+iteration during the anti-drift re-read step is not a `CORRECTIONS.md`-worthy
+event; a correction entry is for something claimed working and then found
+wrong. Nothing here was ever claimed working before it was actually
+delivered and confirmed.
 
 ## Where we are
 
-**Phase 5 (Live capture) continues.** WU-20a and WU-20b both confirmed
-`green` and tagged (verified directly against the real repository this
-session). WU-21a (`runFrameBytes()`) is implemented, genuinely verified in
-this session's own cloud sandbox (full 8-configuration matrix plus
-ASan/UBSan, all clean), and — within this same session — also built,
-tested, and tagged at Steve's own real terminal: `cmake --build build`
-clean, `ctest` green (`test_pipeline_bytes` passing, only the already-accepted
-`test_decklink_device`/ADR-035 exception failing), `./tools/close.sh 21a`
-correctly declined to auto-tag over that exception, `git tag -a
-wu-21a-green ...` run manually per the standing ADR-035 convention, and
-confirmed present on `git tag` alongside `wu-20a-green`/`wu-20b-green`.
-`WORK-UNITS.md`'s WU-21a line is now `green` (`wu-21a-green`). WU-21b
-(DeckLink capture-side pixel read) is sketched in `WORK-UNITS.md`, not
-built. `DECISIONS.md` now runs through ADR-048; `CORRECTIONS.md` unchanged
+**Phase 5 (Live capture) continues.** WU-21a remains `green`
+(`wu-21a-green`), confirmed directly against the real repository this
+session. WU-21b (`CaptureConsumer`) is implemented and delivered to the real
+repository, re-read to confirm, but entirely UNVERIFIED — reasoned through
+only, no build or run anywhere yet. `WORK-UNITS.md`'s WU-21b line is now
+`wip`. `DECISIONS.md` runs through ADR-049; `CORRECTIONS.md` unchanged
 through C-016.
 
-**Delivery mechanics:** all files below were written to the real repository
-via the device bridge this session and re-read back from there to confirm
-the write landed correctly, per `SESSION-PROTOCOL.md`'s own anti-drift rule
-8 (C-016's own lesson, explicitly applied here) — nothing in this handoff is
-asserted from the write call returning without error alone. Steve committed,
-built, tested, closed, and tagged at his own terminal within this same
-session (one stale `.git/index.lock` from an unrelated earlier process was
-hit and cleared before the commit — not a device-bridge write this time,
-since git commands are never run via the bridge). This `WORK-UNITS.md`'s
-own WU-21a status-line update (to `green`) is itself being written back to
-the real repository and re-read to confirm before this session closes — see
-the end of this file.
+**Delivery mechanics:** all four changed/new files (`src/io/
+decklink_capture_consumer.hpp`, `src/io/decklink_capture_consumer.cpp`,
+`tests/test_decklink_capture_consumer.cpp`, `CMakeLists.txt`) were written
+to the real repository via the device bridge this session and re-read back
+from there to confirm the write landed correctly, per `SESSION-PROTOCOL.md`'s
+own anti-drift rule 8 — `CMakeLists.txt` twice, since the first delivery was
+found (on re-read) to be missing the new test's own build-target block, and
+was corrected and redelivered before this handoff was written. `DECISIONS.md`
+and `WORK-UNITS.md` themselves are being written back to the real repository
+the same way as this session closes — see the end of this file. Nothing in
+this handoff is asserted from a write call returning without error alone.
 
 ## Next work unit
 
-**WU-21b — DeckLink capture-side pixel read.** `todo`, sketched in
-`WORK-UNITS.md` (matching the style ADR-046 used to sketch WU-20b before it
-was built). Its own first job: drain WU-20b's own `CaptureFrameRing`
-(`src/io/decklink_input.hpp`) on a consumer thread, obtain
-`IDeckLinkVideoBuffer` via `QueryInterface` on a retained
-`IDeckLinkVideoInputFrame`, bracket `GetBytes()` with `StartAccess`/
-`EndAccess`, and feed the resulting bytes/`GetRowBytes()` into WU-21a's own
-new `runFrameBytes()`. `DECISIONS.md` ADR-048 names the open questions this
-sketch deliberately leaves undecided: consumer-thread ownership/lifetime
-against `CaptureSource::stop()`; whether extracted bytes get copied into a
-pool buffer or handed to `runFrameBytes()` while still inside the
-`StartAccess`/`EndAccess` bracket; genlock/clock-domain drift (still open
-since ADR-037/047); whether `kCaptureRingCapacity=8` matches real observed
-buffering depth once there is a real consumer to measure against. Real
-`Files:`/`Accept:` scoping is that session's own first job, same as every
-unit in this project. WU-21c (continuous SDI re-output scheduling) follows
-WU-21b, later still — not yet sketched in detail.
+**Immediate: nothing code-side — this is a build/test/tag session at your
+own terminal.** WU-21b needs `cmake --build build`, `ctest --test-dir build
+--output-on-failure` (expect `test_decklink_capture_consumer` to appear
+alongside the existing suite; `test_decklink_device`'s own `foundDuplexDevice`
+failure remains the already-accepted ADR-035 exception, unrelated), and —
+with the Monitor 3G → Recorder 3G SDI loopback connected — a run of
+`test_decklink_capture_consumer` itself to see whether `framesProcessed` is
+actually nonzero and, if so, whether `copyLatestFrame()`'s returned size
+matches expectation. Remove the stale `.git/index.lock` first (see below).
+If it builds and passes clean, `./tools/close.sh 21b` (or the manual
+`git tag -a wu-21b-green ...` step, if `close.sh` declines for any
+ADR-035-shaped reason) is yours to run — the assistant does not do this.
+
+**After WU-21b closes: WU-21c — continuous SDI re-output**, closing the
+actual "full loop through at 576i25" loop end to end (scheduling a
+live-produced frame stream onto `IDeckLinkOutput`, a materially different
+mechanism from `LoopedFramePlayback`'s own "loop one static frame forever"
+design). Not yet sketched in detail — that scoping is that session's own
+first job, same discipline as every unit in this project.
 
 Once WU-21 (all of a/b/c) closes, Phase 5's own remaining unit is WU-22
 (diagnostic coverage view), `todo`, unscoped.
 
 ## Open questions
 
-Unchanged from session 26: Q3 (macOS/Desktop Video version), Q4 (lattice edge
-damping, C-008(a)) remain open. Q2 remains moot per ADR-037. ADR-037's own
-follow-up #2 (genlock) remains open — WU-21a's own code does not touch it (a
-portable byte-conversion function has no clock domain); still squarely
-WU-21b/c's own concern once a real capture/output pair actually runs
-concurrently. Follow-up #1 (`test_decklink_device.cpp`'s full-duplex check)
-remains the known, accepted ADR-035 exception, unrelated to Phase 5's own new
-work. WU-20b's own `stopFromCallback()` safety question (named in ADR-047,
-still open) is unchanged this session — WU-21a's own code does not touch it
-either.
+Unchanged in substance from session 27, plus one new item this session named
+explicitly (not resolved): `kCaptureRingCapacity`'s own chosen value of 8
+(WU-20a/20b, ADR-046) is still not measured against real observed buffering
+depth — WU-21b's own test reports the counters needed to make that
+comparison, but this session does not run the test, so does not make it.
+Q3 (macOS/Desktop Video version), Q4 (lattice edge damping, C-008(a)) remain
+open. Q2 remains moot per ADR-037. ADR-037's own genlock follow-up (#2,
+capture/output clock-domain drift) remains open — `CaptureConsumer`
+processes one already-arrived frame's worth of bytes at a time and has no
+clock-domain behaviour of its own; squarely WU-21c's own concern once a real
+capture/output pair actually runs concurrently. Follow-up #1
+(`test_decklink_device.cpp`'s full-duplex check) remains the known, accepted
+ADR-035 exception. WU-20b's own `stopFromCallback()` safety question
+(ADR-047) is unchanged this session.
 
 ## Blocked / red
 
-Nothing red. WU-21a is fully closed — genuinely verified in this session's
-own cloud sandbox (8-configuration matrix + ASan/UBSan, all green) and,
-within the same session, built, tested, closed, and tagged (`wu-21a-green`)
-at Steve's own real terminal.
+Nothing red. WU-21b is `wip`, reasoned through and delivered, awaiting
+Steve's own real-terminal build/test/tag — expected, not a blocker, the same
+state WU-14/WU-15a/WU-20b were each in at this same point in their own
+sessions.
 
 ## Environment check
 
-Unchanged from sessions 18-26 (ADR-037/039): **UltraStudio Monitor 3G**
+Unchanged from sessions 18-27 (ADR-037/039): **UltraStudio Monitor 3G**
 remains the active, confirmed output target. **UltraStudio Recorder 3G**
-remains the confirmed input target, exercised for real by WU-20b. **UltraStudio
-4K Mini** remains on hold pending a PSU replacement. WU-21a's own `Accept:`
-needs nothing physical at all — it is pure portable code; the physical Monitor
-3G → Recorder 3G SDI loopback cable from WU-20b's own `Accept:` will be
-needed again once WU-21b is built and its own hardware-gated test runs.
+remains the confirmed input target, exercised for real by WU-20b.
+**UltraStudio 4K Mini** remains on hold pending a PSU replacement. WU-21b's
+own `Accept:` needs the same Monitor 3G → Recorder 3G SDI loopback cable
+WU-20b's own `Accept:` already used — no new physical setup.
 
 ## Append to DECISIONS.md
 
-ADR-048 (tag-state confirmation; the SDK re-read findings, including that no
-existing capture sample reads pixel bytes via `IDeckLinkVideoBuffer`; the
-WU-21a/WU-21b/WU-21c split rationale; `runFrameBytes()`'s own design and why
-`runFrameFile()` was deliberately not refactored to call it; the test file
-and its own two checks; the full verification matrix results; the two bugs
-caught and fixed within-session; the "not decided here" list for WU-21b) was
-appended in full this session; see `DECISIONS.md`. ADR-048 does not reopen
-`docs/architecture.md`, ADR-010, ADR-021, ADR-026, ADR-031, ADR-032, ADR-038,
-ADR-040, ADR-041, ADR-046 or ADR-047 — see its own closing paragraph.
+ADR-049 (tag/commit-state confirmation, including that the WU-21a
+`WORK-UNITS.md`/`HANDOFF.md` pair was already committed going in; the
+`.git/index.lock` finding; the SDK/code re-read findings; the four ADR-048
+open questions resolved for WU-21b; `CaptureConsumer`'s full design; the
+test file; the `CMakeLists.txt` changes including the one gap caught and
+fixed within-session; the "not decided here" list for WU-21c/genlock/ring
+capacity) was appended in full this session; see `DECISIONS.md`. ADR-049
+does not reopen `docs/architecture.md`, ADR-026, ADR-031, ADR-032, ADR-037,
+ADR-039, ADR-046, ADR-047 or ADR-048 — see its own closing paragraph.
 
 ## Append to CORRECTIONS.md
 
-None this session. The two bugs found while building WU-21a (a chroma-plane
-test-pattern choice and a namespace-qualification compile error) were both
-caught and fixed within the same editing pass, before either was ever
-claimed working — see `DECISIONS.md` ADR-048's own account, and the C-015/
-ADR-043 precedent this follows.
+None this session. The one bug found while building WU-21b (a `CMakeLists.txt`
+edit missing the new test's own build-target block) was caught and fixed
+within the same session, before it was ever claimed delivered — see
+`DECISIONS.md` ADR-049's own account, and the C-015/ADR-043 precedent this
+follows.
 
 ---
 
 ## What to run at your terminal
 
-Already done this session, in full, at your own terminal:
+**First, clear the stale lock** (confirm no real git process is running
+first):
 
 ```
 cd ~/src/scatter-dve
-rm -f .git/index.lock   # stale lock from an unrelated earlier process, confirmed no real git process was running first
-git add src/core/resolve.hpp src/core/pipeline.cpp \
-        tests/test_pipeline_bytes.cpp CMakeLists.txt \
-        DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-21a: runFrameBytes(), the in-memory sibling of runFrame()/runFrameFile() -- ADR-048; WU-20a/WU-20b confirmed green"
-# -> 502dd8c, 7 files changed, 850 insertions(+), 238 deletions(-)
+rm -f .git/index.lock
+```
 
+**Then commit this session's own new/changed files:**
+
+```
+git add src/io/decklink_capture_consumer.hpp src/io/decklink_capture_consumer.cpp \
+        tests/test_decklink_capture_consumer.cpp CMakeLists.txt \
+        DECISIONS.md WORK-UNITS.md HANDOFF.md
+git commit -m "WU-21b: CaptureConsumer, DeckLink capture-side pixel read -- ADR-049, reasoned through only, unbuilt in the sandbox"
+```
+
+**Then build and test:**
+
+```
 cmake --build build
 ctest --test-dir build --output-on-failure
-# -> 96% tests passed, 1 failed (test_decklink_device / foundDuplexDevice,
-#    ADR-035's own already-accepted exception); test_pipeline_bytes passing
-
-./tools/close.sh 21a
-# -> TESTS FAILED (the same accepted exception) -- close.sh correctly
-#    declined to auto-tag, per its own no-exceptions design
-
-git tag -a wu-21a-green -m "WU-21a: runFrameBytes(), verified byte-identical to runFrameFile() for a genuine warp and I7-exact for flat chroma"
-git tag
-# -> wu-21a-green present, alongside wu-20a-green and wu-20b-green
+# expect: test_decklink_capture_consumer present and run; only the
+# already-accepted test_decklink_device/foundDuplexDevice exception (ADR-035)
+# should fail, same as every session since it was accepted
 ```
 
-Nothing outstanding from this session. `WORK-UNITS.md`'s WU-21a status line
-has been updated to `green` (`wu-21a-green`) to match and is being written
-back to the real repository as this handoff closes — you do not need to
-commit that update by hand; it will show as an uncommitted change to
-`WORK-UNITS.md` (and this `HANDOFF.md`) next time you look, same as every
-other session's own closing pair of files. A short commit for those two
-alone next session (or now, your call) is the only loose end:
+**With the Monitor 3G -> Recorder 3G SDI loopback connected**, rerun (or
+just read the same `ctest` output above) and check
+`test_decklink_capture_consumer`'s own stderr line
+(`framesArrived=... framesPushed=... framesPopped=... framesProcessed=...
+framesFailed=...`) — with the loopback connected, `framesProcessed` should
+be nonzero; without it, the NOTE line explains that zero is expected, not a
+defect.
+
+**If everything above is clean:**
 
 ```
-git add WORK-UNITS.md HANDOFF.md
-git commit -m "WU-21a: mark green, tagged wu-21a-green (session 27 close)"
+./tools/close.sh 21b
+# -> if it tags automatically, note the tag name here for next session's
+#    own "before anything else" tag check
 ```
+
+If `close.sh` declines for any reason (an unexpected failing test, an
+ADR-035-shaped exception it doesn't know how to except), the manual
+`git tag -a wu-21b-green -m "..."` step every unit since ADR-035 has used is
+yours to run instead — same as WU-21a's own close last session.
+
+Nothing else outstanding from this session. `WORK-UNITS.md`'s WU-21b status
+line is `wip`, not `green` — this handoff does not claim it built or ran
+anywhere; that confirmation is entirely yours to produce at your own
+terminal, and this file will need a further update once you have.

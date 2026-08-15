@@ -325,12 +325,24 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
         src/io/decklink_device.cpp
         src/io/decklink_output.cpp
         src/io/decklink_input.cpp
+        src/io/decklink_capture_consumer.cpp
         "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp")
     target_include_directories(scatter-decklink PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         "${BLACKMAGIC_SDK_DIR}/Mac/include")
     target_compile_features(scatter-decklink PUBLIC cxx_std_20)
     target_link_libraries(scatter-decklink PUBLIC "-framework CoreFoundation")
+    # WU-21b — decklink_capture_consumer.cpp is the first scatter-decklink
+    # file that calls into scatter-core (runFrameBytes(), core/resolve.hpp)
+    # rather than only the DeckLink SDK; scatter-decklink did not need this
+    # dependency through WU-20b. PRIVATE: scatter-core is an implementation
+    # detail of this one new file, not part of scatter-decklink's own
+    # existing public surface (decklink_device.hpp/decklink_output.hpp/
+    # decklink_input.hpp include no core/ header) — targets below that need
+    # scatter-core themselves (test_decklink_capture_consumer) link it
+    # explicitly too, the same dual-link pattern test_decklink_output
+    # already uses.
+    target_link_libraries(scatter-decklink PRIVATE scatter-core)
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(scatter-decklink PUBLIC
@@ -380,7 +392,20 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_input PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_input COMMAND test_decklink_input)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output and test_decklink_input configured")
+    # WU-21b — test_decklink_capture_consumer.cpp exercises both
+    # scatter-decklink (CaptureSource, CaptureConsumer, device enumeration)
+    # and scatter-core (runFrameBytes(), Lattice) — the first capture-side
+    # test needing scatter-core, the same reason decklink_capture_consumer.cpp
+    # itself now links scatter-core above. Only tests/ is needed on the
+    # include path (unlike test_decklink_output, this test builds its own
+    # identity lattice in-line and does not use tools/testpat). See
+    # DECISIONS.md ADR-048/ADR-049.
+    add_executable(test_decklink_capture_consumer tests/test_decklink_capture_consumer.cpp)
+    target_link_libraries(test_decklink_capture_consumer PRIVATE scatter-decklink scatter-core)
+    target_include_directories(test_decklink_capture_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME test_decklink_capture_consumer COMMAND test_decklink_capture_consumer)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input and test_decklink_capture_consumer configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()

@@ -4182,3 +4182,215 @@ second follow-up (capture/output clock-domain drift) are both untouched --
 has no timing or clock-domain behaviour of its own to reason about, the same
 "naming a device does not require reasoning about its clock domain" logic
 ADR-039 already used for a different piece of this same phase.
+
+**ADR-049 — WU-21b: DeckLink capture-side pixel read (`CaptureConsumer`,
+`src/io/decklink_capture_consumer.hpp`/`.cpp`). Reasoned-through scope only,
+same shape as WU-14/WU-15a/WU-20b/WU-21a's own DeckLink-touching
+predecessors before it -- drafted and written via the device bridge with no
+Blackmagic SDK and no AppleClang/Xcode toolchain available in this session's
+own Linux cloud sandbox to check it against. UNVERIFIED as of this session's
+own close; needs building and running at the real terminal, with the Monitor
+3G → Recorder 3G SDI loopback connected (the same physical setup
+`test_decklink_input.cpp`'s own header comment already documents), before
+this unit can go `green`.**
+
+**Tag state and delivery-pair state, confirmed before anything else, per
+this session's own brief.** `git tag`/`git log`/`git status` run directly
+against the real repository via the device bridge (not trusted from
+`HANDOFF.md`'s own account) confirm `wu-21a-green` genuinely exists, `HEAD`
+sits at `0d2b004` ("WU-21a: mark green, tagged wu-21a-green (session 27
+close)"), and that commit already includes `WORK-UNITS.md` and `HANDOFF.md`
+-- the pair session 27's own `HANDOFF.md` flagged as still-uncommitted going
+into this session was in fact committed before this session started,
+resolving that uncertainty rather than confirming it. The working tree was
+otherwise clean before this session's own writes. One stale
+`.git/index.lock` (0 bytes) was found sitting in the working tree,
+left behind by an earlier full-form `git status` run via the device
+bridge in this same session -- `device_bash` cannot unlink files on a
+mounted folder, so git's own attempt to write-then-remove an
+index-refresh lock left the empty lock file in place. Read-only git
+commands (`status`, `log`, `tag`, `show`) are confirmed unaffected by its
+presence, but it should be removed (`rm ~/src/scatter-dve/.git/index.lock`,
+after confirming no real git process is running) before Steve's own next
+`git commit` or `close.sh` run, in case those are less tolerant of it. See
+`HANDOFF.md` for the same note.
+
+**Reading, before scoping, per this project's own established discipline for
+a new hardware surface (ADR-031's own precedent, reused by
+ADR-046/047/048).** Re-read the real SDK's own `DeckLinkAPI.h` directly this
+session (not merely ADR-048's own summary of it): `IDeckLinkVideoBuffer`
+(`GetBytes`, `GetSize`, `StartAccess`, `EndAccess`) is confirmed unchanged
+from ADR-032/048's own account of it and is the same interface, obtained via
+`QueryInterface`, this unit now reads through for the first time rather than
+merely names; `IDeckLinkVideoFrame` (`GetWidth`, `GetHeight`, `GetRowBytes`,
+`GetPixelFormat`, `GetFlags`, `GetTimecode`, `GetAncillaryData` -- the first
+three all returning `long`) and `IDeckLinkVideoInputFrame : public
+IDeckLinkVideoFrame` (adding only `GetStreamTime`/`GetHardwareReferenceTimestamp`)
+both read exactly as ADR-046/048 already recorded. Also reread
+`src/io/decklink_output.hpp`/`.cpp` (`LoopedFramePlayback::fillFrameBuffer()`,
+the write-direction pattern this unit mirrors), `src/io/decklink_input.hpp`/
+`.cpp` (WU-20b, the `CaptureSource`/`CaptureFrameRing` this unit drains),
+`src/core/ring_buffer.hpp` (WU-20a, confirming `tryPop()` has no blocking
+form), `src/core/resolve.hpp`'s `runFrameBytes()` declaration and
+`PipelineParams` (WU-21a), and `docs/architecture.md` sections 3, 6, 7, 9, 12
+plus ADR-037/039 -- real target hardware unchanged (UltraStudio Recorder 3G
+for input, UltraStudio Monitor 3G for output, UltraStudio 4K Mini still on
+hold).
+
+**The four questions ADR-048 explicitly left open for this unit, decided
+now** (the same reasoning is duplicated, word for word in substance, in
+`src/io/decklink_capture_consumer.hpp`'s own header comment). Consumer-thread
+ownership and lifetime are fully independent of `CaptureSource`'s own: the
+two objects share only the `CaptureFrameRing` between them, the same "caller
+owns the ring, both sides just reference it" shape WU-20a already
+established for the producer side, so starting or stopping a
+`CaptureConsumer` neither starts nor stops the `CaptureSource` feeding it,
+and a caller wanting a clean shutdown stops both itself, in whichever order
+it prefers -- a frame still sitting in the ring when this consumer stops is
+simply abandoned, its `ComPtr` releasing the retained reference normally,
+the same "no leak either way" property WU-20b's own
+`VideoInputFrameArrived()` comment already relies on for a failed
+`tryPush()`. Extracted bytes are handed to `runFrameBytes()` synchronously,
+while still inside the `StartAccess`/`EndAccess` bracket, never copied into
+a separate pool buffer first -- a captured frame's own buffer contents are
+only guaranteed valid between those two calls (the same requirement
+`fillFrameBuffer()` already honours on the write side), `runFrameBytes()`
+itself is synchronous and retains nothing past its own call, so calling it
+directly against the mapped pointer is both correct and needs no pool
+buffer this unit would otherwise have to invent and size. The ring's own
+drain policy while empty is a short (1ms) poll sleep: `RingBuffer` (WU-20a,
+frozen) offers no blocking pop, `tryPop()`'s own "never blocks" contract
+exists for the producer/callback thread's sake (architecture.md 6), and this
+consumer thread is not that thread and is free to wait, so a short sleep
+avoids spinning a full core without needing a new blocking-pop capability on
+an already-frozen class. A captured frame's own reported
+`GetWidth()`/`GetHeight()`/`GetRowBytes()` are trusted directly, per frame,
+never checked against the display mode `CaptureSource::create()` was given
+-- the same "ask the SDK, do not assume this project's own computation
+agrees with it" rule architecture.md 7 already states for row bytes,
+extended here to width/height for the same reason, and a genuinely
+different geometry after a format-change restart (`VideoInputFormatChanged()`)
+is exactly the kind of thing a new frame could legitimately report, so
+trusting it directly needs no separate consistency check to stay correct;
+destination geometry is fixed once, at this consumer's own construction
+(`PipelineParams::destWidth`/`destHeight`), the same "geometry fixed for the
+object's own lifetime" shape `LoopedFramePlayback` already uses for its own
+`m_width`/`m_height` on the output side.
+
+**Design.** `src/io/decklink_capture_consumer.hpp`/`.cpp` (new):
+`CaptureConsumerStats` (three `std::atomic<int>` counters --
+`framesPopped`, `framesProcessed`, `framesFailed` -- same relaxed-read
+convention every other stats struct in this project already uses) and
+`CaptureConsumer`, constructed from a caller-owned `CaptureFrameRing&`, a
+`Lattice` (copied in, not referenced -- the consumer thread reads it on
+every popped frame for as long as it runs), and a `PipelineParams` (copied
+in, fixing destination geometry for the object's own lifetime). `start()`/
+`stop()` use the same `compare_exchange_strong` idiom
+`CaptureSource::stop()`/`LoopedFramePlayback::stop()` already use, safe to
+call at most once each; the destructor calls `stop()`, safe even if
+`start()` was never called. `run()` is the consumer thread body: while not
+stopping, `tryPop()` the ring, sleep 1ms and continue if empty, otherwise
+count the pop and call `processOne()`, counting the result as processed or
+failed, never both, never neither. `processOne()` checks
+`GetPixelFormat() == bmdFormat10BitYUV` defensively (`CaptureSource` only
+ever requests that format, per `decklink_input.hpp`'s own class comment, so
+this is "ask rather than assume" caution, not an expectation of ever seeing
+anything else), reads width/height/row-bytes directly off the frame with
+explicit `int`/`std::ptrdiff_t` casts (the SDK returns `long` for all three;
+this project's own `-Wconversion -Wsign-conversion -Werror` build requires
+the explicit cast, the same convention used throughout this codebase),
+obtains `IDeckLinkVideoBuffer` via `ComPtr`'s `QueryInterface`-converting
+constructor, brackets `GetBytes()` with `StartAccess(bmdBufferAccessRead)`/
+`EndAccess(bmdBufferAccessRead)`, calls `scatter::runFrameBytes()` against
+the mapped pointer while still inside that bracket, and -- only on full
+success -- moves the resulting destination bytes into `m_latestFrame` under
+`m_mutex`. `copyLatestFrame()` copies the most recently successfully
+produced frame's own bytes out under the same lock, returning `false` and
+leaving `out` unchanged if nothing has been produced yet -- the mechanism
+this unit's own test and any future WU-21c caller alike use to retrieve
+output; this unit does not itself reschedule those bytes onto
+`IDeckLinkOutput` (WU-21c's own job, a materially different mechanism from
+`LoopedFramePlayback`'s own "loop one static frame forever" design, not
+built here).
+
+`tests/test_decklink_capture_consumer.cpp` (new): mirrors
+`test_decklink_input.cpp`'s own style exactly -- device enumeration, a
+format-detection-capable input, `CaptureSource::create()` at `bmdModePAL`
+(720x576, this project's own confirmed-working development standard), a
+`CaptureConsumer` built against a locally-duplicated identity lattice
+(`SESSION-PROTOCOL.md` rule 2: one unit, one test, no shared fixture across
+test translation units) matching that geometry, a bounded 5-second run (the
+same order of magnitude `test_decklink_input.cpp`'s own bounded smoke test
+already uses), then `stop()` on both objects and two accounting-invariant
+checks that hold unconditionally regardless of whether a real signal is
+present (`framesProcessed + framesFailed == framesPopped`; `framesPopped <=`
+capture's own `framesPushed`). If `framesProcessed` is zero -- the loopback
+not connected -- the test prints a NOTE and returns rather than failing, the
+same "nothing plugged in right now is a real, honestly reportable state, not
+a defect" convention `test_decklink_input.cpp` already uses; only when
+frames were actually processed does it additionally check
+`copyLatestFrame()` returns a buffer of the expected size
+(`v210::rowBytesMin(kWidth) * kHeight`). Deliberately reuses the identity
+map, not a genuine warp -- this test's own job is proving the
+`StartAccess`/`GetBytes`/`runFrameBytes`/`EndAccess` mechanics work against
+real captured bytes, not re-proving `runFrameBytes()`'s own warp
+correctness, already genuinely verified in the cloud sandbox at WU-21a.
+
+`CMakeLists.txt`: `src/io/decklink_capture_consumer.cpp` added to the
+existing `scatter-decklink` library's source list; a new
+`target_link_libraries(scatter-decklink PRIVATE scatter-core)` added, since
+this is the first `scatter-decklink` file ever to call into `scatter-core`
+(`runFrameBytes()`, `core/resolve.hpp`) rather than only the DeckLink SDK --
+`PRIVATE`, because `scatter-core` is an implementation detail of this one
+new file, not part of `scatter-decklink`'s own existing public surface
+(`decklink_device.hpp`/`decklink_output.hpp`/`decklink_input.hpp` include no
+`core/` header). A new `test_decklink_capture_consumer` executable added
+alongside `test_decklink_device`/`test_decklink_output`/`test_decklink_input`,
+linking both `scatter-decklink` and `scatter-core` explicitly (the same
+dual-link pattern `test_decklink_output` already uses, needed here for the
+same reason: the test itself calls `core/lattice.hpp` and `core/resolve.hpp`
+symbols directly, not merely through `scatter-decklink`), registered via
+`add_test`. Caught and fixed within this same session, before any claim was
+made: the first draft of this `CMakeLists.txt` edit added the library source
+and the new `target_link_libraries` line but omitted the new test's own
+`add_executable`/`target_link_libraries`/`target_include_directories`/
+`add_test` block entirely -- found by rereading the committed file straight
+back (`SESSION-PROTOCOL.md` anti-drift rule 8's own re-read-to-confirm step)
+and comparing it against the neighbouring `test_decklink_input` block, not
+by any build (this sandbox cannot build DeckLink code); fixed and
+re-delivered before this session's own close.
+
+**Not decided here, deliberately, and named for whoever picks up WU-21c or
+otherwise touches this next.** `kCaptureRingCapacity`'s own chosen value of
+8 (WU-20a/20b, ADR-046) is still not measured against real observed
+buffering depth -- this unit's own bounded 5-second test reports
+`framesPopped`/`framesPushed`/`framesFailed` precisely so that comparison
+becomes possible at Steve's own real terminal, but this session does not run
+that test and so does not make the comparison itself. Genlock/clock-domain
+drift between the Recorder 3G's own capture clock and the Monitor 3G's own
+output clock (ADR-037's own second follow-up, named again at ADR-047/048)
+remains open -- `CaptureConsumer` processes one already-arrived frame's
+worth of bytes at a time and has no timing or clock-domain behaviour of its
+own to reason about, the same "naming a device does not require reasoning
+about its clock domain" logic ADR-039 already used for a different piece of
+this phase; WU-21c's own continuous SDI re-output is where that question
+actually has to be answered, not this unit's. `test_decklink_capture_consumer`'s
+own accounting checks and, if the loopback is connected, the frame-size
+check, are UNVERIFIED against real hardware as of this session's own close
+-- the whole point of this being a DeckLink-only unit reasoned through in a
+Linux cloud sandbox with neither the SDK nor an AppleClang/Xcode toolchain
+available.
+
+Does not reopen `docs/architecture.md`, ADR-026, ADR-031, ADR-032, ADR-037,
+ADR-039, ADR-046, ADR-047 or ADR-048 -- same relationship every ADR since
+ADR-020 has to the document; ADR-032's `IDeckLinkVideoBuffer`/`StartAccess`/
+`EndAccess` finding is extended to a second direction, not amended;
+ADR-046's `RingBuffer` (no blocking pop) is used exactly as frozen, not
+modified; ADR-048's own WU-21a/b/c split and its four named open questions
+are completed for the `b` piece, not revisited -- every question that entry
+left open for this unit is decided above, and nothing here contradicts what
+ADR-048 already froze (the `runFrameBytes()` signature and `PipelineParams`
+fields WU-21a built, in particular, are used exactly as WU-21a left them).
+ADR-037's own genlock follow-up and WU-20b's own `stopFromCallback()` safety
+question (ADR-047) are both still open, named again above, not answered
+here.

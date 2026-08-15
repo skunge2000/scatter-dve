@@ -1036,26 +1036,70 @@ unit since ADR-035 has actually used was run instead. Confirmed `green`,
 tagged `wu-21a-green` (verified directly against the real repository's own
 `git tag` — see `HANDOFF.md`).
 
-### WU-21b — DeckLink capture-side pixel read: drain `CaptureFrameRing` on a
-consumer thread, `StartAccess`/`GetBytes`/`EndAccess` against a retained
-`IDeckLinkVideoInputFrame` `todo`
-Not built this session — sketched here (matching the style ADR-046 used to
-sketch WU-20b before it was built) so whoever picks this up next isn't
-starting from nothing. See `DECISIONS.md` ADR-048's own "not decided here"
-section for the open questions this sketch deliberately leaves open
-(consumer-thread ownership/lifetime model against `CaptureSource::stop()`;
-whether the extracted bytes get copied into a pool buffer or handed to
-`runFrameBytes()` while still inside the `StartAccess`/`EndAccess` bracket;
-genlock/clock-domain drift, still open since ADR-047; whether
-`kCaptureRingCapacity=8` matches real observed buffering depth). Expected
-shape: a consumer object that pops `ComPtr<IDeckLinkVideoInputFrame>` off
-WU-20b's own `CaptureFrameRing`, obtains `IDeckLinkVideoBuffer` via
-`QueryInterface`, brackets `GetBytes()` with `StartAccess(bmdBufferAccessRead)`/
-`EndAccess(bmdBufferAccessRead)` (mirroring `LoopedFramePlayback::
-fillFrameBuffer()`'s own write-direction use of the same interface), and
-feeds the resulting bytes/`GetRowBytes()` into WU-21a's own `runFrameBytes()`.
-Continuous SDI re-output scheduling (closing the actual "full loop through"
-loop end to end) is WU-21c's own job, later still, not WU-21b's.
+### WU-21b — DeckLink capture-side pixel read: `CaptureConsumer` drains
+`CaptureFrameRing` on a consumer thread, obtains `IDeckLinkVideoBuffer` via
+`QueryInterface`, brackets `GetBytes()` with `StartAccess`/`EndAccess`, and
+feeds the mapped bytes into WU-21a's own `runFrameBytes()` `wip`
+See `DECISIONS.md` ADR-049 for the full design and for the four questions
+ADR-048 explicitly left open for this unit, all decided there:
+consumer-thread ownership/lifetime is fully independent of `CaptureSource`'s
+own; extracted bytes are handed to `runFrameBytes()` synchronously, inside
+the `StartAccess`/`EndAccess` bracket, never copied into a pool buffer; the
+ring's own drain policy while empty is a short (1ms) poll sleep, `RingBuffer`
+having no blocking pop; a captured frame's own reported
+`GetWidth()`/`GetHeight()`/`GetRowBytes()` are trusted directly, per frame,
+never checked against the display mode `CaptureSource::create()` was given.
+This session's own first job, per established practice for a new hardware
+surface: re-read the real SDK's `IDeckLinkVideoBuffer`/`IDeckLinkVideoFrame`/
+`IDeckLinkVideoInputFrame` shape directly again (not just ADR-048's own
+summary), plus `io/decklink_output.cpp`'s own `fillFrameBuffer()` (the
+write-direction pattern this unit mirrors), `io/decklink_input.hpp`/`.cpp`
+(WU-20b, the ring this unit drains), `core/ring_buffer.hpp` (WU-20a),
+`core/resolve.hpp`'s `runFrameBytes()`/`PipelineParams` (WU-21a), and
+`docs/architecture.md` sections 3, 6, 7, 9, 12 plus ADR-037/039.
+**Files:** `src/io/decklink_capture_consumer.hpp`, `src/io/
+decklink_capture_consumer.cpp` (both new: `CaptureConsumerStats`,
+`CaptureConsumer`), `tests/test_decklink_capture_consumer.cpp` (new); plus
+`CMakeLists.txt` (`decklink_capture_consumer.cpp` added to the existing
+`scatter-decklink` library's source list; new
+`target_link_libraries(scatter-decklink PRIVATE scatter-core)`, the first
+time that library has needed one; new `test_decklink_capture_consumer`
+executable registered alongside `test_decklink_device`/`test_decklink_output`/
+`test_decklink_input`, linking both `scatter-decklink` and `scatter-core` —
+CMakeLists.txt edits have never counted against the "3 source files" cap in
+any earlier unit either).
+**Accept:** hardware-gated, same shape as `test_decklink_input.cpp`'s own —
+not run in this session's own Linux cloud sandbox, which has neither the
+Blackmagic SDK nor an AppleClang/Xcode toolchain, and not yet run at Steve's
+own real terminal either. At the real terminal, with the Monitor 3G →
+Recorder 3G SDI loopback connected (`test_decklink_input.cpp`'s own
+documented setup): `CaptureSource::create()` and `CaptureConsumer::start()`/
+`stop()` run cleanly for a bounded 5-second window; the accounting invariants
+`framesProcessed + framesFailed == framesPopped` and `framesPopped <=`
+capture's own `framesPushed` hold; and — only if the loopback is actually
+connected — `framesProcessed` is nonzero and `copyLatestFrame()` returns a
+buffer of exactly `v210::rowBytesMin(kWidth) * kHeight` bytes. With nothing
+physically connected, the same mechanics (clean start/stop, the two
+accounting invariants) are still real Accept criteria and the test warns
+rather than fails on zero frames processed, the same "nothing plugged in
+right now is a real, honestly reportable state, not a defect" convention
+`test_decklink_input.cpp` already established. Deliberately reuses an
+identity-map lattice, not a genuine warp — proving the
+`StartAccess`/`GetBytes`/`runFrameBytes`/`EndAccess` mechanics against real
+captured bytes is this unit's own job; `runFrameBytes()`'s own warp
+correctness is already genuinely verified in the cloud sandbox at WU-21a and
+this unit does not re-prove it. Does not include, and does not claim,
+anything about rescheduling the produced bytes onto `IDeckLinkOutput` — that
+is WU-21c's own job, not this one's.
+*Status:* reasoned through only, same shape as WU-14/WU-15a/WU-20b before
+it — drafted and written via the device bridge to the real repository this
+session, re-read back from there to confirm each write landed correctly
+(`SESSION-PROTOCOL.md` anti-drift rule 8), but not built or run anywhere:
+this sandbox cannot compile DeckLink-dependent code at all, and this session
+does not touch Steve's own real terminal. UNVERIFIED until built, tested, and
+run against the real Monitor 3G → Recorder 3G loopback. This line stays
+`wip`, not `green` — the assistant does not run `close.sh` or tag
+(`SESSION-PROTOCOL.md`).
 
 ### WU-22 — Diagnostic coverage view `todo`
 
