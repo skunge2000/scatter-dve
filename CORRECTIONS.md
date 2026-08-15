@@ -514,3 +514,34 @@ check of it), check it before writing the worry into a design record as
 an open risk — an unverified "this might be unsafe" is not free to state
 even when phrased honestly as unresolved, if five minutes of algebra
 against already-available documentation would have settled it.
+
+**C-018 — `DECISIONS.md` ADR-054 (WU-21h) claimed shift+cursor keys would
+be recognised via the `ESC [ 1 ; 2 <letter>` xterm sequence "on both
+[Terminal.app and iTerm2] by default," and shipped that as the only way to
+reposition the sphere.**
+*Claimed:* "A shift-modified cursor key arrives as `ESC [ 1 ; 2 <letter>`
+on both of those specific terminals by default (the common xterm
+'modifyOtherKeys' convention)" — stated as this session's best
+understanding, explicitly flagged elsewhere in the same entry as
+"genuinely terminal-dependent, not verified in this session," but still
+shipped as the unit's own sole position-control mechanism rather than
+alongside a non-terminal-dependent fallback.
+*Correct:* Steve tried it at his own real terminal — shift+arrow did not
+work. Which of Terminal.app's own settings, TERM value, or some other
+cause is responsible was not diagnosed (Steve moved directly to proposing
+a fix rather than debugging the sequence), and this session has no way to
+attach a real terminal emulator to investigate further either. Fixed by
+removing the terminal-dependent mechanism entirely rather than chasing the
+exact sequence Steve's own setup actually sends: WU-21i replaces
+shift+cursor (and, for one consistent scheme, `I`/`O` too) with six plain
+letter keys, `X`/`x`/`Y`/`y`/`Z`/`z`, uppercase increments and lowercase
+decrements — ordinary single-byte characters no terminal emulator
+disagrees about, avoiding this whole class of problem rather than solving
+it for one specific terminal. Plain (unshifted) cursor-key rotation, which
+Steve confirmed did work, is untouched. **General lesson for future
+units:** a flagged-as-unverified terminal behaviour is still a real claim
+shipped as a unit's only mechanism for something — flagging the
+uncertainty honestly (as ADR-054 did) is necessary but not sufficient;
+where a simpler, universally-supported alternative exists (plain
+characters here, instead of a modifier-key escape sequence), preferring it
+from the start avoids needing this entry at all.

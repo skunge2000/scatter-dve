@@ -5156,3 +5156,51 @@ terminal. Does not reopen ADR-011, ADR-027, ADR-028, ADR-048, ADR-049,
 ADR-050, ADR-051, ADR-052 or ADR-053's own wrap geometry -- only this
 entry's own input-handling mechanism and the two now-runtime-mutable
 `SphereParams` fields (`radius`, `centerX`/`centerY`) are new.
+
+**Real-hardware feedback, same session, from Steve at his own real
+terminal: plain cursor-key rotation worked; shift+cursor repositioning did
+not.** See `CORRECTIONS.md` C-018 -- this entry's own `ESC [ 1 ; 2
+<letter>` shift-sequence claim, already flagged above as unverified when
+written, turned out wrong. Steve proposed the fix directly rather than
+asking for a terminal-sequence investigation: letter keys instead of a
+modifier-key sequence. See ADR-055 immediately below.
+
+**ADR-055 — WU-21i: letter-key manual controls, replacing WU-21h's own
+broken shift+cursor scheme.** `X`/`x` increment/decrement `centerX`,
+`Y`/`y` increment/decrement `centerY`, `Z`/`z` increment/decrement
+`radius` (`Z` bigger/"out", `z` smaller/"in" -- the same sense WU-21h's own
+`O`/`I` had) -- one consistent uppercase-increments/lowercase-decrements
+scheme across all three axes, replacing shift+cursor and `I`/`O` alike.
+Plain cursor-key rotation (left/right = yaw, up/down = pitch) is
+unchanged -- it worked on Steve's own terminal, per the feedback
+immediately above, so this entry does not touch it.
+
+**Why letter keys, not a different escape-sequence guess.** WU-21h's own
+`ESC [ 1 ; 2 <letter>` sequence was one specific convention among several
+real ones different terminal emulators use for shift+arrow (others include
+`ESC [ <letter>` prefixed differently, or no distinguishable sequence at
+all depending on a terminal's own settings) -- debugging which one Steve's
+own actual setup sends would need either a real terminal emulator this
+session cannot attach to, or several more untested guesses shipped one at
+a time. Six ordinary printable ASCII letters sidestep the entire class of
+problem: every terminal emulator, without exception or configuration,
+delivers a plain character keypress as that exact single byte -- nothing
+to detect, nothing that can fail to match a convention. `readKey()`
+(unchanged in shape from WU-21h, smaller in scope) now needs only the
+already-working plain-arrow escape sequence plus six single-character
+comparisons, dropping the shift lookahead entirely rather than replacing
+it with a different guess.
+
+**Files:** `tests/test_decklink_live_sphere.cpp` only (rewritten in place
+-- WU-21h's own content superseded, same "superseded before tagged"
+treatment WU-21e/f/g each received one unit earlier). No `src/` or
+`CMakeLists.txt` change -- `CaptureConsumer::setLattice()` (WU-21f)
+already supports this; the executable target already exists and points at
+this same filename.
+
+Reasoned-through-only as of this entry -- not built or run in this
+session's own Linux cloud sandbox, not yet run at Steve's own real
+terminal. Does not reopen ADR-011, ADR-027, ADR-028, ADR-048, ADR-049,
+ADR-050, ADR-051, ADR-052, ADR-053 or ADR-054's own plain-cursor-rotation
+design (confirmed working, untouched) -- only ADR-054's own shift-detection
+mechanism is replaced, corrected via C-018, not extended.

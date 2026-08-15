@@ -1,55 +1,43 @@
-// WU-21h -- rudimentary interactive UI for the live sphere demo. Supersedes
-// WU-21g's own automatic-rotation content (built and run for real this
-// session -- the full wrap read as "hugely better"). Replaces the
-// automatic continuous-yaw/oscillating-pitch schedule with manual keyboard
-// control: cursor keys rotate (left/right = yaw, up/down = pitch), shifted
-// cursor keys reposition the sphere (shift+left/right = x, shift+up/down =
-// y), I/O shrink/grow it (I = "in" to the screen, smaller; O = "out" of the
-// screen, larger), Q quits. The full pole-to-pole/360-degree wrap geometry
-// WU-21g established (angleSpanH == 2*pi, angleSpanV == pi) is unchanged --
-// Steve's own feedback was about the wrap, not the geometry, so this entry
-// does not touch it.
+// WU-21i -- letter-key manual controls, replacing WU-21h's own shift+cursor
+// scheme. Supersedes WU-21h's own content (built and run for real this
+// session: plain arrow-key rotation worked, but shift+arrow did not --
+// CORRECTIONS.md C-018). X/x increment/decrement centerX, Y/y increment/
+// decrement centerY, Z/z increment/decrement radius (Z bigger/"out", z
+// smaller/"in" -- the same sense WU-21h's own O/I had), replacing
+// shift+cursor and I/O both, for one consistent uppercase-increments/
+// lowercase-decrements scheme across all three axes. Plain cursor keys
+// still rotate (left/right = yaw, up/down = pitch), unchanged -- that half
+// of WU-21h's own input handling worked and is not touched here. Q still
+// quits. The full pole-to-pole/360-degree wrap geometry WU-21g established
+// (angleSpanH == 2*pi, angleSpanV == pi) is unchanged.
 //
 // Steve separately asked, not for this unit to solve but to record for
 // later: how this project handles transparency and front/back switching
 // when a wrap like this one folds the sphere's own back hemisphere onto
-// the same screen area as its front. See DECISIONS.md ADR-054 and
+// the same screen area as its front. See DECISIONS.md ADR-054/ADR-055 and
 // WORK-UNITS.md's own WU-28 entry, which this session added a note to
 // rather than inventing a new backlog entry for the same open problem
 // ADR-053 already named.
 //
 // rotateLattice() is unchanged in its own rotation mathematics from
-// WU-21f/g (a rigid yaw-then-pitch rotation about the sphere's own true
+// WU-21f/g/h (a rigid yaw-then-pitch rotation about the sphere's own true
 // centre, CORRECTIONS.md C-017: cannot produce negative depth for any
-// angle) but now takes that centre and radius as parameters instead of
-// file-level constants, since I/O and shifted cursor keys change them at
-// runtime; makeSphereLattice() likewise takes radius/centre as parameters
-// and is called fresh whenever either changes (every control-vertex
-// rebuild -- 16,641 vertices, a handful of trig calls each -- is cheap
-// enough per keypress that this project's own "once per frame, not in the
-// fixed-point path" cost reasoning, shapes.hpp's own header comment,
-// covers it without a new argument).
+// angle), still taking centre and radius as parameters since Z/z/X/x/Y/y
+// change them at runtime; makeSphereLattice() likewise unchanged from
+// WU-21h's own version.
 //
-// Input handling is now event-driven, not timer-driven: WU-21g's own
-// separate keypress-wait thread and 80ms polling loop are both gone,
-// replaced by a single blocking read loop on the main thread -- there is
-// no more idle animation to keep advancing between keypresses, so nothing
-// needs to run on a timer. Raw terminal mode (ICANON/ECHO cleared, restored
-// on exit) is unchanged from WU-21g's own approach. Cursor keys and
-// shift+cursor arrive as multi-byte xterm-style escape sequences (ESC [ A/
-// B/C/D for plain arrows; ESC [ 1 ; 2 A/B/C/D for shift+arrow, the common
-// xterm "modifyOtherKeys" convention both macOS Terminal.app and iTerm2
-// send by default) -- parsed by readKey() below. This is genuinely
-// terminal-dependent and this session cannot verify it against a real
-// terminal emulator; if shift+arrow is not recognised on Steve's own
-// terminal, the fallback is harmless (it reads as an unrecognised sequence
-// and is ignored, not misinterpreted as something destructive), and is
-// worth reporting back so the parsing can be adjusted. A bare ESC keypress
-// (not part of an arrow sequence) is a known rough edge: readKey() blocks
-// waiting for the bytes that would normally follow ESC in an arrow
-// sequence, so a standalone ESC appears to do nothing until another key is
-// pressed -- acceptable for a "rudimentary UI", per Steve's own word for
-// it, not engineered around here.
+// Input handling stays the single event-driven blocking-read loop WU-21h
+// introduced (no idle animation between keypresses, so nothing runs on a
+// timer) -- only readKey() itself changes, and only to remove the
+// shift-modifier lookahead that did not work (C-018), not to add anything
+// new. Plain cursor keys still arrive as the standard 3-byte xterm
+// sequence (ESC [ A/B/C/D), which did work on Steve's own terminal --
+// readKey() below parses only that, plus the six new letter keys, nothing
+// terminal-dependent beyond what already proved reliable. A bare ESC
+// keypress (not part of an arrow sequence) remains a known, unaddressed
+// rough edge, same as WU-21h -- readKey() blocks waiting for the bytes
+// that would normally follow, so a standalone ESC appears to do nothing
+// until another key is pressed.
 //
 // If stdin is not a real terminal (tcgetattr fails -- e.g. an unattended
 // `ctest` run), this test does not attempt interactive control at all: it
@@ -117,7 +105,7 @@ constexpr double kInitialCenterX = double(kWidth) / 2.0;
 constexpr double kInitialCenterY = double(kHeight) / 2.0;
 
 // Radius floor -- purely a sanity clamp against a degenerate zero/negative
-// sphere from holding "I" down; no ceiling clamp (a radius large enough to
+// sphere from holding "z" down; no ceiling clamp (a radius large enough to
 // push control vertices off the destination raster is simply dropped
 // there, ADR-024's own "off-raster drop", not a crash -- the same
 // unclamped-above convention every shape parameter in this project
@@ -125,8 +113,8 @@ constexpr double kInitialCenterY = double(kHeight) / 2.0;
 constexpr double kMinRadius = 20.0;
 
 constexpr double kRotationStep = 0.05;   // radians per cursor keypress, ~2.9 degrees
-constexpr double kPositionStep = 10.0;   // output pixels per shift+cursor keypress
-constexpr double kRadiusStep   = 10.0;   // output pixels per I/O keypress
+constexpr double kPositionStep = 10.0;   // output pixels per X/x/Y/y keypress
+constexpr double kRadiusStep   = 10.0;   // output pixels per Z/z keypress
 
 ComPtr<IDeckLinkInput> firstFormatDetectionCapableInput(const std::vector<DeviceInfo>& devices) {
     for (const auto& d : devices) {
@@ -205,45 +193,38 @@ scatter::Lattice rotateLattice(const scatter::Lattice& base, double yaw, double 
     return out;
 }
 
-enum class Key { Up, Down, Left, Right, ShiftUp, ShiftDown, ShiftLeft, ShiftRight, In, Out, Quit, Unknown };
+enum class Key { Up, Down, Left, Right, XInc, XDec, YInc, YDec, ZInc, ZDec, Quit, Unknown };
 
 // Blocks for exactly one logical keypress (which may be several raw bytes,
 // for an escape-sequence arrow key) and returns what it means. See this
 // file's own header comment for the xterm escape-sequence convention this
-// parses, and the known bare-ESC rough edge.
+// parses (plain arrows only, since WU-21h's own shift+arrow lookahead did
+// not work on real hardware -- C-018), and the known bare-ESC rough edge.
 Key readKey() {
     const int c = std::getchar();
     if (c == EOF) return Key::Quit;  // stdin closed under us -- treat as quit, not a spin
     if (c == 'q' || c == 'Q') return Key::Quit;
-    if (c == 'i' || c == 'I') return Key::In;
-    if (c == 'o' || c == 'O') return Key::Out;
+    if (c == 'X') return Key::XInc;
+    if (c == 'x') return Key::XDec;
+    if (c == 'Y') return Key::YInc;
+    if (c == 'y') return Key::YDec;
+    if (c == 'Z') return Key::ZInc;
+    if (c == 'z') return Key::ZDec;
     if (c != 27) return Key::Unknown;  // not ESC -- not a sequence this UI understands
 
     if (std::getchar() != '[') return Key::Unknown;
-    const int c3 = std::getchar();
-    switch (c3) {
+    switch (std::getchar()) {
         case 'A': return Key::Up;
         case 'B': return Key::Down;
         case 'C': return Key::Right;
         case 'D': return Key::Left;
-        case '1': break;  // possible shift+arrow: "1;2<letter>" follows
-        default:  return Key::Unknown;
-    }
-
-    if (std::getchar() != ';') return Key::Unknown;
-    if (std::getchar() != '2') return Key::Unknown;
-    switch (std::getchar()) {
-        case 'A': return Key::ShiftUp;
-        case 'B': return Key::ShiftDown;
-        case 'C': return Key::ShiftRight;
-        case 'D': return Key::ShiftLeft;
         default:  return Key::Unknown;
     }
 }
 
 }  // namespace
 
-static void test_live_playback_manual_sphere_control() {
+static void test_live_playback_manual_sphere_control_letter_keys() {
     const auto devices = enumerateDeckLinkDevices();
     CHECK(!devices.empty());
     if (devices.empty()) return;
@@ -284,25 +265,25 @@ static void test_live_playback_manual_sphere_control() {
 
             std::fprintf(stderr,
                          "test_decklink_live_sphere: cursor keys rotate (left/right = yaw, up/down = "
-                         "pitch), shift+cursor keys reposition (shift+left/right = x, shift+up/down = "
-                         "y), I/O shrink/grow, Q quits.\n");
+                         "pitch); X/x = position right/left, Y/y = position down/up, Z/z = bigger/"
+                         "smaller; Q quits.\n");
 
             for (;;) {
                 const Key key = readKey();
                 bool changed = true;
                 switch (key) {
-                    case Key::Left:       yaw -= kRotationStep; break;
-                    case Key::Right:      yaw += kRotationStep; break;
-                    case Key::Up:         pitch -= kRotationStep; break;
-                    case Key::Down:       pitch += kRotationStep; break;
-                    case Key::ShiftLeft:  centerX -= kPositionStep; break;
-                    case Key::ShiftRight: centerX += kPositionStep; break;
-                    case Key::ShiftUp:    centerY -= kPositionStep; break;
-                    case Key::ShiftDown:  centerY += kPositionStep; break;
-                    case Key::In:         radius = std::max(kMinRadius, radius - kRadiusStep); break;
-                    case Key::Out:        radius += kRadiusStep; break;
-                    case Key::Quit:       changed = false; break;
-                    case Key::Unknown:    changed = false; break;
+                    case Key::Left:    yaw -= kRotationStep; break;
+                    case Key::Right:   yaw += kRotationStep; break;
+                    case Key::Up:      pitch -= kRotationStep; break;
+                    case Key::Down:    pitch += kRotationStep; break;
+                    case Key::XInc:    centerX += kPositionStep; break;
+                    case Key::XDec:    centerX -= kPositionStep; break;
+                    case Key::YInc:    centerY += kPositionStep; break;
+                    case Key::YDec:    centerY -= kPositionStep; break;
+                    case Key::ZInc:    radius += kRadiusStep; break;
+                    case Key::ZDec:    radius = std::max(kMinRadius, radius - kRadiusStep); break;
+                    case Key::Quit:    changed = false; break;
+                    case Key::Unknown: changed = false; break;
                 }
                 if (key == Key::Quit) break;
                 if (changed)
@@ -357,6 +338,6 @@ static void test_live_playback_manual_sphere_control() {
 }
 
 int main() {
-    test_live_playback_manual_sphere_control();
+    test_live_playback_manual_sphere_control_letter_keys();
     return scatter::test::summary("test_decklink_live_sphere");
 }

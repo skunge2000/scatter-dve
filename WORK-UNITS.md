@@ -1396,6 +1396,33 @@ shift+cursor key visibly moves it, I/O visibly shrink/grow it, Q exits
 cleanly; and, honestly not guaranteed here, whether shift+cursor is
 correctly distinguished from plain cursor on Steve's own actual terminal
 emulator — worth reporting either way.
+*Status:* **built and run at Steve's own real terminal this session —
+plain cursor-key rotation worked; shift+cursor repositioning did not.** See
+`CORRECTIONS.md` C-018: this unit's own `ESC [ 1 ; 2 <letter>` xterm
+shift-sequence claim, already flagged as unverified when written, turned
+out wrong on Steve's own real setup. `CaptureConsumer::setLattice()`
+(WU-21f) and the event-driven input model this unit introduced both worked
+correctly — only the shift-modifier key detection is being replaced.
+Superseded by WU-21i, same "superseded before being tagged" treatment
+WU-21e/f/g each received one unit earlier.
+
+### WU-21i — Letter-key manual controls (X/x, Y/y, Z/z), replacing
+WU-21h's own broken shift+cursor scheme `wip`
+See `DECISIONS.md` ADR-055 and `CORRECTIONS.md` C-018 for the full story:
+plain arrow-key rotation is unchanged (it worked); shift+cursor
+repositioning and `I`/`O` resizing are both replaced by six ordinary
+letter keys for one consistent scheme — `X`/`x` increment/decrement
+`centerX`, `Y`/`y` increment/decrement `centerY`, `Z`/`z` increment/
+decrement `radius` (`Z` bigger/"out", `z` smaller/"in", the same sense
+WU-21h's own `O`/`I` had) — avoiding modifier-key escape sequences
+entirely rather than debugging why Steve's own terminal did not send the
+one WU-21h assumed.
+**Files:** `tests/test_decklink_live_sphere.cpp` only (rewritten in place
+— WU-21h's own content superseded). No `src/`/`CMakeLists.txt` change.
+**Accept:** the same mechanical criteria every live-pipeline test since
+WU-21c has used, unchanged. Unautomatable, Steve's own by-hand job: each
+of the six letter keys visibly does what it says, plain cursor-key
+rotation still works as it already did, Q still exits cleanly.
 *Status:* delivered as reasoned-through-only, drafted and written via the
 device bridge to the real repository, re-read back from there to confirm
 each write landed correctly (`SESSION-PROTOCOL.md` anti-drift rule 8) — not
