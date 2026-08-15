@@ -196,7 +196,7 @@ report. `tests/test_pageturn.cpp`: 126512 checks (Clang 18, Release, tile
 all twelve tests passed, no cloud/AppleClang divergence this time (unlike
 WU-11's own C-012).
 
-### WU-12b — Page turn, priority-tag opaque `wip`
+### WU-12b — Page turn, priority-tag opaque `green`
 **Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp`, plus
 `tests/test_layered_composite.cpp` (new; name frozen this session — see
 `DECISIONS.md` ADR-029).
@@ -214,10 +214,10 @@ accumulation-sums default (the two `AccumCell`s summed first, then
 normalised/composited once). No `core/shapes/*`, `core/binner.cpp` or
 `core/splat.cpp` change — exercised against WU-12a's own
 `buildPageTurnLattice()` (or any earlier shape) unmodified.
-*Status:* implemented and verified in a Linux cloud sandbox —
-`compositeLayered()` added to `core/resolve.hpp`/`.cpp` per `DECISIONS.md`
-ADR-029 (name, signature and behaviour frozen there), `tests/
-test_layered_composite.cpp` new (28 checks: four direct `AccumCell`
+*Done:* `wu-12b-green` tagged. Implemented and verified in a Linux cloud
+sandbox first — `compositeLayered()` added to `core/resolve.hpp`/`.cpp` per
+`DECISIONS.md` ADR-029 (name, signature and behaviour frozen there),
+`tests/test_layered_composite.cpp` new (28 checks: four direct `AccumCell`
 unit-test cases covering the tag-mismatch sum path and the opaque path's
 full/zero/partial-alpha edges exactly, plus two pipeline-level checks
 reusing WU-12a's own page-turn flap/page-behind construction, checked
@@ -228,11 +228,15 @@ warnings, checked explicitly in the build logs — not just exit codes —
 under the project's full `-Wall -Wextra -Wpedantic -Wconversion
 -Wsign-conversion -Werror` set), plus GCC 13 with `-fsanitize=address,undefined
 -fno-sanitize-recover=all` at both tile sizes: clean, no ASan or UBSan
-report. All thirteen tests pass at every configuration (336976 checks
-total, Clang 18 Release tile 2^5). **Not yet run:** `./tools/close.sh 12b`
-on the M1 Max with AppleClang — this session ran entirely in the cloud
-sandbox per SESSION-PROTOCOL.md's own process; see `HANDOFF.md` for the
-request to run it. Remains `wip`, not `green`, until that comes back clean.
+report. `./tools/close.sh 12b` then ran clean on the M1 Max with
+AppleClang (Release, tile 2^5, the config `close.sh` builds) on the first
+attempt — all thirteen tests passed, no cloud/AppleClang divergence this
+time (unlike WU-11's own C-012). WU-12 as a whole is done: both of US
+4,563,703 FIG. 5's modes reproduced (WU-12a's transparent default,
+WU-12b's opaque-with-priority-tag). The WU-12a/WU-12b split above is not
+reconciled back into a single WU-12 entry — permanent record of how the
+work actually split, the same precedent WU-04's session set correcting
+WU-03's stale status line in place rather than erasing it.
 ### WU-13 — Keyframed lattices, temporal interpolation (morph) `todo`
 
 ---
