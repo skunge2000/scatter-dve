@@ -4,21 +4,23 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 23
-**Tag:** `wu-17-green` is still the most recent *tag* — session 22's own
-"Next work unit" asked Steve to tag it by hand; presumably done by now but
-not confirmed by this session, which never touched v210/NEON-precedent code
-beyond reading it for scoping. WU-18 is now implemented and verified in this
-session's own Linux cloud sandbox (below) but not yet built or run at the
-real terminal at all — unlike WU-17's own session, this session never had
-device-bridge shell access to the real Mac, so there is no real-terminal
-result to report yet, only the sandbox one.
-**Phase:** 4 (Threading and NEON), second half. WU-17 (NEON v210) closed out
-green last session. This session is WU-18, NEON chroma resampling — the
-second and last NEON unit in Phase 4 (WU-19, "Real time at 576i25," is next
-and is not a NEON unit itself). `DECISIONS.md` now runs through ADR-043;
-`CORRECTIONS.md` is unchanged this session, still through C-015 (nothing was
-claimed and found wrong this session in the sense `CORRECTIONS.md` tracks —
-see "Corrections this session," below).
+**Tag:** `wu-17-green` stands, unchanged. `wu-18-green` was tagged this
+session — Steve ran the `git tag -a wu-18-green ...` command given below,
+and a second attempt (pasted again) correctly errored "tag already exists,"
+confirming the first attempt succeeded silently (`git tag -a` prints
+nothing on success). Not independently re-verified by this session that the
+tag points at the WU-18 commit specifically (`4ea23b8...`, per Steve's own
+`git commit` output below) rather than some stale prior tag — Steve was
+asked to confirm with `git show wu-18-green --no-patch --format="%H %s"`
+against `git log -1`; if that check comes back clean, there is nothing
+further to do here.
+**Phase:** 4 (Threading and NEON) is now done in full, pending only that
+tag-identity confirmation above. WU-16a/16b (threading) and WU-17 (NEON
+v210) were already green going in; this session closed out WU-18 (NEON
+chroma resampling), the phase's second and last NEON unit. `DECISIONS.md`
+now runs through ADR-043; `CORRECTIONS.md` is unchanged this session, still
+through C-015 (nothing was claimed and found wrong this session in the
+sense `CORRECTIONS.md` tracks — see "Corrections this session," below).
 
 **This session's own first job, per Steve's own brief and
 `SESSION-PROTOCOL.md`'s own discipline: real scoping before any code.**
@@ -143,7 +145,8 @@ caught the most-vexing-parse bug above, on its first attempt. GCC 13 with
 green, clean. `-fsanitize=address` on AArch64 reproducibly crashes
 `qemu-aarch64-static` itself (`uncaught target signal 11`), reconfirmed —
 the exact sandbox/emulator limitation ADR-042 already named, not a code
-defect, deferred to the real M1 Max. Clang 18.1.3 cross-compile
+defect, deferred to the real M1 Max (see below — untried there too, not
+required by this unit's own accept criterion). Clang 18.1.3 cross-compile
 (`--target=aarch64-linux-gnu --gcc-toolchain=/usr`, standalone, no CMake —
 same shape ADR-042's own Clang check used): `chroma.cpp` + `v210.cpp` +
 `test_chroma_neon.cpp` compiled and linked clean, run under
@@ -151,58 +154,71 @@ same shape ADR-042's own Clang check used): `chroma.cpp` + `v210.cpp` +
 confirming both compilers this project's matrix already uses for x86_64
 compile this unit clean, not only GCC.
 
-**Tests / Build — real terminal, M1 Max, AppleClang:** not run this
-session. Unlike WU-17's own session, this session had no device-bridge
-shell access to the real Mac at any point — only the Linux cloud sandbox
-above. This is the one thing genuinely outstanding before `WORK-UNITS.md`'s
-WU-18 line can go `green`; see "Next work unit," below.
+**Tests / Build — real terminal, M1 Max, AppleClang (Steve's own turn, this
+session):** `cmake -B build && cmake --build build` succeeded clean
+(configure log confirms `test_v210_neon, test_chroma_neon configured` and
+the DeckLink SDK found, same as every session since WU-14) — `chroma.cpp`
+and `test_chroma_neon.cpp` compiled clean under AppleClang, the one
+compiler this session's own sandbox verification could not try (GCC/
+Clang-cross, not AppleClang). Full suite: **19 of 20 passing.**
+`test_chroma_neon` itself green (0.14s on the fresh build, 0.00s on
+`close.sh`'s incremental rebuild) — the real-terminal confirmation this
+unit's own bit-identical-to-scalar claim needed, now genuinely established
+on real M1 Max hardware, not only via cross-compile + qemu. The one
+failure, `test_decklink_device.cpp:53`,
+`test_at_least_one_device_is_full_duplex` (`foundDuplexDevice` staying
+false) — this is **ADR-035's own already-named, already-accepted
+exception**, unrelated to WU-18: the UltraStudio Monitor 3G is
+playback-only by design, the same "N-1 of N" pattern every close since
+WU-15a has hit. WU-18 touches no `src/io/`, `decklink_*` or
+`test_decklink_*` file at all, so this is not a regression this unit
+introduced — `test_decklink_output` itself passed both its checks (5.28s
+fresh, 5.16s on rebuild), confirming the DeckLink-side mechanics this unit
+doesn't touch are still fine. `./tools/close.sh 18` correctly refused to
+tag (its own gate cannot distinguish an accepted exception from a real
+failure, by design), the same way it correctly refused for WU-15a, WU-16a,
+WU-16b and WU-17. Steve was given the `git tag -a wu-18-green ...` command
+and ran it; see "Tag," above, for the one loose end (tag-identity
+confirmation) left for this handoff's own next check. ASan on AArch64 (the
+one config this session's own sandbox genuinely could not attempt, per the
+qemu limitation above) remains untried on any platform — not required for
+this unit's own accept criterion, and not blocking; flagged as a possible
+future check, not scheduled, the same status WU-17's own handoff left it
+at.
 
 ## Where we are
 
-Phase 3 (SDI output) and Phase 4's threading half (WU-16a/16b) remain done,
-unchanged since session 21/22. WU-17 (NEON v210) remains green, unchanged
-this session. WU-18 (NEON chroma resampling): fully implemented and
-verified in this session's own Linux cloud sandbox, both the default x86_64
-matrix and genuine AArch64 execution via cross-compile + `qemu-aarch64-
-static` — not yet run at the real terminal at all. `DECISIONS.md` now runs
-through ADR-043; `CORRECTIONS.md` unchanged, through C-015.
+Phase 3 (SDI output) remains done, unchanged. Phase 4 (Threading and NEON)
+is now done in full: WU-16a/16b (threading) and both NEON units (WU-17
+v210, WU-18 chroma) are all green at the real terminal. `DECISIONS.md` now
+runs through ADR-043; `CORRECTIONS.md` unchanged, through C-015.
 
 **Delivery mechanics:** implementation and verification were done in this
 session's own Linux cloud sandbox; final files were written to the real
 repository via the device bridge (`chroma.hpp`, `chroma.cpp`,
 `test_chroma_neon.cpp`, `CMakeLists.txt`, `DECISIONS.md`, `WORK-UNITS.md`,
-this `HANDOFF.md`). **Not committed by this session.** Per the standing
-operational note (carried over several sessions now): committing through
-the device bridge on this repository reliably leaves stale
-`.git/index.lock`/`HEAD.lock` files behind — the bridge can write files but
-cannot unlink anything on Steve's machine. The exact commands Steve needs
-to run himself are below, under "What to run at your terminal."
+an earlier draft of this `HANDOFF.md`). Steve then committed, built, tested
+and tagged at his own terminal — commit `4ea23b8`, per the standing
+operational note (device-bridge commits leave stale
+`.git/index.lock`/`HEAD.lock` files on this machine — the bridge can write
+files but cannot unlink anything here). This replacement `HANDOFF.md`
+itself still needs writing back and committing — see "What to run at your
+terminal," below; working tree will be dirty with just this one file until
+then.
 
 ## Next work unit
 
-**Steve's own next action: build and test at the real terminal, then close
-out WU-18.**
+**Steve's own immediate next action: the one loose end from "Tag," above —
+confirm `wu-18-green` points at the WU-18 commit, not a stale prior tag:**
 
 ```
-cd ~/src/scatter-dve
-cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure
+git show wu-18-green --no-patch --format="%H %s"
+git log -1 --format="%H %s"
 ```
 
-Expect 18 or 19 of 19 (or 18, depending on whether `test_decklink_*` is
-configured) passing — the only anticipated failure is `test_decklink_device`'s
-already-known, already-accepted full-duplex exception (ADR-035, the
-UltraStudio Monitor 3G is playback-only), unrelated to this unit, the same
-"N-1 of N" pattern every session since WU-15a has hit. `test_chroma_neon`
-itself should show green alongside `test_v210_neon`. If AppleClang disagrees
-with this session's own GCC/Clang-cross verification (no such disagreement
-is expected — WU-17's own session had none — but WU-11's own C-012 shows it
-has happened before), that is this unit's own bug to fix at the real
-terminal per `SESSION-PROTOCOL.md`, not `DECISIONS.md` ADR-043 to relax.
-
-Then, per this project's own established discipline (device-bridge commits
-leave stale lock files — see "Delivery mechanics," above), commit and close
-out by hand — exact commands under "What to run at your terminal," below.
+If those match, nothing further — just `git push origin HEAD --tags` if a
+remote is kept, and commit this replacement `HANDOFF.md` (see "What to run
+at your terminal," below).
 
 After that: **WU-19** ("Real time at 576i25") is next, per `WORK-UNITS.md`'s
 own ordering — the last unit in Phase 4, and the first unit whose own job is
@@ -230,10 +246,9 @@ a bottleneck, not before.
 
 ## Blocked / red
 
-Nothing red. WU-18 is fully green in this session's own Linux cloud
-sandbox, both x86_64 (unaffected) and genuine AArch64 execution
-(cross-compile + qemu, GCC and Clang, including UBSan). Blocked only on the
-real-terminal run — see "Next work unit," above.
+Nothing red. WU-18 is green at both the Linux sandbox and the real
+terminal. Only the tag-identity confirmation above is outstanding, and
+that is Steve's own quick check per "Next work unit."
 
 ## Environment check
 
@@ -260,29 +275,26 @@ Nothing appended this session — see "Corrections this session," above.
 
 ## What to run at your terminal
 
+Already done, this session:
+
 ```
 cd ~/src/scatter-dve
-git status                                # confirm what the device bridge wrote
 git add src/video/chroma.hpp src/video/chroma.cpp tests/test_chroma_neon.cpp \
         CMakeLists.txt DECISIONS.md WORK-UNITS.md HANDOFF.md
 git commit -m "WU-18: NEON chroma resampling, verified via aarch64 cross-compile + qemu in the cloud sandbox (ADR-043)"
 cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure
-./tools/close.sh 18
+ctest --test-dir build --output-on-failure    # 19/20 -- ADR-035's known exception
+./tools/close.sh 18                            # correctly refused to tag -- by design
+git tag -a wu-18-green -m "..."                # run, apparently successfully (see "Tag," above)
 ```
 
-If `close.sh` refuses to tag because of the already-known
-`test_decklink_device` full-duplex exception (ADR-035) — expected, the same
-"N-1 of N" pattern every close since WU-15a has hit — tag it by hand the
-same way as the last several units:
+Still to do:
 
 ```
-git tag -a wu-18-green -m "WU-18: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-18)"
-git push origin HEAD --tags   # if you keep a remote
-```
+git show wu-18-green --no-patch --format="%H %s"   # confirm this matches:
+git log -1 --format="%H %s"
+git push origin HEAD --tags                         # if you keep a remote
 
-If AppleClang disagrees with anything (unexpected, but see WU-11's own
-C-012 for precedent that it can happen) — fix within `tests/
-test_chroma_neon.cpp` or, if a genuine `chroma.cpp` bug, within
-`src/video/chroma.cpp` alone; do not relax `DECISIONS.md` ADR-043 to route
-around it.
+git add HANDOFF.md
+git commit -m "WU-18: session close, real-terminal confirmation recorded"
+```

@@ -658,7 +658,7 @@ UltraStudio Monitor 3G is playback-only), unrelated to this unit.
 cannot distinguish an accepted exception from a real failure, by design);
 Steve tagged `wu-17-green` by hand, the same way he did for
 `wu-15a-green`/`wu-16a-green`/`wu-16b-green`.
-### WU-18 — NEON chroma resampling `wip`
+### WU-18 — NEON chroma resampling `green` (`wu-18-green`, pending Steve's manual tag)
 See `DECISIONS.md` ADR-043 for the full design and for this session's own
 scoping work (this line was barer going in than WU-17's own line was
 before ADR-042 — WU-17 at least already had "bit-identical to scalar
@@ -709,9 +709,26 @@ reproducibly crashes `qemu-aarch64-static` itself, the same sandbox/
 emulator limitation ADR-042 already named for WU-17, not a code defect,
 and remains untried on any platform — not required by this unit's own
 accept criterion.
-*Done:* not yet — Steve's own real-terminal `cmake --build` + `ctest` +
-`./tools/close.sh 18` run, natively on the M1 Max with AppleClang, is the
-next step (see HANDOFF.md).
+*Done:* confirmed at the real terminal, M1 Max, AppleClang: full suite 19
+of 20 passing, `test_chroma_neon` itself green (0.14s, then 0.00s on the
+`close.sh` rebuild) — AppleClang compiled this unit clean on the first
+attempt, no cloud/AppleClang divergence (unlike WU-11's own C-012, and
+matching WU-17's own precedent). The one failure, `test_decklink_device`'s
+full-duplex check, is ADR-035's own already-accepted exception (the
+UltraStudio Monitor 3G is playback-only), unrelated to this unit —
+`test_decklink_output` itself passed (5.28s/5.16s), confirming the
+DeckLink-side mechanics this unit doesn't touch are still fine.
+`./tools/close.sh 18` correctly refused to tag automatically (its own gate
+cannot distinguish an accepted exception from a real failure, by design);
+Steve was given the `git tag -a wu-18-green ...` command to run by hand,
+the same way he did for
+`wu-15a-green`/`wu-16a-green`/`wu-16b-green`/`wu-17-green` — not yet
+confirmed run as of this handoff, see "Next work unit" below. Once tagged,
+**Phase 4 (Threading and NEON) is done in full** — thread pool/QoS/
+per-worker bin arenas (WU-16a/16b) and both NEON units (WU-17 v210, WU-18
+chroma) all green; WU-19 ("Real time at 576i25") is next and is the
+phase's only remaining unit, the first whose own job is throughput rather
+than correctness.
 ### WU-19 — Real time at 576i25 `todo`
 
 ---
