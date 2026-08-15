@@ -514,8 +514,73 @@ is satisfied across WU-14, WU-15a and WU-15b together.
 
 ## Phase 4 — Threading and NEON
 
-### WU-16 — Thread pool, QoS, per-worker bin arenas `todo`
-**Accept:** 8-thread output bit-identical to single-threaded (I6).
+### WU-16a — Thread pool, QoS, per-worker bin arenas: PASS 2 (tile-parallel) `wip`
+See `DECISIONS.md` ADR-040 for the full design and for why this splits
+from the single bare WU-16 line above (this session's own first job, per
+Steve's own brief: real scoping before any code — architecture.md
+section 6 describes a fuller two-pass design than one line names, and the
+full scope does not fit `SESSION-PROTOCOL.md`'s "3 source files" cap
+without reopening `core/binner.hpp`/`.cpp`, WU-08's own frozen interface).
+**Files:** `src/core/pipeline.hpp` (new), `src/core/pipeline.cpp`,
+`src/core/resolve.hpp` (one new `PipelineParams::threads` field, default
+1), `tests/test_threading.cpp` (new); plus `CMakeLists.txt`
+(`find_package(Threads REQUIRED)`, `Threads::Threads` linked into
+`scatter-core`, `test_threading` added — CMakeLists.txt edits have never
+counted against the "3 source files" cap in any earlier unit either).
+**Accept:** `runFrame()` at `PipelineParams::threads == 8` (and several
+other thread counts, including values <= 1 and one larger than the
+frame's own total tile count) produces output bit-identical, every
+destination pixel's Y/Cb/Cr, to `threads == 1`, for a genuinely warped,
+multi-tile frame whose destination extent is not an exact multiple of the
+tile size — `tests/test_threading.cpp`'s
+`test_threaded_pipeline_matches_single_threaded()` and its own second-
+geometry sibling, checking WORK-UNITS.md's own literal "8-thread output
+bit-identical to single-threaded (I6)" line directly. `ThreadPool`
+(`core/pipeline.hpp`) itself is also checked directly, independent of
+`runFrame()` — every worker index reached exactly once per `runOnAll()`
+call, across repeated calls on the same pool, plus clean teardown.
+PASS 1 (fragment generation, `core/binner.cpp`) is unchanged and always
+single-threaded this unit — not in scope; see ADR-040 for the reasoning
+and for WU-16b, below, which is.
+*Status:* implemented and verified in a Linux cloud sandbox — Clang 18
+and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, all fifteen tests green — the fourteen carried over
+unchanged plus `test_threading`, ~1.5 million checks, zero warnings under
+the project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes (clean) and, new for this unit, GCC 13 with `-fsanitize=thread`
+(clean, no data race — the first genuinely concurrent code inside
+`scatter-core`, so this was checked empirically rather than trusted on
+reasoning alone, per this project's own C-011/C-012 lesson). **Still
+needed before this line goes `green`:** `setWorkerQoS()`'s own
+`#ifdef __APPLE__` branch (`pthread_set_qos_class_self_np`,
+`<pthread/qos.h>`) is unverified — no AppleClang/Xcode toolchain exists in
+the Linux cloud sandbox this unit was implemented in, the same gap
+ADR-031/032 already named for WU-14/WU-15a's own Apple-only surfaces — so
+the full suite and `./tools/close.sh 16a` still need a real-terminal run
+before this can be tagged `wu-16a-green`.
+
+### WU-16b — Thread pool: PASS 1 row-band parallelism, per-worker
+generation-time bin arenas `todo`
+Not scoped with `Files:`/`Accept:` lines yet — named here, per
+`DECISIONS.md` ADR-040's own "not decided here, deliberately" note, for
+whichever future session picks it up. architecture.md section 6's fuller
+two-pass design: partition `core/binner.cpp`'s `generateFragments()` by
+source row bands across `ThreadPool`'s own workers, each with a private,
+preallocated per-tile fragment-bin arena (not the single shared
+`TileBins` PASS 1 currently populates), then a barrier (`ThreadPool::
+runOnAll()`'s own two-consecutive-calls shape already supports this, per
+ADR-040), then PASS 2 (WU-16a, unchanged) reading every worker's own
+generation-time arena for each tile it resolves. Needs a row-range-aware
+addition to `core/binner.hpp`/`.cpp` that keeps the `v`-parameter
+denominator keyed to the source raster's whole height, not a band's (see
+ADR-040 for why the current `generateFragments()` cannot simply be called
+once per band with a shorter `SourceRaster::height`) — whichever session
+starts this should read `core/binner.cpp`'s own `pixelToLattice()` first,
+the same "read the real shape before scoping" discipline ADR-031/032 used
+for the DeckLink SDK, applied here to this project's own frozen code
+instead of a third-party one.
 ### WU-17 — NEON v210 unpack and pack `todo`
 **Accept:** bit-identical to scalar reference.
 ### WU-18 — NEON chroma resampling `todo`

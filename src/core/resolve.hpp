@@ -228,6 +228,23 @@ struct PipelineParams {
     SupersampleConfig supersample = defaultPipelineSupersample();
     std::uint8_t tag = 0;
     Background background = kDefaultBackground;
+
+    // WU-16 (Phase 4, DECISIONS.md ADR-040): number of worker threads
+    // PASS 2 (bank-resolve, normalise, composite) runs on. Default 1 --
+    // every caller from WU-10 through WU-15b, unchanged, gets exactly the
+    // single-threaded loop that predates this field, byte for byte (see
+    // core/pipeline.cpp's own runFrame(), the "threads <= 1" branch).
+    // Values <= 1 take that same single-threaded path; values > 1
+    // construct a core/pipeline.hpp ThreadPool of exactly this many
+    // workers for the duration of one runFrame() call and partition PASS
+    // 2's tiles across them. PASS 1 (fragment generation) is unchanged
+    // and always single-threaded regardless of this value -- see
+    // ADR-040 for why, and for WU-16b, the deferred follow-up that would
+    // change that. I6 (integer addition is associative) is what makes any
+    // value here produce output bit-identical to threads == 1 for the
+    // same lattice/src/params -- WORK-UNITS.md's own WU-16 accept
+    // criterion, checked directly in tests/test_threading.cpp.
+    int threads = 1;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

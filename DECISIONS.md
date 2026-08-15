@@ -1993,3 +1993,302 @@ own device-naming decision to the one place it explicitly left open (the
 input device's own name in this project's *forward-looking* documentation,
 `WORK-UNITS.md`), the same "completes, does not reopen" relationship
 ADR-033/035/038 already have to the entries they complete.
+
+**ADR-040 — Thread pool, QoS, per-worker bin arenas: scoped to PASS 2
+alone (tile-parallel splat/resolve/composite); `core/pipeline.hpp` arrives
+per ADR-026's own anticipation; PASS 1's row-band parallelism is deferred
+to WU-16b. Frozen at WU-16a, Phase 4's first unit.**
+
+`WORK-UNITS.md`'s own WU-16 line, going into this session, was bare: a
+title ("Thread pool, QoS, per-worker bin arenas") and one accept
+criterion ("8-thread output bit-identical to single-threaded (I6)"), no
+`Files:` line — this session's own first job, per Steve's own brief, was
+real scoping before any code. `docs/architecture.md` section 6 already
+describes a fuller design than that one line names — two parallel passes,
+not one:
+
+```
+8 worker threads, QoS USER_INTERACTIVE.
+  Pass 1 partitions the source by row bands. Each worker owns a private
+  per-tile bin arena, preallocated, bump-allocated.
+  Barrier.
+  Pass 2 partitions by tile. Each worker reads all 8 workers' lists for
+  its tiles, in fixed worker order.
+```
+
+plus a capture-callback thread and an output-scheduler thread that belong
+to the real-time device pipeline (Phase 5, not this unit — WU-16 is pure
+`src/core/`, no DeckLink, per `HANDOFF.md` going into this session).
+
+**Why this session builds PASS 2's tile-parallelism only, not both
+passes.** `core/binner.cpp`'s `generateFragments()` (WU-08, frozen green)
+loops `for (py = 0; py < src.height; ++py)` and uses that same
+`src.height` as the *denominator* in `pixelToLattice(py, src.height)`
+(ADR-024) — the row-loop bound and the lattice-parameter scale are the
+same field, not two independently variable things. Partitioning PASS 1 by
+row bands the way architecture.md section 6 sketches therefore cannot be
+done by calling the existing `generateFragments()` once per band with a
+shorter `SourceRaster::height`: that would change `v`'s own denominator
+along with the loop bound, corrupting the lattice mapping for every row
+in the band. The honest fix is a row-range parameter on
+`generateFragments()` that leaves `src.height` itself untouched for the
+`v` calculation — straightforward in itself, but it touches
+`core/binner.hpp` *and* `core/binner.cpp`, which together with
+`core/pipeline.hpp` (new) and `core/pipeline.cpp` (touched) would be four
+source files before this unit's own test, one over
+`SESSION-PROTOCOL.md`'s "touch at most 3 source files plus its test" cap
+— and `core/binner.hpp`/`.cpp` is WU-08's own frozen interface, not this
+unit's to casually reopen just to fit a parallelism scheme in. Chosen,
+the same "split when the full scope doesn't fit" discipline ADR-028
+(WU-12a/WU-12b) and ADR-032 (WU-15a/WU-15b) already used: this session
+(WU-16a) builds PASS 2's tile-parallelism only, which needs no
+`core/binner.*` change at all; a future WU-16b builds PASS 1's row-band
+parallelism, and is named, not built, here (see below).
+
+**Why PASS 2 alone still honestly satisfies WORK-UNITS.md's own accept
+line.** "8-thread output bit-identical to single-threaded (I6)" is a
+statement about `runFrame()`'s own output for a given `PipelineParams`,
+not a requirement that every internal stage be threaded — WU-16a's own
+`tests/test_threading.cpp` checks the literal line directly, running
+`runFrame()` at `threads == 1` and `threads == 8` (among others) over a
+genuinely warped, multi-tile frame and checking every destination pixel's
+`Y`/`Cb`/`Cr` bit-for-bit. PASS 2 (bank-resolve, normalise, composite) is
+also where `core/binner.cpp`'s tile binning (ADR-002, ADR-024) already
+partitions work by tile — `TileBins::tile(tx, ty)` is already one
+independent `std::vector<Frag>` per tile, populated in full before PASS 2
+starts — so "the natural unit of per-thread work," per this session's own
+brief, was already sitting there without needing a new partitioning
+scheme invented for it. PASS 1 stays exactly WU-08's own single-threaded
+loop, called once, synchronously, before any worker thread is started —
+untouched, unparallelised, and therefore carrying zero risk to WU-08's
+own frozen correctness.
+
+**`core/pipeline.hpp`, new — arrives exactly where ADR-026 said it
+would.** ADR-026 (WU-10) declared `runFrame()`/`runFrameFile()` in
+`core/resolve.hpp` instead of a `pipeline.hpp` of their own, precisely
+because "the thread pool and barriers [section 8's module-layout sketch]
+describes are WU-16's (Phase 4), not built yet... When WU-16 actually
+adds thread-pool state, `pipeline.hpp` arrives with it and these
+declarations move there." They do not move: ADR-026 also said "nothing
+about `runFrame()`/`runFrameFile()`'s own signatures is expected to
+change when that happens," and nothing does — both keep their exact
+WU-10 signatures, still declared in `core/resolve.hpp`. `pipeline.hpp`
+arrives holding only the new thread-pool machinery
+(`ThreadPool`, `setWorkerQoS()`) that `core/pipeline.cpp`'s own
+`runFrame()` now uses internally.
+
+**`ThreadPool`: persistent workers, a generation-counter dispatch/barrier,
+not a task queue.** A fixed-size pool of `numThreads` `std::thread`
+workers, spawned once by the constructor and joined once by the
+destructor — "8 worker threads" as a standing resource, matching
+architecture.md section 6's own framing, not something WU-16a respawns
+every frame. Its only operation, `runOnAll(fn)`, calls `fn(workerIndex)`
+once per worker (`workerIndex` in `[0, size())`) and blocks the calling
+thread until every call has returned, using a mutex, a generation counter
+and two condition variables (one for dispatch, one for completion) —
+simpler than a general work-stealing task queue, and sufficient for this
+unit's own single call per `runFrame()` invocation. Two consecutive
+`runOnAll()` calls from the same caller are already architecture.md
+section 6's own "barrier" for free — the second call's work is never
+dispatched to any worker until the first has fully drained — a property
+this unit does not itself need (PASS 1 stays unparallelised, so
+`runFrame()` only ever calls `runOnAll()` once) but is there, unchanged,
+for WU-16b's own future use once PASS 1 needs the same two-call shape.
+Verified directly for exactly the dispatch/barrier property claimed:
+`tests/test_threading.cpp`'s `test_threadpool_runs_every_worker_every_round()`
+confirms every worker index is called exactly once per `runOnAll()` call,
+across several calls on the same pool, and `test_threadpool_of_one()`
+checks the degenerate one-worker case; both also exercise clean pool
+teardown, since a stuck `join()` in the destructor would hang the test
+process rather than fail a `CHECK`.
+
+**The `threads <= 1` path is a separate, untouched loop — never routed
+through `ThreadPool`, even with `numThreads == 1`.** `core/pipeline.cpp`'s
+own `runFrame()` branches before constructing anything: `threads <= 1`
+runs the same per-tile loop WU-10 originally wrote (now sharing a small
+`resolveOneTile()` helper with the threaded path below it, so the two
+cannot silently diverge — see below), with no `ThreadPool`, no mutex, no
+condition variable anywhere on that path. This is deliberate, not an
+optimisation: ADR-015 names the single-threaded build "a permanent
+oracle," and if that oracle path shared `ThreadPool`'s own dispatch
+machinery (even degenerately, at `numThreads == 1`), a bug in the new
+synchronisation code could corrupt the one reference every future
+threading unit diffs against, silently. Keeping it a plain, inspectable
+loop with zero new moving parts preserves exactly the property ADR-015
+needs it to have.
+
+**`resolveOneTile()`, factored out, shared by both paths.** WU-10's
+original per-tile body (bank-resolve via `sumBanks()`, then
+normalise/composite every covered cell into `dest`) is now a small
+function both the `threads <= 1` loop and the threaded path call
+identically, rather than two hand-written copies that could quietly drift
+apart — the same "reuse a tested function rather than duplicate its
+logic" preference ADR-029 already used for `compositeLayered()`. Verified
+empirically, not just by this reasoning, since it is exactly the kind of
+claim C-012 warns against trusting on algebra alone: `tests/
+test_zoneplate.cpp` and every other pre-existing pipeline-level test
+(`test_shapes.cpp`, `test_pageturn.cpp`, `test_layered_composite.cpp`,
+`test_morph.cpp`) all still pass unchanged against this refactored
+`threads <= 1` path, across the full Clang 18 / GCC 13, Release/Debug,
+tile 4/5 matrix plus ASan+UBSan (see "Verification," below) — the
+oracle's own output did not move.
+
+One byte-level change within that shared body, confirmed behaviour-
+preserving before relying on it: the original loop constructed a fresh
+`TileAccum accum;` inside the `ty`/`tx` loop (relying on `TileAccum`'s
+own constructor to zero it); `resolveOneTile()` instead calls
+`accum.clear()` on a `TileAccum` constructed once outside the loop and
+reused across every tile. `core/splat.cpp`'s own `TileAccum::TileAccum()`
+and `TileAccum::clear()` both zero every bank identically (the
+constructor `fill()`s each bank with a freshly-value-initialised
+`std::vector<AccumCell>`; `clear()` `fill()`s each existing bank's
+elements with `AccumCell{}`, the same all-zero state) — read directly in
+`core/splat.cpp` before relying on it, not assumed. This is also exactly
+what `TileAccum::clear()`'s own doc comment already anticipated: "e.g.
+for reuse across tiles (WU-16's per-worker bin arenas will want this)."
+
+**"Per-worker bin arena," in this unit's own scope: one `TileAccum` plus
+one `AccumCell` scratch buffer per worker, for the pool's lifetime.**
+`core/pipeline.cpp`'s threaded path allocates exactly `pool.size()`
+`TileAccum`s and `pool.size()` `AccumCell` scratch vectors once, before
+`runOnAll()`, indexed by `workerIndex` — each worker's own
+`resolveOneTile()` calls, for every tile it is assigned, read and write
+only its own arena entry, calling `.clear()` between tiles the same way
+the single-threaded path now does. No worker ever touches another
+worker's arena, and no locking is needed inside the hot per-tile loop at
+all: `TileBins::tile()` is read-only during PASS 2 (PASS 1 has already
+fully returned, synchronously, on the calling thread, before
+`pool.runOnAll()` is ever invoked — a plain happens-before edge, no
+"generation" needed for that half), and each tile writes a disjoint block
+of `dest`'s pixels (its own `originX`/`originY`, `localWidth`/
+`localHeight`), so two workers can never write the same `dest` index.
+Confirmed empirically as well as reasoned through: the full suite was run
+under ThreadSanitizer (`-fsanitize=thread`, GCC 13) as well as ASan+UBSan
+— see "Verification" — specifically because this is the first unit in
+the project with more than one thread of execution inside `scatter-core`
+at all, and reasoning about the absence of a data race is exactly the
+kind of claim this project's own C-012/C-011 lessons say to check
+empirically rather than trust on inspection alone.
+
+**Tile partitioning: static, interleaved (`tileIndex % pool.size()`), not
+work-stealing.** Simplest scheme that gives every worker a share of tiles
+differing by at most one, computed with no shared mutable state and no
+per-tile synchronisation cost. I6 (integer addition is associative) means
+correctness does not depend on *which* worker processes *which* tile, or
+in what order any of them finish — only that every tile is processed by
+exactly one worker and every worker's own writes land in the disjoint
+block that tile owns — so there is no correctness reason to prefer a
+fancier scheme, and no throughput measurement from this session's own
+Linux cloud sandbox (a different core count and memory hierarchy from the
+M1 Max) would be a meaningful basis for choosing one. Load-balancing
+tuning (uneven per-tile fragment cost, e.g. a heavily-magnified tile
+under C-011's own lesson costing much more to splat than a sparse one) is
+explicitly not decided here — flagged as a possible future refinement,
+not scoped or built.
+
+**QoS: `setWorkerQoS()`, Apple-only, unverified this session — same
+shape and same caveat ADR-031/032 already used for WU-14/WU-15a's own
+Apple-only surfaces.** architecture.md section 6's own "Apple Silicon
+gotcha" is quoted directly in `core/pipeline.hpp`'s own comment:
+`pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)`, called
+once by each worker thread at startup, guarded by `#ifdef __APPLE__` (via
+`<pthread/qos.h>`) and a no-op everywhere else — the same "fail soft on a
+platform that does not have this surface at all" shape ADR-031's
+`BLACKMAGIC_SDK_DIR` guard already uses for a different Apple-only
+dependency, for the same underlying reason (ADR-013: `scatter-core` must
+keep building and testing in the Linux cloud sandbox, no Apple toolchain,
+unchanged). **This one function is unverified by this session**: no
+AppleClang/Xcode toolchain exists in the Linux cloud sandbox this unit
+was implemented in, so neither the exact header (`<pthread/qos.h>`) nor
+the exact call signature has been compiled against Apple's own headers —
+only reasoned through from architecture.md's own quoted call and Apple's
+documented API shape. It is also, by its own nature, not something any
+test in this Linux sandbox could meaningfully assert about even if it did
+compile there (no QoS classes to introspect on a platform that does not
+have them) — `tests/test_threading.cpp`'s own
+`test_set_worker_qos_does_not_crash()` only confirms the (here, no-op)
+call links and returns. Everything else this unit builds — `ThreadPool`
+itself, the tile partition, `resolveOneTile()`, the `threads<=1`/
+`threads>1` branch in `runFrame()` — is ordinary portable C++20 with no
+platform guard at all, and is fully verified by this session (see
+below). `WORK-UNITS.md`'s own WU-16a line stays `wip`, not `green`, until
+built and run at the real terminal, matching WU-14/WU-15a's own
+precedent for exactly this "one small Apple-only piece unverified, the
+rest is not" situation.
+
+**`PipelineParams::threads`, a new field on an existing struct, not a new
+parameter to `runFrame()`.** `core/resolve.hpp`'s `PipelineParams`
+(ADR-026) gains one field, `threads = 1`, rather than `runFrame()` itself
+gaining a new parameter — every existing caller (WU-10 through WU-15b's
+own tests, none of which this session touches) keeps compiling unchanged
+and keeps taking the exact single-threaded path it always has, since a
+default-constructed or explicitly-listed `PipelineParams` that never
+mentions `threads` gets `1`. This is an additive change to a struct's own
+field list, not a rename or a signature change to anything
+`SESSION-PROTOCOL.md` rule 2 calls fixed — the same kind of addition
+ADR-026 itself made when it gave `Background` a defaulted field, and the
+same "extend, don't touch existing behaviour" shape WU-12b's own
+`compositeLayered()` addition to `core/resolve.hpp` already used next to
+the untouched `composite()`.
+
+**Per-frame `ThreadPool` construction, not a caller-owned persistent
+pool — deliberately left for WU-19.** `runFrame()`'s own signature is
+unchanged (`lattice`, `src`, `params`, `dest` — no pool parameter), so
+when `params.threads > 1` it constructs a local `ThreadPool` for the
+duration of that one call and lets it go out of scope (join) before
+returning. This spawns and joins `params.threads` OS threads on every
+such call, real overhead a genuinely persistent, reused-across-frames
+pool would avoid — but WU-16's own accept criterion is about
+determinism, not throughput, and `WORK-UNITS.md`'s own next Phase-4 unit,
+WU-19 ("Real time at 576i25"), is explicitly where per-frame overhead and
+real-time scheduling become this project's actual job to solve, not
+before it exists to solve them — the same "do not answer a question the
+unit whose job it is has not been reached yet to ask" reasoning ADR-026
+already used for the k-buffer's own background question (WU-28) and
+ADR-030 used for a keyframe-sequence type (no orchestration layer for one
+exists yet). Not decided here, deliberately.
+
+**Not decided here, deliberately, and named for whoever builds WU-16b:**
+PASS 1's own row-band partitioning and private per-tile bin arena *during
+generation* (architecture.md section 6's fuller sketch) — needs a
+row-range-aware entry point on `core/binner.cpp`'s `generateFragments()`
+that leaves the `v`-parameter denominator keyed to the source raster's
+*whole* height, not a band's, plus a merge step so PASS 2 can read every
+worker's own generation-time arena for a given tile rather than the
+single `TileBins` PASS 1 currently produces; per-tile load-balancing
+beyond static interleaving; and a persistent, caller-owned `ThreadPool`
+that `runFrame()` can reuse across many calls instead of constructing one
+per call (WU-19's own job, immediately above). None of these are begun
+here.
+
+**Verification.** Built and tested in a Linux cloud sandbox (not the
+device bridge's own more limited Linux VM this session also had
+available — a separate, full Ubuntu 24.04 sandbox with Clang 18.1.3 and
+GCC 13.3.0, cmake 3.28, ninja) across the same matrix prior core-only
+units used: Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4
+and 5 (eight configurations, all fifteen tests green — the fourteen
+carried over unchanged plus `tests/test_threading.cpp`, ~1.5 million
+checks in that one binary alone, zero warnings under this project's full
+`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` set,
+ADR-017), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes (clean, no ASan/UBSan
+report) and, new for this unit specifically because it is the first with
+genuine concurrency inside `scatter-core`, GCC 13 with `-fsanitize=thread`
+(clean, no data race reported, both across the full suite and standalone
+against `test_threading` under `TSAN_OPTIONS=halt_on_error=0` to surface
+every report rather than stop at the first). `WORK-UNITS.md`'s own
+WU-16a line stays `wip`, not `green`, pending only `setWorkerQoS()`'s own
+Apple-only branch being built and run at the real terminal — everything
+else above is fully verified by this session.
+
+Does not reopen `docs/architecture.md`, ADR-002, ADR-008, ADR-013,
+ADR-015, ADR-017, ADR-024, ADR-026, ADR-029 or ADR-031 — same relationship
+every ADR since ADR-020 has to the document; ADR-015's single-threaded
+oracle is preserved deliberately (see "The `threads <= 1` path," above),
+not weakened; ADR-024's tile binning and ADR-002's four-bank split are
+read as fixed inputs, unaltered, the same way ADR-024 itself already
+reused ADR-023; ADR-026's own anticipation of `pipeline.hpp` and its
+`PipelineParams` are both extended, not amended; and ADR-031's
+`BLACKMAGIC_SDK_DIR`-style "fail soft on a platform without this surface"
+shape is reused for a second, unrelated Apple-only dependency, not
+altered.

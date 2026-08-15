@@ -73,7 +73,15 @@ endif()
 # DECISIONS.md ADR-030) -- no new source file for scatter-core itself,
 # same "extend an existing file" shape as WU-12b, only its own new test
 # executable below.
+#
+# WU-16 adds src/core/pipeline.hpp (new -- ADR-026 already anticipated its
+# arrival at this unit) and extends the existing src/core/pipeline.cpp with
+# a ThreadPool and a threaded PASS 2 (architecture.md section 6; DECISIONS.md
+# ADR-040). Needs the platform thread library -- Threads::Threads, below --
+# which no earlier unit has required.
 # ---------------------------------------------------------------------------
+find_package(Threads REQUIRED)
+
 add_library(scatter-core STATIC
     src/video/v210.cpp
     src/video/chroma.cpp
@@ -89,6 +97,7 @@ add_library(scatter-core STATIC
     src/core/shapes/pageturn.cpp)
 target_include_directories(scatter-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(scatter-core PUBLIC cxx_std_20)
+target_link_libraries(scatter-core PUBLIC Threads::Threads)
 
 # ---------------------------------------------------------------------------
 # Warnings and architecture flags
@@ -149,6 +158,8 @@ scatter_test(test_shapes)
 scatter_test(test_pageturn)
 scatter_test(test_layered_composite)
 scatter_test(test_morph)
+scatter_test(test_threading)
+target_include_directories(test_threading PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

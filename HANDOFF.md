@@ -3,101 +3,164 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 19
-**Tag:** `wu-15a-green`, still the current recovery point — nothing new
-was built this session, so no new tag.
-**Phase:** 3 (SDI output) is done in full, as of session 18. This session
-did one small piece of forward-looking documentation work ahead of Phase
-4/5, at Steve's own request, then handed off to a new chat for WU-16.
+**Session:** 20
+**Tag:** `wu-15a-green` is still the most recent *tag* — this session's own
+work (WU-16a) is implemented, committed and verified in a Linux cloud
+sandbox, but is **not tagged `wu-16a-green` yet**: one piece is
+unverified (see below), and per this project's own established practice,
+the assistant does not run `./tools/close.sh` — that, and the tag it
+produces, is Steve's own action at the real terminal.
+**Phase:** 3 (SDI output) remains done in full, unchanged since session
+18. Phase 4 (Threading and NEON) is now under way: this session scoped
+and built WU-16a (thread pool, QoS, per-worker bin arenas — PASS 2's own
+tile-parallelism), the first unit of the phase.
 
-**This was a short, decision-only session — no hardware access, no code
-touched.** Steve asked to close out `DECISIONS.md` ADR-037's own third
-named follow-up: naming the UltraStudio Recorder 3G explicitly, rather
-than leaving future capture-side work (WU-20 onward) to describe a
-generic "input device" the way `docs/architecture.md`'s own Input
-subsection and `WORK-UNITS.md`'s bare WU-20 heading both still did.
+**This session did real scoping before writing any code, per
+`SESSION-PROTOCOL.md`'s own discipline and Steve's own brief.**
+`WORK-UNITS.md`'s WU-16 line was bare going in — a title and one accept
+criterion, no `Files:` — and `docs/architecture.md` section 6 describes a
+fuller two-pass design (PASS 1 row-band parallelism with per-worker
+generation-time bin arenas, *and* PASS 2 tile-parallelism) than fits
+`SESSION-PROTOCOL.md`'s "3 source files" cap without reopening
+`core/binner.hpp`/`.cpp` (WU-08, frozen). Split the same way this project
+has split an over-scoped unit before (ADR-028's WU-12a/WU-12b, ADR-032's
+WU-15a/WU-15b): **WU-16a (this session) is PASS 2's tile-parallelism
+alone; WU-16b (not this session, not yet scoped with `Files:`/`Accept:`)
+is PASS 1's row-band parallelism**, named in `WORK-UNITS.md` for whoever
+picks it up next. See `DECISIONS.md` ADR-040 for the full design and
+reasoning — it is long, because this is the first unit in the project
+with genuine concurrency inside `scatter-core` and there was real design
+surface to cover (thread pool shape, per-worker arena reuse, tile
+partitioning, why the single-threaded oracle path stays completely
+separate from the new machinery, the QoS platform guard).
 
-**1. `DECISIONS.md` ADR-039, appended.** Names the UltraStudio Recorder 3G
-as the input target for all of Phase 5 (WU-20/21/22) — the mirror of what
-WU-15b (session 18) already did for the Monitor 3G by exercising it
-directly. Does **not** scope WU-20 itself — no `Files:`/`Accept:` lines,
-no code — only fixes which physical device that future scoping targets.
-Explicitly does not edit `docs/architecture.md`: consistent with this
-project's own established convention (no ADR since ADR-020 has ever
-edited that document, including ADR-037 itself), `architecture.md`'s
-Input subsection stays as originally written, describing the 4K Mini;
-`DECISIONS.md`'s own ADRs remain what a session trusts for current
-hardware truth. Genlock (ADR-037's own second follow-up) is untouched —
-still deferred to whichever session actually writes `decklink_input.cpp`.
+**1. `src/core/pipeline.hpp`, new.** `ThreadPool` (persistent worker
+threads, a generation-counter dispatch that doubles as a barrier across
+two consecutive `runOnAll()` calls) and `setWorkerQoS()` (Apple-only
+`pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)`, a no-op
+elsewhere). Arrives exactly where ADR-026 (WU-10) said it would.
 
-**2. `WORK-UNITS.md`'s WU-20 heading, given a short pointer note.** Names
-the Recorder 3G, references ADR-039, and reminds whichever session
-actually scopes WU-20 to read the real SDK's `IDeckLinkInput`/
-capture-callback shape first (ADR-031/032's own established
-reading-before-scoping discipline) rather than trust `architecture.md`'s
-own unrevised, 4K-Mini-framed Input subsection.
+**2. `src/core/pipeline.cpp`, extended.** `runFrame()` now branches on
+`PipelineParams::threads`: `<= 1` runs the exact WU-10 loop, refactored to
+share a new `resolveOneTile()` helper but otherwise untouched and never
+touching `ThreadPool` at all (the oracle, ADR-015, stays independently
+simple); `> 1` constructs a local `ThreadPool`, gives each worker its own
+persistent `TileAccum` + `AccumCell` scratch buffer (the "per-worker bin
+arena" this unit's own scope covers), and statically partitions
+`TileBins`' own tiles across workers by `tileIndex % threads`.
 
-**No corrections this session.** Nothing earlier was found wrong — this
-session only closed a follow-up ADR-037 had already named and explicitly
-deferred, which is normal, expected work, not an error to log in
-`CORRECTIONS.md`.
+**3. `src/core/resolve.hpp`, one field added.** `PipelineParams::threads`,
+default `1` — additive, every existing caller unchanged.
 
-**Tests / Build:** unchanged — no `src/`, `tests/` or `CMakeLists.txt`
-file was touched this session.
+**4. `tests/test_threading.cpp`, new.** Direct `ThreadPool` checks
+(dispatch reaches every worker exactly once per round, clean teardown)
+plus the literal accept criterion: a genuinely warped (cylinder over a
+zone plate), multi-tile, non-tile-size-multiple frame run at
+`threads` in `{0, -3, 1, 2, 3, 5, 8, 16}`, every one checked bit-for-bit
+against the `threads == 1` reference; a second, differently-shaped
+geometry checked at `threads == 1` vs `8` specifically.
+
+**5. `CMakeLists.txt`.** `find_package(Threads REQUIRED)`,
+`Threads::Threads` linked into `scatter-core` (first unit that needed
+it), `test_threading` added.
+
+**No corrections this session.** Nothing earlier was found wrong.
+
+**Tests / Build:** all fifteen tests green (fourteen carried over
+unchanged, plus `test_threading`) across Clang 18 and GCC 13, Release and
+Debug, `SCATTER_TILE_LOG2` 4 and 5 — eight configurations, zero warnings
+under this project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set — plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes (clean) and GCC 13 with `-fsanitize=thread` (clean — no data race;
+run both across the full suite and standalone against `test_threading`
+under `TSAN_OPTIONS=halt_on_error=0` to surface every report rather than
+stop at the first). All of this ran in a Linux cloud sandbox (a full
+Ubuntu 24.04 environment, not the device bridge's own more limited Linux
+VM), the same kind of verification WU-01 through WU-13 describe doing
+before their own real-terminal `close.sh` run.
+
+**What is NOT verified, and why this line stays `wip`:**
+`setWorkerQoS()`'s `#ifdef __APPLE__` branch — the actual
+`pthread_set_qos_class_self_np` call and its `<pthread/qos.h>` header —
+has never been compiled against real Apple headers; no AppleClang/Xcode
+toolchain exists anywhere this session had access to. Same gap
+ADR-031/032 already named for WU-14/WU-15a's own first Apple-only
+surfaces, same resolution: needs the real terminal.
 
 ## Where we are
 
 Phase 3 (SDI output) remains done in full (WU-14/15a/15b, session 18).
-Phase 4 (Threading and NEON) and Phase 5 (Live capture) are both still
-`todo` — WU-20 now carries an explicit device name and a pointer to
-ADR-039, but is otherwise unscoped. `DECISIONS.md` runs through ADR-039;
-`CORRECTIONS.md` is unchanged since C-014 (session 18).
+Phase 4: WU-16a implemented, committed, verified except for one
+Apple-only function (above) — `wip`, not `green`. WU-16b (PASS 1's own
+row-band parallelism) is named in `WORK-UNITS.md` but not scoped or
+built. `DECISIONS.md` now runs through ADR-040; `CORRECTIONS.md` is
+unchanged since C-014 (session 18).
 
 **Corrections this session:** none.
 
-**Delivery mechanics:** ran remotely via the device-bridge tools
-throughout, same as every session since WU-14 — touched only
-`DECISIONS.md`, `WORK-UNITS.md` and this file; no `src/`, `tests/` or
-`CMakeLists.txt` change. One commit this session — see `git log` for its
-actual hash, made after this file was written. Working tree is clean as
-of this handoff.
+**Delivery mechanics:** ran remotely via the device-bridge tools, same as
+every session since WU-14, for reading the repository's state and for
+this handoff's own final commit — but the actual implementation and
+verification work (writing `pipeline.hpp`/`.cpp`, `resolve.hpp`,
+`test_threading.cpp`, and the full eight-configuration + ASan/UBSan +
+TSan matrix above) was done in a separate Linux cloud sandbox, not the
+device bridge's own Linux VM, because that sandbox has the compilers and
+`nproc` headroom this unit's own verification needed. Final files were
+written back to the real repository via the device bridge and committed
+from there. One commit this session — see `git log` for its actual hash.
+Working tree is clean as of this handoff.
 
 ## Next work unit
 
-**WU-16** (thread pool, QoS, per-worker bin arenas — Phase 4, `8-thread
-output bit-identical to single-threaded`, I6) is next, per Steve's own
-choice going into a new chat. Session 18's other two ADR-037 follow-ups —
-the `test_decklink_device.cpp` full-duplex check that no longer describes
-the real hardware, and genlock for two independent-clock devices — remain
-open and unresolved, named here so whichever session eventually picks
-Phase 5 back up sees them; neither blocks WU-16, which is pure `src/core/`
-work with no DeckLink involvement at all.
+**Steve's own next action is at the real terminal, not a new work unit
+yet:** pull this session's commit, `cmake -B build && cmake --build
+build`, confirm `setWorkerQoS()`'s Apple branch actually compiles
+(`<pthread/qos.h>`, `pthread_set_qos_class_self_np`'s exact signature —
+flagged unverified above), then `./tools/close.sh 16a`. If it builds and
+the full suite passes, tag `wu-16a-green` by hand the same way
+`wu-15a-green` was (ADR-035's own precedent for a session-flagged
+exception a script cannot itself judge) — though here there is no known
+exception to accept, just an unverified-until-now compile to confirm; if
+it is red, record the failure verbatim here per `SESSION-PROTOCOL.md` and
+the next session starts there instead of at WU-16b.
+
+Once WU-16a is confirmed green: **WU-16b** (PASS 1 row-band parallelism,
+per-worker generation-time bin arenas — see `DECISIONS.md` ADR-040 and
+`WORK-UNITS.md`'s own WU-16b heading) is next in Phase 4, followed by
+WU-17 (NEON v210 unpack/pack) and WU-18/19 as already listed.
 
 ## Open questions
 
 Unchanged: Q1 (tile size), Q3 (macOS/Desktop Video version), Q4 (lattice
-edge damping, C-008(a)). Q2 (4K Mini program outputs) remains moot per
-ADR-037. ADR-037's own follow-ups #1 (full-duplex check) and #2 (genlock)
-remain open, unresolved this session — only follow-up #3 (Recorder 3G
-naming) was closed.
+edge damping, C-008(a)). Q2 remains moot per ADR-037. ADR-037's own
+follow-ups #1 (`test_decklink_device.cpp`'s full-duplex check) and #2
+(genlock) remain open, unrelated to this session's own work — Phase 5's
+problem, not Phase 4's.
+
+New, this session: whether `setWorkerQoS()`'s Apple branch compiles
+as written (above) — the one thing standing between WU-16a and `green`.
 
 ## Blocked / red
 
-Nothing red, nothing blocked.
+Nothing red. WU-16a is `wip` pending the real-terminal confirmation
+above, not blocked — every portable-C++ part of it is fully verified.
 
 ## Environment check
 
-Unchanged from session 18 (ADR-037/039): **UltraStudio Monitor 3G** is
-the active, confirmed output target (WU-15a/15b). **UltraStudio Recorder
-3G** is in hand, now named explicitly (ADR-039) as Phase 5's own input
-target, but still untouched by any code. **UltraStudio 4K Mini** remains
-on hold pending a PSU replacement, not part of the active plan.
+Unchanged from session 18/19 (ADR-037/039): **UltraStudio Monitor 3G** is
+the active, confirmed output target. **UltraStudio Recorder 3G** is in
+hand, named (ADR-039) as Phase 5's own input target, still untouched by
+any code. **UltraStudio 4K Mini** remains on hold pending a PSU
+replacement. None of this is relevant to WU-16a/16b — pure `src/core/`
+work, no DeckLink, no hardware.
 
 ## Append to DECISIONS.md
 
-ADR-039 was appended in full this session; see `DECISIONS.md`. Does not
-reopen ADR-006, ADR-013, ADR-034 or ADR-037 — extends ADR-037's own
-device-naming decision to the one place it explicitly left open.
+ADR-040 was appended in full this session; see `DECISIONS.md`. Does not
+reopen `docs/architecture.md`, ADR-002, ADR-008, ADR-013, ADR-015,
+ADR-017, ADR-024, ADR-026, ADR-029 or ADR-031 — see ADR-040's own closing
+paragraph for the precise relationship to each.
 
 ## Append to CORRECTIONS.md
 
@@ -107,6 +170,26 @@ Nothing this session.
 
 ## What to run at your terminal
 
-Nothing outstanding — no code changed, nothing to build or test. WU-16 is
-being picked up in a new chat next; this file is the state that session
-should open by reading, per `SESSION-PROTOCOL.md`'s own order.
+```
+cd ~/src/scatter-dve
+git log -1                       # confirm this session's commit landed
+cmake -B build && cmake --build build
+```
+
+Watch specifically for whether `src/core/pipeline.cpp`'s
+`#if defined(__APPLE__)` block (the `setWorkerQoS()` implementation, near
+the top of the file) compiles — `<pthread/qos.h>`,
+`QOS_CLASS_USER_INTERACTIVE`, `pthread_set_qos_class_self_np`'s exact
+signature are all unverified against real Apple headers (see above). If
+it does not compile as written, the fix is local to that one `#ifdef`
+block; nothing else in this unit depends on its exact shape.
+
+If it builds:
+
+```
+ctest --test-dir build --output-on-failure
+```
+
+then `./tools/close.sh 16a` if that's green, and report the result back
+(paste any failure verbatim per `SESSION-PROTOCOL.md` if it's red — the
+next session starts there rather than at WU-16b).
