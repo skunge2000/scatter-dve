@@ -237,7 +237,7 @@ WU-12b's opaque-with-priority-tag). The WU-12a/WU-12b split above is not
 reconciled back into a single WU-12 entry — permanent record of how the
 work actually split, the same precedent WU-04's session set correcting
 WU-03's stale status line in place rather than erasing it.
-### WU-13 — Keyframed lattices, temporal interpolation (morph) `wip`
+### WU-13 — Keyframed lattices, temporal interpolation (morph) `green`
 **Files:** `src/core/lattice.hpp`, `src/core/lattice.cpp`, `tests/test_morph.cpp`
 (new).
 **Accept:** see `DECISIONS.md` ADR-030 for the full design (keyframe count,
@@ -257,6 +257,18 @@ interpolant differentiates correctly on real blended surface data. No
 `runFrame()`-level check — this unit sits at WU-06's own layer (pure lattice
 mathematics, proven against `Lattice`'s own public API), not the shape
 layer WU-11/WU-12a sit at; see ADR-030's own reasoning.
+*Done:* `wu-13-green` tagged. Implemented and verified in a Linux cloud
+sandbox first — Clang 18 and GCC 13, Release and Debug, `SCATTER_TILE_LOG2`
+4 and 5 (eight configurations, all fourteen tests green, zero warnings,
+checked explicitly in the build logs), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes: clean, no ASan or UBSan report. `tests/test_morph.cpp`: 150189
+checks (Clang 18, Release, tile 2^5). `./tools/close.sh 13` then ran clean
+on the M1 Max with AppleClang (Release, tile 2^5, the config `close.sh`
+builds) on the first attempt — all fourteen tests passed, no
+cloud/AppleClang divergence this time (unlike WU-11's own C-012). Phase 2
+(Shapes) is now done in full: cylinder, sphere, both page-turn compositing
+modes, and keyframed/morphed lattices are all reproduced.
 
 ---
 

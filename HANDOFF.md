@@ -4,16 +4,16 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 14
-**Tag:** still `wu-12b-green` — no new tag yet. WU-13 is implemented and
-fully verified in a Linux cloud sandbox (see "Tests"/"Build" below) but
-`./tools/close.sh 13` has not been run on the M1 Max with AppleClang yet —
-that needs a human at the real terminal (cloud sessions cannot reach
-AppleClang). `WORK-UNITS.md`'s WU-13 line is marked `wip`, not `green`,
-until that happens.
-**Phase:** 2 — Shapes, done as of WU-12 (`wu-12b-green`). WU-13 —
-keyframed lattices, temporal interpolation (morph) — is Phase 2's own last
-listed unit in `WORK-UNITS.md` and is implemented this session. Phase 3
-(SDI output, WU-14/WU-15) is next once WU-13 closes green.
+**Tag:** `wu-13-green` — confirmed. `./tools/close.sh 13` ran clean on
+the M1 Max with AppleClang (Release, tile 2^5, the config `close.sh`
+builds) on the first attempt — all fourteen tests passed, no
+cloud/AppleClang divergence this time (unlike WU-11's own C-012).
+**Phase:** 2 — Shapes, **done in full**. Cylinder and sphere (WU-11), both
+of US 4,563,703 FIG. 5's page-turn compositing modes (WU-12a/WU-12b), and
+now keyframed lattices with temporal interpolation (WU-13, "Mirage's
+morph") are all reproduced. `WORK-UNITS.md`'s own ordering names WU-14 —
+DeckLink device enumeration and `ComPtr` — next, starting Phase 3 (SDI
+output). See "Next work unit" below for what's different about it.
 
 **This session's own first job was design, not implementation** — WU-13
 went into the session as a bare `### WU-13 ... `todo`` line with no
@@ -33,37 +33,33 @@ split. The unit fit within SESSION-PROTOCOL.md's sizing cap as scoped —
 two source files touched (`core/lattice.hpp`, `core/lattice.cpp`), one new
 test file — so no WU-13a/WU-13b split was needed.
 
-**Tests:** All fourteen green in the Linux cloud sandbox (the thirteen
-carried over unchanged from WU-01 through WU-12b plus `test_morph.cpp`,
-new this session): boundary reductions at `t == 0`/`t == 1` checked exact
-(`==`, every one of 16641 control vertices, both keyframes — the blend
-formula is specifically chosen to be rounding-free there, see ADR-030), an
-interior `t == 0.35` checked against an independently-computed reference
-blend at tight relative tolerance (`1e-12`, C-012), and `Lattice::
-jacobian()`'s analytic derivatives checked against central differences
-(WU-06's own method, reused) at 20 representative `(u, v)` points across 5
-different morph fractions, on a lattice morphed from two distinct,
-genuinely curved keyframes (a page-turn mid-curl, which has its own
-flat/curl seam, blended with a cylinder at a different radius/span/centre)
-— 150189 checks in `test_morph.cpp` alone (Clang 18, Release, tile 2^5).
-No `runFrame()`-level check — ADR-030 records why this unit sits at WU-06's
-own layer (pure lattice mathematics) rather than the shape layer.
+**Tests:** All fourteen green on the M1 Max: the thirteen carried over
+unchanged from WU-01 through WU-12b plus `test_morph.cpp`, new this
+session (boundary reductions at `t == 0`/`t == 1` checked exact, every one
+of 16641 control vertices, both keyframes; an interior `t == 0.35` checked
+against an independently-computed reference blend at tight relative
+tolerance, `1e-12`, C-012; and `Lattice::jacobian()`'s analytic derivatives
+checked against central differences, WU-06's own method, at 20
+representative `(u, v)` points across 5 different morph fractions, on a
+lattice morphed from two distinct, genuinely curved keyframes — a
+page-turn mid-curl, which has its own flat/curl seam, blended with a
+cylinder). 150189 checks in `test_morph.cpp` alone (Clang 18, Release,
+tile 2^5, in the cloud sandbox; `close.sh`'s own run reports pass/fail per
+executable, not a check count). No `runFrame()`-level check — this unit
+sits at WU-06's own layer (pure lattice mathematics), not the shape layer
+WU-11/WU-12a sit at; see `DECISIONS.md` ADR-030.
 
-Verified in the Linux cloud sandbox (no AppleClang there) on Clang 18 and
-GCC 13, under the project's exact warning set (`-Wall -Wextra -Wpedantic
--Wconversion -Wsign-conversion -Werror`), Release and Debug,
-`SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all fourteen tests
+Before that, this session verified in a Linux cloud sandbox (no AppleClang
+there) on Clang 18 and GCC 13, under the project's exact warning set
+(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`),
+Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all
 green, zero warnings — checked explicitly in the build logs, not just exit
 codes), plus GCC 13 with `-fsanitize=address,undefined
 -fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
 UBSan report anywhere — same practice as every session since WU-06.
 
-**Not yet verified:** `./tools/close.sh 13` on the M1 Max with AppleClang
-(Release, tile 2^5, the config `close.sh` builds). Please run it — see
-"Next work unit" below.
-
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on Clang 18
-and GCC 13 in the cloud sandbox. AppleClang not yet checked this session.
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
+AppleClang (M1 Max), Clang 18 and GCC 13.
 
 ## Where we are
 
@@ -108,10 +104,14 @@ full reasoning, including the unclamped-`t` convention and why no
 **Corrections this session:** none. No implementation choice made while
 writing `core/lattice.cpp` or `tests/test_morph.cpp` turned out to
 contradict an earlier claim in `DECISIONS.md`, `INVARIANTS.md` or
-`CORRECTIONS.md`. The blend formula's bit-exactness at `t == 0`/`t == 1`
-was checked directly (exact-equality tests in `tests/test_morph.cpp`),
-not merely assumed from the C-012 reasoning alone, and held on both Clang
-18 and GCC 13.
+`CORRECTIONS.md` — the blend formula's bit-exactness at `t == 0`/`t == 1`
+was checked directly (exact-equality tests in `tests/test_morph.cpp`), not
+merely assumed correct. `close.sh 13` itself also came back green on the
+first attempt — no platform-specific floating-point divergence this
+session, unlike WU-11's own experience with C-012 (this unit's own
+exact-equality checks are provably rounding-free by construction — see
+ADR-030 — rather than two independently-shaped expressions the way C-012's
+own trigger was).
 
 **Delivery mechanics, not a design matter:** this session ran remotely,
 via the device-bridge tools connecting to this machine, same as sessions 6
@@ -126,37 +126,40 @@ it now holds further accumulated debris from this session on top of prior
 ones. Git identity was already set locally on this mount from a prior
 session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
 against `git log`/`git config` before committing), so nothing needed
-reconfiguring.
+reconfiguring. `./tools/close.sh 13` was, as before, run by hand at the
+real terminal.
 
 ## Next work unit
 
-**First: close WU-13.** Run `./tools/close.sh 13` at the real terminal on
-the M1 Max. If it comes back green, tag `wu-13-green` and update
-`WORK-UNITS.md`'s WU-13 status line from `wip` to `green` (this session
-left it `wip` deliberately — see SESSION-PROTOCOL.md, "do not run
-close.sh yourself" is a cloud-session limitation, not a sign anything is
-suspect). If it comes back red, the failure is most likely a
-cross-compiler floating-point comparison the cloud sandbox's Clang
-18/GCC 13 combination did not surface — the same class of issue C-012
-found at WU-11 — since `test_morph.cpp`'s own exact-equality checks
-(`t == 0`/`t == 1`) are the most C-012-sensitive code this session wrote;
-if that class of failure shows up, loosen the specific failing check to a
-tight relative tolerance within `tests/test_morph.cpp` alone (no
-production code change expected), the same fix WU-11's own session made.
+`WORK-UNITS.md`'s strict ordering ("Units are ordered; do not skip") names
+WU-14 — DeckLink device enumeration and `ComPtr` — next, starting Phase 3
+(SDI output). Still `todo`, no **Files:**/**Accept:** filled in.
 
-**Then:** `WORK-UNITS.md`'s strict ordering ("Units are ordered; do not
-skip") names WU-14 — DeckLink device enumeration and `ComPtr` — next,
-starting Phase 3 (SDI output). Still `todo`, no **Files:**/**Accept:**
-filled in. Unlike WU-13, WU-14 is genuinely new ground for this project —
-the first unit to link the Blackmagic DeckLink SDK and the first to touch
-`src/io/` beyond the SDK-free `file_source.cpp`/`file_sink.cpp` ADR-021
-already carved out — so expect a next session to need real research into
-the SDK's `ComPtr`/`IDeckLinkIterator` shape (architecture.md 7) before
-scoping, not just a re-read of an existing architecture.md section the way
-WU-13 (4.1) and WU-11/12 (4.7) could. It also cannot be built or tested in
-a Linux cloud sandbox at all — no Blackmagic SDK there — so expect that
-session's own implementation and verification to need to happen directly
-on the M1 Max, a different delivery shape than every session since WU-06.
+WU-14 is a different kind of unit from every one since WU-06, in two
+ways worth flagging for whichever session starts it:
+
+- It is genuinely new ground, not a "re-read one architecture.md section
+  and fill in a parametrisation" gap the way WU-11/WU-12/WU-13 all were.
+  architecture.md 7 sketches the DeckLink SDK's shape (COM-style
+  `AddRef`/`Release`, `CreateDeckLinkIteratorInstance()`, a small
+  intrusive `ComPtr`) but real research into the actual SDK headers will
+  likely be needed before `WORK-UNITS.md`'s WU-14 **Files:**/**Accept:**
+  lines can be scoped honestly, not just a re-read of already-in-repo
+  material.
+- It cannot be built or tested in a Linux cloud sandbox at all — no
+  Blackmagic SDK there, and `src/io/com_ptr.hpp`/`decklink_*.cpp` are
+  exactly the files ADR-021 carved *out* of `scatter-core` for this
+  reason. Every session since WU-06 has implemented and run its full
+  verification matrix in a disposable cloud sandbox first, writing only
+  finished files to this machine afterward; WU-14 cannot follow that
+  shape; expect that session's own implementation and verification to
+  need to happen directly on the M1 Max instead.
+
+Also worth doing before WU-14 starts, and independent of it: the Desktop
+Video / UltraStudio 4K Mini smoke test flagged as outstanding since
+session 2 (see "Environment check still outstanding" below) — WU-14 is
+the first unit that actually needs the device to enumerate, so confirming
+it does now avoids finding out mid-unit.
 
 ## Open questions
 
@@ -174,21 +177,21 @@ resolved — see "Design choices" above.
 
 ## Blocked / red
 
-Nothing red. WU-13 is `wip`: implemented and fully verified in the cloud
-sandbox, waiting only on `./tools/close.sh 13` at the real terminal (see
-"Next work unit").
+Nothing. WU-13 closed green; Phase 2 as a whole done.
 
 ## Environment check still outstanding
 
-Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test,
-independent of WU-13 and costs no session time. Worth doing before WU-14
-starts, since WU-14 is the first unit that actually needs the device to
-enumerate.
+Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test.
+No longer costs no session time to defer: WU-14 (next) is the first unit
+that actually needs the device to enumerate, so this is worth doing before
+that session starts rather than during it.
 
 ## Append to DECISIONS.md
 
-ADR-030 — see `DECISIONS.md`, appended in full earlier this session.
+Nothing this update — ADR-030 was appended in full earlier this session;
+see `DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — see "Corrections this session" above.
+Nothing this update — see "Corrections this session" above; nothing to
+log, and the tag is confirmed clean, not reopened or amended now.
