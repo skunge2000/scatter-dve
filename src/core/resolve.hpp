@@ -47,6 +47,19 @@
 
 namespace scatter {
 
+// Forward-declared, not #include "core/pipeline.hpp": PipelineParams below
+// only ever holds a ThreadPool*, never calls a member on it or needs its
+// size — a pointer type needs no complete type. Keeps this header's own
+// dependency graph exactly as it was (core/binner.hpp, core/types.hpp,
+// video/raster.hpp) rather than adding an edge to core/pipeline.hpp for a
+// forward-declarable type; the same minimal-footprint judgement ADR-021/
+// ADR-026/ADR-030 already applied to "does this need a new header",
+// applied here to "does this need a new #include" instead. A caller that
+// actually constructs a ThreadPool (to pass its address into
+// PipelineParams::pool, below) must already #include "core/pipeline.hpp"
+// itself to do so.
+class ThreadPool;
+
 // ---------------------------------------------------------------------------
 // Normalise -- architecture.md 4.8's divide, in isolation.
 // ---------------------------------------------------------------------------
@@ -245,6 +258,43 @@ struct PipelineParams {
     // same lattice/src/params -- WORK-UNITS.md's own WU-16 accept
     // criterion, checked directly in tests/test_threading.cpp.
     int threads = 1;
+
+    // WU-19a (Phase 4, DECISIONS.md ADR-044): an optional, caller-owned,
+    // already-constructed ThreadPool (core/pipeline.hpp) to reuse across
+    // many runFrame() calls, completing ADR-040's own deferral ("a
+    // persistent, caller-owned ThreadPool that runFrame() can reuse
+    // across many calls instead of constructing one per call... WU-19's
+    // own job"). Default nullptr: every existing caller (WU-10 through
+    // WU-18, none of which this unit touches) keeps compiling and
+    // behaving exactly as before, byte for byte -- nullptr takes the same
+    // threads-only branch WU-16a/16b already established (construct a
+    // fresh ThreadPool for this one call if threads > 1, or the plain
+    // single-threaded oracle loop if threads <= 1).
+    //
+    // When non-null, runFrame() dispatches both of its own runOnAll()
+    // rounds against *pool directly instead of constructing and joining a
+    // local ThreadPool for the call -- the per-call spawn/join overhead
+    // WU-16a's own file comment already named as "real overhead a
+    // genuinely persistent, reused-across-frames pool would avoid". In
+    // that case pool->size() alone decides how many workers this call
+    // actually partitions its row bands and tiles across; `threads` above
+    // is not consulted at all (see core/pipeline.cpp's own runFrame() for
+    // the precise branch order) -- a caller does not need to keep the two
+    // fields in sync, and there is no way for a mismatch between them to
+    // silently corrupt output: I6 (integer addition is associative) holds
+    // regardless of how many workers a given call actually used, and
+    // *this* unit's own tests/test_persistent_pool.cpp checks the
+    // specific case where they disagree, directly.
+    //
+    // Ownership and lifetime are the caller's own responsibility, the
+    // same unchecked-precondition convention every other non-owning
+    // pointer in this codebase already uses (e.g. SourceRaster's own
+    // Sample* fields): *pool must outlive this call, and must not be
+    // concurrently driven by another runFrame() call or any other
+    // runOnAll() caller at the same time -- ThreadPool itself supports
+    // only one in-flight runOnAll() dispatch at a time, not concurrent
+    // ones.
+    ThreadPool* pool = nullptr;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

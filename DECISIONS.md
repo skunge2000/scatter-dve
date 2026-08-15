@@ -3008,3 +3008,276 @@ reused directly, not re-derived, for exactly the parts genuinely common to
 both units, while the vectorisation shape itself is worked out fresh for
 chroma's own different kind of irregularity, per the "module-layout
 question" section above.
+
+**ADR-044 — WU-19 split into WU-19a (persistent, caller-owned ThreadPool —
+this session) and WU-19b (real-time measurement at 576i25 on the M1 Max —
+Steve's own job, not scoped with Files:/Accept:); `PipelineParams::pool`'s
+design and precedence rule over `threads`; no benchmarking tool committed
+this session. Frozen at WU-19a, Phase 4's last unit.**
+
+`WORK-UNITS.md`'s own WU-19 line, going into this session, was barer than
+any prior unit's own line has been going in — not even WU-16's or WU-17's
+one-line accept criterion, just a title ("Real time at 576i25"). This
+session's own first job, per Steve's own brief and `SESSION-PROTOCOL.md`'s
+own discipline: real scoping before any code — reading `docs/architecture.md`
+section 10's own Phase 4 "done when" line ("8-thread output is bit-identical
+to single-threaded, at frame rate"), section 6 (the threading model) and
+section 11's own budget/splat discussion ("the splat is the item most likely
+to overrun... 576i25 has a 10x larger budget"), plus `src/core/pipeline.cpp`/
+`.hpp` (ADR-040/041's own current threading implementation) and
+`src/video/v210.cpp`/`chroma.cpp` (ADR-042/043's own two NEON paths) — all
+read in full before deciding what this unit actually covers, per this
+session's own brief.
+
+**The central fact this unit is scoped around: "at frame rate" is a
+real-hardware timing claim, and this project's own Linux cloud sandbox CPU
+has no relationship to the M1 Max's actual throughput.** Every prior
+Phase-4 unit's own accept criterion was a correctness statement (bit-
+identical output, ADR-040/041; bit-identical to scalar reference, ADR-042/
+043) — checkable in full inside this sandbox, the same way every unit since
+WU-01 has been. WU-19's own accept criterion, read literally off
+architecture.md's own Phase 4 "done when" line, is not: "at frame rate" is a
+wall-clock measurement against 576i25's own 40ms/frame budget (25 fps), and
+nothing about running code faster or slower in an x86_64 cloud container
+says anything true or false about whether the same code meets that budget
+on 8 M1 Max performance cores. This is the same category of limit ADR-031/
+032 already named for hardware this sandbox cannot reach at all (no
+Blackmagic SDK, no AppleClang) — except here the gap is not "cannot compile
+it here," which this sandbox has repeatedly turned out to handle better than
+expected (ADR-042's own aarch64-cross-plus-qemu discovery), but "can compile
+and run it here, and the result would not mean what it needs to mean." A
+faster or slower number from this sandbox's own CPU is not evidence either
+way about the real target hardware, so this unit does not produce one, or
+claim one — the same discipline ADR-031/032 already established for
+"reasoned through, not asserted, until the real terminal," applied here to a
+measurement problem rather than a missing-SDK problem.
+
+**What *is* checkable here, and is this session's own actual scope: the one
+concrete piece of implementation work every prior Phase-4 ADR already named
+by number as WU-19's own job and left undone.** ADR-040's own "Per-frame
+`ThreadPool` construction, not a caller-owned persistent pool — deliberately
+left for WU-19": `runFrame()` currently spawns and joins `params.threads` OS
+threads on every single call when `params.pool` — this unit's own new field
+— is absent, real overhead a persistent, reused-across-frames pool avoids,
+and real overhead this sandbox *can* observe changing (fewer OS thread
+create/join syscalls per call is not a hardware-dependent claim, it is
+countable) even though it cannot say what that overhead is worth in
+milliseconds on the M1 Max. This is squarely a correctness-preserving
+refactor: whether `runFrame()` constructs its own `ThreadPool` per call or
+is handed one that already exists, I6 (integer addition is associative)
+still guarantees bit-identical output to the `threads <= 1` oracle — the
+exact property `--threads 1` vs `--threads N` (ADR-015) already checks, and
+still the right and sufficient oracle for this unit's own change, per this
+session's own brief. WU-17's own deferred denser `vld4q_u32` v210 scheme and
+WU-18's own deferred `downsampleRowNeon` load-count reduction are **not**
+addressed here — both were explicitly deferred pending evidence from
+profiling that they are actual bottlenecks (ADR-042/043's own "not decided
+here" notes), and no profiling has happened yet; picking either up now would
+be optimising a guess, not a measurement, the opposite of what those two
+ADRs asked WU-19 to do with them.
+
+**Decision: split into WU-19a (this session, the persistent-pool lifecycle
+change) and WU-19b (not this session — Steve's own real-time measurement at
+his own terminal), the same "split when the full scope doesn't fit one
+sitting the same way" discipline ADR-028/032/040 already used for WU-12a/b,
+WU-15a/b and WU-16a/b — except the reason for the split here is not
+`SESSION-PROTOCOL.md`'s own 3-file cap (WU-19a alone comes nowhere near it,
+below) but the same "this session cannot itself assert the real thing green"
+reason ADR-032 already gave for WU-15b (an hour-long unattended hardware run
+"exceeds what 'one session, one work unit' sensibly means by a single
+sitting," and — the closer parallel here — is not a thing a session with no
+hardware access can produce evidence about at all, only reason towards).**
+
+- **WU-19a (this session).** The persistent `ThreadPool` mechanism, plus the
+  bit-identity verification this sandbox can actually perform. Scope
+  decided *before* writing code, per this session's own brief: does this
+  fit `SESSION-PROTOCOL.md`'s own 3-source-files-plus-test cap? Yes, with
+  room to spare — two source files, not three: `core/resolve.hpp` (one new
+  `PipelineParams::pool` field) and `core/pipeline.cpp` (the threaded
+  PASS-1/PASS-2 body factored out into a `runThreaded(..., ThreadPool&,
+  ...)` helper, called against either a fresh per-call pool — WU-16a/16b's
+  own unchanged behaviour — or the caller's own persistent one). No change
+  to `core/pipeline.hpp` at all: `ThreadPool`'s own public interface
+  (`size()`, `runOnAll()`) already has everything a caller needs to
+  construct one and pass its address in; the class itself needed no new
+  member, method or constructor for this unit. `Files:` below.
+- **WU-19b (not this session, not yet scheduled in `WORK-UNITS.md`'s own
+  numbering beyond this note).** The literal thing architecture.md's own
+  Phase 4 "done when" line asks for and WU-19a's own mechanism enables but
+  cannot itself verify: run `runFrame()`/`runFrameFile()` at 576i25 (720x576)
+  with a real, persistent `ThreadPool` (this unit's own `PipelineParams::pool`)
+  at a real worker count on the real M1 Max, and confirm per-frame wall-clock
+  time stays under 40ms (25 fps) — "at frame rate," architecture.md 10's own
+  words — the same "Steve's own hands-on verification, not a session's own
+  job to assert from a terminal" category WU-15b (ADR-032) already used for
+  an hour-long endurance run this project's own sandbox could not produce
+  either. Not implementation work in the WU-15b sense — no new
+  `Files:`/`Accept:` source-file lines — a simple `std::chrono` wrap around
+  a `runFrame()`/`runFrameFile()` call, timed at his own terminal, is enough
+  to get a real number; no new project machinery is committed for this,
+  the same "no committed mechanism for a hardware-only, largely one-off
+  need" choice ADR-038 already made for WU-15b's own duration edit and
+  ADR-042 already made for not committing its own aarch64 cross-toolchain
+  file. If that measurement shows the splat or either NEON path is actually
+  the bottleneck, WU-17/18's own already-named deferred refinements
+  (`vld4q_u32`, `downsampleRowNeon`'s load-count reduction) — or something
+  this session has not anticipated — become a future unit's own job to pick
+  up with real evidence behind them; not decided or scoped here.
+
+**A benchmarking tool was considered for this session's own scope and
+rejected, deliberately, not merely not thought of.** Two designs were
+weighed: (a) build a small `tools/bench_pipeline.cpp` this session, gated
+into the build, that Steve runs at his own terminal for WU-19b's own
+measurement; (b) build nothing, and let Steve time an existing entry point
+(`runFrame()`/`runFrameFile()`, both already public, unchanged) with a
+`std::chrono` wrapper of his own at the terminal, the same shape ADR-038's
+own WU-15b runbook already used (a temporary, uncommitted, hand-written
+measurement, not a permanent committed mechanism). Chosen: (b). A committed
+benchmarking tool's own numbers, produced anywhere this session can run it,
+would be exactly the kind of sandbox-CPU timing this entry's own opening
+section already explains means nothing for the real question — building one
+here would not shorten WU-19b's own real work by a single M1 Max
+millisecond, and would spend part of this unit's own file budget on tooling
+whose only genuine use is at a terminal this session cannot reach anyway.
+This is not a claim that a benchmarking tool would never be useful — if
+WU-19b's own real measurement, or a later Phase 6 tuning unit (WU-25's own
+"profile; tune tile size"), turns out to need one repeatedly rather than
+once, that is a future unit's own call to make with real motivation behind
+it, the same "not decided here" treatment this project gives every deferred
+convenience it names but does not build (ADR-037's own follow-ups, ADR-038's
+own "not decided here" on a configurable duration mechanism).
+
+**`PipelineParams::pool`: a non-owning `ThreadPool*`, default `nullptr`,
+forward-declared in `core/resolve.hpp` rather than pulled in via a new
+`#include "core/pipeline.hpp"`.** `ThreadPool` (`core/pipeline.hpp`,
+ADR-040) is used here only as a pointer type — nothing in `core/resolve.hpp`
+calls a member on it or needs its size — so a forward declaration
+(`class ThreadPool;`) is sufficient and keeps this header's own dependency
+graph exactly as it was, the same "does this need a new #include" judgement
+ADR-021/026/030 already applied to "does this need a new header." A caller
+that actually constructs a `ThreadPool` to pass its address in must already
+`#include "core/pipeline.hpp"` itself to do that, so nothing is lost by not
+pulling the dependency in here too.
+
+**Precedence when both `PipelineParams::threads` and `PipelineParams::pool`
+are set: `pool->size()` alone decides the worker count used; `threads` is
+not consulted at all in that branch.** Two designs were weighed: requiring
+the two fields to agree (and doing what — asserting, in a codebase with no
+runtime-checked preconditions anywhere else, ADR-024's own `Lattice::at()`
+convention included? silently preferring one?), or making `pool`'s own
+presence alone the complete signal, with `threads` simply unread whenever
+`pool != nullptr`. Chosen: the latter — a caller supplying a pool has
+already made the sizing decision by constructing it with a particular
+`numThreads`; asking the same caller to also keep a second field in sync
+with that decision is a foot-gun with no benefit, the same reasoning
+ADR-038 already used to reject a new parameter needing "a name, a type, a
+default, validation" for a need better met by not inventing the extra
+moving part at all. This also does not, and cannot, silently produce wrong
+output if a caller does supply a mismatched `threads` value alongside a
+real `pool` — I6 already guarantees any true partition of rows into bands
+and tiles across workers is bit-identical to the oracle regardless of
+worker count, so the only way a mismatch could actually corrupt anything is
+if the *implementation* used one field to decide the partition shape and
+the other to decide how many worker callbacks actually run — which
+`runThreaded()`'s own single `numWorkers = pool.size()` (used for both,
+consistently, inside that one function) already rules out by construction,
+and which `tests/test_persistent_pool.cpp`'s own
+`test_persistent_pool_size_governs_partition_not_threads_field()` checks
+directly rather than only by reading the code — a pool of size 3 against a
+`threads` field of 99, and separately of 1, both still producing output
+bit-identical to the `threads == 1`/`pool == nullptr` oracle.
+
+**`runThreaded()`: the WU-16a/16b threaded PASS-1/PASS-2 body extracted
+unchanged into its own function, taking `ThreadPool&` rather than owning
+one.** Not a rewrite — every statement inside it (the per-worker generation-
+time bin arenas, the row-band `runOnAll()` call, the barrier, the tile-
+parallel `runOnAll()` call) is byte-for-byte what WU-16b's own
+`runFrame()` already did after constructing its local `ThreadPool pool(
+params.threads)`, only now reading `pool` as a parameter instead of a local
+variable. `runFrame()` itself becomes a three-way branch: `pool == nullptr
+&& threads <= 1` takes the unchanged single-threaded oracle loop (WU-10's
+own body, never touched by WU-16a, WU-16b or this unit); `pool != nullptr`
+calls `runThreaded()` against the caller's own pool; otherwise (`pool ==
+nullptr && threads > 1`) constructs a local `ThreadPool` for exactly this
+call and calls `runThreaded()` against it, exactly reproducing WU-16b's own
+prior behaviour. Verified, not just reasoned through: the full pre-existing
+test suite (`tests/test_threading.cpp`, `tests/test_row_band.cpp`, and
+every earlier pipeline-level test) passes completely unchanged against this
+refactored `runFrame()` — the same "the oracle's own output did not move"
+verification method WU-16a/16b's own sessions already used for their own
+byte-level `TileAccum`-reuse and `resolveOneTile()`-generalisation changes.
+
+**Verification.** Built and tested in this session's own Linux cloud
+sandbox (Ubuntu 24.04, Clang 18.1.3, GCC 13.3.0, cmake 3.28.3, ninja) across
+the same matrix every Phase 4 unit has used: Clang 18 and GCC 13, Release
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all
+seventeen tests green — the sixteen carried over unchanged plus
+`tests/test_persistent_pool.cpp`, ~2.56 million checks in that one binary
+alone, zero warnings under this project's full `-Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Werror` set), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile sizes
+(clean, no ASan/UBSan report) and GCC 13 with `-fsanitize=thread` at both
+tile sizes (clean, no data race reported, both across the full suite and
+standalone against `test_threading`/`test_row_band`/`test_persistent_pool`
+under `TSAN_OPTIONS=halt_on_error=0`) — checked with particular care since
+this unit is the first to let a `ThreadPool` genuinely outlive a single
+`runFrame()` call and be driven by more than one such call in sequence, the
+same "check empirically, not just by inspection" standard this project
+applied to its own first concurrent code at all (WU-16a). `WORK-UNITS.md`'s
+own WU-19a line stays `wip`, not `green`, pending Steve's own real-terminal
+`cmake --build` + `ctest` + `./tools/close.sh 19a` run, the same procedural
+reason every other unit's line has had (`SESSION-PROTOCOL.md`, "the
+assistant does not run `close.sh`") — nothing about this unit's own content
+is expected to behave differently there than in the sandbox above; unlike
+WU-14/WU-15a/WU-17/WU-18, this unit touches no Apple-only surface at all, so
+there is no piece of it this sandbox could not already fully verify.
+
+**Files:** `src/core/resolve.hpp`, `src/core/pipeline.cpp` (both extended,
+not new), `tests/test_persistent_pool.cpp` (new); plus `CMakeLists.txt`
+(`test_persistent_pool` added, same `scatter_test()` pattern as
+`test_threading`/`test_row_band` — CMakeLists.txt edits have never counted
+against the "3 source files" cap in any earlier unit either).
+
+**Accept:** a `ThreadPool` constructed once, outside `runFrame()`, and
+reused across many calls (including calls against different frame
+geometries in sequence, and calls whose `PipelineParams::threads` field
+deliberately disagrees with the pool's own `size()`) produces output
+bit-identical to the `PipelineParams::threads <= 1`, `pool == nullptr`
+oracle on every call, not only the first; the existing per-call-construction
+threaded path (`pool == nullptr`, `threads > 1`) is unchanged, verified by
+the full pre-existing suite passing unmoved; pool reuse across many calls is
+itself clean — no hang, no leak — which a stuck `ThreadPool` destructor or a
+second-round dispatch bug would show up as a test-process timeout, not a
+silently wrong answer. Does **not** include, and does not claim: any
+statement about whether `runFrame()`/`runFrameFile()` actually completes
+within 576i25's own frame budget on real hardware — that is WU-19b,
+unscoped and unbuilt by this entry, deliberately.
+
+Not decided here, deliberately, and named for whoever picks up WU-19b or
+whatever comes after it: the actual real-time measurement itself; whether
+WU-17's own denser `vld4q_u32` v210 scheme or WU-18's own
+`downsampleRowNeon` load-count reduction are worth building, which depends
+entirely on evidence WU-19b's own measurement (or later profiling) has not
+yet produced; per-tile and per-row-band load balancing beyond the static
+interleaved/contiguous partitioning ADR-040/041 already chose (both
+entries' own "not decided here," unchanged, still not this unit's job);
+and a committed benchmarking tool, considered and rejected above for this
+session specifically, not for all time.
+
+Does not reopen `docs/architecture.md`, ADR-015, ADR-021, ADR-024, ADR-026,
+ADR-030, ADR-031, ADR-032, ADR-038, ADR-040, ADR-041, ADR-042 or ADR-043 —
+same relationship every ADR since ADR-020 has to the document; ADR-015's
+single-threaded oracle is preserved deliberately (the `pool == nullptr &&
+threads <= 1` branch is untouched, byte for byte, across every unit through
+this one); ADR-040's own explicit deferral ("a persistent, caller-owned
+`ThreadPool`... WU-19's own job") is completed, not reopened, by
+`PipelineParams::pool`; ADR-041's `runThreaded()`-shaped body (the row-band/
+tile dispatch this entry extracts unchanged) is reused, not altered;
+ADR-042/043's own "not decided here" deferrals of denser NEON schemes are
+left exactly as deferred, pending evidence this unit does not produce;
+ADR-021/026/030's "does this need a new header/#include" judgement is
+applied again, the same way, to a new pointer field; and ADR-031/032/038's
+own "reasoned through here, verified for real only at the terminal, no
+committed machinery for a hardware-only one-off" discipline is extended to
+a measurement problem, the first time this project has hit that particular
+shape of gap rather than a missing-SDK or missing-toolchain one.

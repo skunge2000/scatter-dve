@@ -47,6 +47,26 @@
 // called against or in what order, and normalise/composite's own
 // arithmetic (core/resolve.cpp) is unchanged, called identically in every
 // case. See DECISIONS.md ADR-041.
+//
+// WU-19a (ADR-044) completes ADR-040's own deferred "persistent,
+// caller-owned ThreadPool" item: PipelineParams::pool (core/resolve.hpp),
+// when non-null, lets a caller construct one ThreadPool once and reuse it
+// across many runFrame() calls instead of paying WU-16a/16b's own
+// per-call spawn/join cost on every one of them. The row-band/tile
+// dispatch itself -- everything from "per-worker generation-time bin
+// arena" through the final resolveOneTile() loop -- did not need to
+// change to support this: it was already written entirely in terms of a
+// ThreadPool& and how many workers to partition across (pool.size()),
+// never in terms of who constructed that pool or how long it will go on
+// existing afterward. That whole body is factored out below into
+// runThreaded(), called with either a freshly-constructed, this-call-only
+// ThreadPool (params.pool == nullptr, WU-16a/16b's own unchanged
+// behaviour) or the caller's own externally-owned one (params.pool !=
+// nullptr, new this unit) -- see runFrame()'s own three-way branch below,
+// and DECISIONS.md ADR-044 for the full design and for why this is scoped
+// to the lifecycle change alone, not to any throughput measurement (which
+// this project's Linux cloud sandbox cannot meaningfully produce for the
+// real target, the M1 Max).
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -216,55 +236,22 @@ void resolveOneTile(std::span<const TileBins* const> sources,
     }
 }
 
-}  // namespace
-
-void runFrame(const Lattice& lattice, const SourceRaster& src,
-              const PipelineParams& params, video::Raster444& dest) {
-    // tileCount() (core/binner.hpp) is the exact function TileBins's own
-    // constructor already calls internally to derive tilesX_/tilesY_ --
-    // computing it here directly, rather than via a shared TileBins'
-    // tilesX()/tilesY() the way WU-16a's own code did, is behaviour-
-    // preserving (same function, same arguments) and lets both branches
-    // below share it: the threads>1 branch (WU-16b) no longer builds one
-    // shared TileBins before knowing how many tiles there are.
-    const int tilesX = tileCount(params.destWidth);
-    const int tilesY = tileCount(params.destHeight);
-    const int totalTiles = tilesX * tilesY;
-    const std::size_t tilePixelsN = std::size_t(kTilePixels);
-
-    if (params.threads <= 1) {
-        // The determinism oracle (ADR-015, I6): a plain, single-threaded
-        // loop with no dependency on ThreadPool, its synchronisation
-        // primitives, or setWorkerQoS() at all -- see this file's own
-        // header comment and DECISIONS.md ADR-040/ADR-041. PASS 1 runs
-        // once, synchronously, over the whole raster -- exactly WU-08's
-        // own generateFragments(), unchanged -- into one TileBins; one
-        // scratch TileAccum/tileCells pair, reused (cleared) across every
-        // tile in turn, exactly the loop WU-10 originally wrote.
-        // resolveOneTile() below takes a *list* of PASS-1 sources
-        // (WU-16b); wrapping this single TileBins in a one-element span
-        // is arithmetically identical to WU-16a's own direct call --
-        // splatTile() is still called exactly once per tile, against the
-        // same tile bin, in the same order.
-        TileBins bins(params.destWidth, params.destHeight);
-        generateFragments(lattice, src, params.maxK, params.supersample,
-                           params.tag, bins);
-
-        TileAccum accum;
-        std::vector<AccumCell> tileCells(tilePixelsN);
-        const std::array<const TileBins*, 1> soloSource{&bins};
-        for (int ty = 0; ty < tilesY; ++ty) {
-            for (int tx = 0; tx < tilesX; ++tx) {
-                resolveOneTile(soloSource, params, dest, accum, tileCells, tx, ty);
-            }
-        }
-        return;
-    }
-
-    // WU-16b (ADR-041): PASS 1 is now row-band-parallel too, completing
-    // architecture.md section 6's full two-pass design that WU-16a
-    // (ADR-040) deliberately scoped down to PASS 2 alone.
-    ThreadPool pool(params.threads);
+// WU-19a (ADR-044): the threaded PASS-1/PASS-2 body, factored out of
+// runFrame() unchanged -- byte-for-byte the same statements WU-16b's own
+// threads>1 branch already ran -- so it can run against either a
+// ThreadPool this call constructs and joins itself (WU-16a/16b's own
+// per-call behaviour, still exactly what happens whenever
+// PipelineParams::pool is left at its default nullptr) or one the caller
+// already owns and is reusing across many runFrame() calls
+// (PipelineParams::pool, new this unit). Nothing here reads how `pool`
+// came to exist or how long it will go on existing afterward -- only
+// `pool.size()` and `pool.runOnAll()`, both already part of
+// core/pipeline.hpp's own public ThreadPool interface, unchanged by this
+// unit.
+void runThreaded(const Lattice& lattice, const SourceRaster& src,
+                  const PipelineParams& params, video::Raster444& dest,
+                  ThreadPool& pool, int tilesX, int totalTiles,
+                  std::size_t tilePixelsN) {
     const int numWorkers = pool.size();
     // Bound to a named std::size_t first: `std::vector<T> v(std::size_t(
     // numWorkers))` with a plain identifier inside the inner parentheses
@@ -281,7 +268,13 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     // starts (no reallocation happens once PASS 1 dispatch begins below),
     // the same "preallocate before the hot parallel section" shape
     // WU-16a's own per-worker TileAccum/tileCells arenas already used one
-    // stage later.
+    // stage later. Freshly allocated on every runThreaded() call, whether
+    // `pool` is this call's own local one or a caller's persistent one --
+    // WU-19a reuses the *pool*, not any per-frame arena, so a pool reused
+    // across differently-sized destination rasters or differently-shaped
+    // sources needs nothing special here: each call sizes its own arenas
+    // for its own params.destWidth/destHeight, same as WU-16a/16b already
+    // did per call.
     std::vector<TileBins> workerBins;
     workerBins.reserve(std::size_t(numWorkers));
     for (int i = 0; i < numWorkers; ++i) {
@@ -316,6 +309,10 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     // until the first has fully drained on this calling thread, so every
     // workerBins[i] is completely populated, with a happens-before edge to
     // every PASS-2 worker's own first read of it, before PASS 2 starts.
+    // This holds exactly the same way whether `pool` is a fresh,
+    // this-call-only ThreadPool or a caller's persistent one -- the
+    // barrier is a property of two runOnAll() calls on the same pool
+    // instance, not of the pool's own age.
 
     std::vector<const TileBins*> allArenas(numWorkersN);
     for (int i = 0; i < numWorkers; ++i) {
@@ -336,11 +333,12 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     // the happens-before edge the barrier note above describes), and each
     // tile owns a disjoint block of `dest`'s pixels, so no two workers
     // ever read or write the same memory. See I6: the result is
-    // bit-identical to the threads<=1 path above regardless of how many
-    // row bands or tile-workers ran, or in which order any of them
-    // finished -- splatTile() accumulates into an already-cleared accum
-    // regardless of source count or order, and no per-tile result depends
-    // on any other tile's.
+    // bit-identical to the threads<=1 path regardless of how many row
+    // bands or tile-workers ran, in which order any of them finished, or
+    // whether `pool` itself was constructed for this call alone or is
+    // being reused across many -- splatTile() accumulates into an
+    // already-cleared accum regardless of source count or order, and no
+    // per-tile result depends on any other tile's.
     std::vector<TileAccum> arenas(numWorkersN);
     std::vector<std::vector<AccumCell>> cellBufs(
         numWorkersN, std::vector<AccumCell>(tilePixelsN));
@@ -354,6 +352,79 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
             resolveOneTile(allArenas, params, dest, accum, tileCells, tx, ty);
         }
     });
+}
+
+}  // namespace
+
+void runFrame(const Lattice& lattice, const SourceRaster& src,
+              const PipelineParams& params, video::Raster444& dest) {
+    // tileCount() (core/binner.hpp) is the exact function TileBins's own
+    // constructor already calls internally to derive tilesX_/tilesY_ --
+    // computing it here directly, rather than via a shared TileBins'
+    // tilesX()/tilesY() the way WU-16a's own code did, is behaviour-
+    // preserving (same function, same arguments) and lets every branch
+    // below share it.
+    const int tilesX = tileCount(params.destWidth);
+    const int tilesY = tileCount(params.destHeight);
+    const int totalTiles = tilesX * tilesY;
+    const std::size_t tilePixelsN = std::size_t(kTilePixels);
+
+    if (params.pool == nullptr && params.threads <= 1) {
+        // The determinism oracle (ADR-015, I6): a plain, single-threaded
+        // loop with no dependency on ThreadPool, its synchronisation
+        // primitives, or setWorkerQoS() at all -- see this file's own
+        // header comment and DECISIONS.md ADR-040/ADR-041. PASS 1 runs
+        // once, synchronously, over the whole raster -- exactly WU-08's
+        // own generateFragments(), unchanged -- into one TileBins; one
+        // scratch TileAccum/tileCells pair, reused (cleared) across every
+        // tile in turn, exactly the loop WU-10 originally wrote.
+        // resolveOneTile() below takes a *list* of PASS-1 sources
+        // (WU-16b); wrapping this single TileBins in a one-element span
+        // is arithmetically identical to WU-16a's own direct call --
+        // splatTile() is still called exactly once per tile, against the
+        // same tile bin, in the same order. Unaffected by WU-19a: a
+        // caller must supply a non-null pool to leave this branch at all
+        // (see below), so a default-constructed PipelineParams -- pool
+        // still nullptr -- lands here exactly as it always has.
+        TileBins bins(params.destWidth, params.destHeight);
+        generateFragments(lattice, src, params.maxK, params.supersample,
+                           params.tag, bins);
+
+        TileAccum accum;
+        std::vector<AccumCell> tileCells(tilePixelsN);
+        const std::array<const TileBins*, 1> soloSource{&bins};
+        for (int ty = 0; ty < tilesY; ++ty) {
+            for (int tx = 0; tx < tilesX; ++tx) {
+                resolveOneTile(soloSource, params, dest, accum, tileCells, tx, ty);
+            }
+        }
+        return;
+    }
+
+    if (params.pool != nullptr) {
+        // WU-19a (ADR-044): the caller already owns a ThreadPool and is
+        // reusing it across (presumably) many runFrame() calls -- no
+        // construct/join overhead this call. pool->size() alone decides
+        // the worker count actually used; params.threads is deliberately
+        // not consulted anywhere in this branch (see PipelineParams::pool's
+        // own doc comment in core/resolve.hpp for why, and
+        // tests/test_persistent_pool.cpp for the check that a mismatched
+        // `threads` value cannot silently change this branch's own
+        // output).
+        runThreaded(lattice, src, params, dest, *params.pool, tilesX,
+                    totalTiles, tilePixelsN);
+        return;
+    }
+
+    // WU-16a/16b's own per-call ThreadPool, unchanged: params.pool is
+    // nullptr and params.threads > 1 (the only remaining case, the first
+    // branch above having already handled pool == nullptr && threads <=
+    // 1), so a fresh pool of exactly params.threads workers is
+    // constructed for the duration of this one call and joined
+    // (ThreadPool's own destructor) before returning.
+    ThreadPool localPool(params.threads);
+    runThreaded(lattice, src, params, dest, localPool, tilesX, totalTiles,
+                tilePixelsN);
 }
 
 bool runFrameFile(const Lattice& lattice, const std::string& srcPath,

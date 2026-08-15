@@ -104,6 +104,14 @@ endif()
 # no new source file for scatter-core itself, only its own new test
 # executable below (test_chroma_neon), gated the same way test_v210_neon
 # already is.
+#
+# WU-19a extends the existing src/core/resolve.hpp (one new
+# PipelineParams::pool field, a non-owning ThreadPool*, default nullptr)
+# and src/core/pipeline.cpp (the threaded PASS-1/PASS-2 body factored into
+# a runThreaded() helper, callable against either a fresh per-call pool --
+# WU-16a/16b's own unchanged behaviour -- or a caller-supplied persistent
+# one, DECISIONS.md ADR-044) -- no new source file for scatter-core
+# itself, only its own new test executable below (test_persistent_pool).
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -186,6 +194,11 @@ scatter_test(test_morph)
 scatter_test(test_threading)
 target_include_directories(test_threading PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 scatter_test(test_row_band)
+# WU-19a -- persistent, caller-owned ThreadPool (DECISIONS.md ADR-044).
+# Needs tools/testpat.hpp the same way test_threading/test_zoneplate do
+# (WarpedFrame is built from a zone plate).
+scatter_test(test_persistent_pool)
+target_include_directories(test_persistent_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

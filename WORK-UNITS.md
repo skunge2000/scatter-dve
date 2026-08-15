@@ -729,7 +729,72 @@ per-worker bin arenas (WU-16a/16b) and both NEON units (WU-17 v210, WU-18
 chroma) all green; WU-19 ("Real time at 576i25") is next and is the
 phase's only remaining unit, the first whose own job is throughput rather
 than correctness.
-### WU-19 — Real time at 576i25 `todo`
+### WU-19a — Persistent, caller-owned ThreadPool `wip`
+See `DECISIONS.md` ADR-044 for the full design and for why this splits from
+the single bare WU-19 line above (this session's own first job, per Steve's
+own brief: real scoping before any code — architecture.md 10's own Phase 4
+"done when" line, "8-thread output is bit-identical to single-threaded, at
+frame rate," is partly a correctness statement this sandbox can check in
+full and partly a real-hardware timing claim it cannot produce evidence
+about at all — see ADR-044's own opening section). Completes ADR-040's own
+explicit deferral: "a persistent, caller-owned `ThreadPool` that `runFrame()`
+can reuse across many calls instead of constructing one per call... WU-19's
+own job."
+**Files:** `src/core/resolve.hpp` (one new `PipelineParams::pool` field, a
+non-owning `ThreadPool*`, default `nullptr`), `src/core/pipeline.cpp` (the
+threaded PASS-1/PASS-2 body factored into a `runThreaded(..., ThreadPool&,
+...)` helper, called against either a fresh per-call pool — WU-16a/16b's own
+unchanged behaviour — or the caller's own persistent one), `tests/
+test_persistent_pool.cpp` (new); plus `CMakeLists.txt` (`test_persistent_pool`
+added, same `scatter_test()` pattern as `test_threading`/`test_row_band` —
+CMakeLists.txt edits have never counted against the "3 source files" cap in
+any earlier unit either). No `src/core/pipeline.hpp` change — `ThreadPool`'s
+own existing public interface (`size()`, `runOnAll()`) already has
+everything a caller needs.
+**Accept:** a `ThreadPool` constructed once, outside `runFrame()`, and
+reused across many calls — including calls against different frame
+geometries in sequence, and calls whose `PipelineParams::threads` field
+deliberately disagrees with the pool's own `size()` — produces output
+bit-identical to the `PipelineParams::threads <= 1`, `pool == nullptr`
+oracle on every call, not only the first; the existing per-call-construction
+threaded path (`pool == nullptr`, `threads > 1`) is unchanged, verified by
+the full pre-existing suite passing unmoved; pool reuse across many calls is
+itself clean, no hang, no leak. Does **not** include, and does not claim,
+any statement about whether `runFrame()`/`runFrameFile()` actually completes
+within 576i25's own frame budget on real hardware — that is WU-19b, below,
+unscoped and unbuilt this session, deliberately.
+*Status:* implemented and verified in a Linux cloud sandbox — Clang 18 and
+GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations,
+all seventeen tests green — the sixteen carried over unchanged plus
+`test_persistent_pool`, ~2.56 million checks, zero warnings under the
+project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` set), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes (clean) and GCC 13 with
+`-fsanitize=thread` at both tile sizes (clean, no data race — checked with
+particular care, since this is the first unit to let a `ThreadPool` outlive
+a single `runFrame()` call). This unit touches no Apple-only surface at all
+— unlike WU-14/WU-15a/WU-17/WU-18, there is no piece of it this sandbox
+could not already fully verify. Still needs Steve's own real-terminal
+`cmake --build` + `ctest` + `./tools/close.sh 19a` run before this line can
+go `green`, the same procedural reason every other unit's line has had.
+
+### WU-19b — Real-time measurement at 576i25 on the M1 Max `todo`
+The literal, still-unmet half of architecture.md 10's own Phase 4 accept
+criterion ("at frame rate") — not implementation work, no new
+`Files:`/`Accept:` source-file lines, the same category WU-15b (ADR-032) was
+for its own hour-long endurance run this project's own sandbox could not
+produce evidence about either. Using WU-19a's own `PipelineParams::pool`
+mechanism, time `runFrame()`/`runFrameFile()` at 576i25 (720x576) with a
+real, persistent `ThreadPool` at a real worker count on the real M1 Max —
+a simple `std::chrono` wrap at Steve's own terminal is enough, no committed
+benchmarking tool (see `DECISIONS.md` ADR-044 for why one was considered and
+rejected this session) — and confirm per-frame wall-clock time stays under
+576i25's own 40ms budget (25 fps). If that measurement shows the splat or
+either NEON path (WU-17/18) is actually the bottleneck, their own
+already-named deferred refinements (v210's denser `vld4q_u32` scheme,
+chroma's `downsampleRowNeon` load-count reduction) — or something not yet
+anticipated — become a future unit's own job to pick up with real evidence
+behind them, not decided or scoped here.
 
 ---
 
