@@ -375,3 +375,36 @@ decisions those entries freeze (looped single-frame playback's mechanism;
 `bmdModePAL` as the working display mode; the internal-raster development
 target) are all unchanged; this corrects the *stated reason* one of them
 gave, per `CORRECTIONS.md`'s own purpose.
+
+**C-014 — `DECISIONS.md` ADR-038's own runbook, for WU-15b's real
+one-hour run, did not account for `tests/test_decklink_output.cpp`'s own
+completion log line hardcoding its bounded-run duration as separate
+literal text, independent of the actual `sleep_for(...)` value.**
+*Claimed (implicitly, ADR-038, prior session):* hand-editing only the
+`std::this_thread::sleep_for(...)` literal at line 168 is sufficient for a
+WU-15b run's own reported evidence to honestly describe itself — nothing
+else in the file needed to change for one temporary, reverted run.
+*Correct:* `test_looped_playback_runs_with_no_dropped_or_late_frames()`'s
+own closing `std::fprintf(stderr, ...)` call separately hardcodes the
+phrase "over a 5-second bounded run" as literal text, not derived from the
+actual sleep duration in any way. Steve's real WU-15b run, with the sleep
+literal correctly edited to `seconds(3600)` per ADR-038, produced
+`completed=89998 displayedLate=0 dropped=0 flushed=0` — arithmetically
+consistent with a genuine ~3600-second run at `bmdModePAL`'s own 25fps
+(3600 x 25 = 90000, within a couple of frames of ordinary preroll/
+stop-boundary slop) and confirmed directly by Steve as the real hour-long
+run, not assumed from the arithmetic alone — but the log line itself still
+printed "over a 5-second bounded run," verbatim, since that text was never
+part of ADR-038's own edit instructions. Not a defect in
+`LoopedFramePlayback` or in the run's own real behaviour — the `stats()`
+counts themselves are accurate and unaffected; only this one descriptive
+string is wrong once the duration it describes is hand-edited elsewhere.
+Worth recording so a future reader of this exact log line, or a future
+session reusing ADR-038's own runbook for some other duration, does not
+take the printed duration at face value. No code change follows: `tests/
+test_decklink_output.cpp` is back to exactly its own `wu-15a-green`
+content (ADR-038's own revert step already restores it), and the string is
+only ever wrong during the one temporary, uncommitted state ADR-038's own
+edit produces, never in anything committed. Does not reopen ADR-032,
+ADR-033 or ADR-038 — this corrects a gap in ADR-038's own runbook
+completeness, not a design decision any of those entries freeze.

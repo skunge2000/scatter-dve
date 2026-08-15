@@ -470,7 +470,7 @@ tagged `wu-15a-green` by hand**, accepting the ADR-035 exception himself
 rather than waiting or extending `close.sh` — his own call to make, made.
 This line is `green`.
 
-### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
+### WU-15b — Scheduled playback endurance: one hour, no dropped frames `green`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
 criterion ("stable for an hour"). Not new implementation — WU-15a's own
 `LoopedFramePlayback` mechanism, unchanged, run for longer than one session
@@ -484,14 +484,31 @@ already asks for by hand, not a session's own job to assert from a
 terminal. See `DECISIONS.md` ADR-032.
 **Accept:** one hour on a broadcast monitor, zero
 `stats().dropped`/`stats().displayedLate` across the whole run.
-*Status:* not yet run. Session 17 resolved and froze the two remaining
-open questions before any real run — how "run for an hour" is actually
-invoked (`DECISIONS.md` ADR-038: hand-edit `tests/test_decklink_output.cpp`
-line 168's bounded-run literal from `seconds(5)` to `seconds(3600)` for one
-uncommitted, reverted run, not a new CLI arg/env var) and how an hour-long
-unattended run is expected to survive being unattended (`HANDOFF.md`'s own
-"What to run at your terminal": AC power, lid open, `caffeinate -s`,
-`nohup`+`disown`). Nothing left to decide — only to run it.
+*Done:* confirmed by Steve, real terminal, real hardware (UltraStudio
+Monitor 3G), per `DECISIONS.md` ADR-038's own runbook (`tests/
+test_decklink_output.cpp` line 168 hand-edited to `seconds(3600)`,
+`caffeinate -s` + `nohup`/`disown`, AC power, lid open, per `HANDOFF.md`'s
+own "What to run at your terminal"). One continuous hour of scheduled
+playback: `completed=89998 displayedLate=0 dropped=0 flushed=0` — 89998
+is consistent with 3600s x `bmdModePAL`'s own 25fps (3600 x 25 = 90000),
+the couple-frame shortfall unremarkable preroll/stop-boundary slop, not a
+dropped or late frame (both those counters are independently zero). Steve
+confirmed by eye that the cylinder warp stayed visible for the whole run —
+not the ADR-036 false-alarm plain-zone-plate look. See `CORRECTIONS.md`
+C-014: the test's own completion log line printed "over a 5-second bounded
+run" regardless — a separate hardcoded string ADR-038's own edit
+instructions never touched, not evidence the run was actually short; the
+arithmetic above and Steve's own direct confirmation are what settle it,
+not that string. `tests/test_decklink_output.cpp`'s own temporary edit was
+reverted (`git checkout --`) immediately after, per ADR-038 — the file is
+back to exactly `wu-15a-green`'s own committed content; no code change
+results from WU-15b. No new tag: WU-15b was never scoped with
+`Files:`/`Accept:` source lines for `close.sh` to gate on (ADR-032), and
+nothing here changes the buildable tree from `wu-15a-green`'s own state,
+so there is nothing for `close.sh` to build/test/tag against. **Phase 3
+(SDI output) is now done in full** — architecture.md 10's own "done when"
+line ("warped frames appear on a broadcast monitor... stable for an hour")
+is satisfied across WU-14, WU-15a and WU-15b together.
 
 ---
 

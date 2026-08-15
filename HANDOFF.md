@@ -3,202 +3,161 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 17
-**Tag:** `wu-15a-green`, unchanged this session — nothing new was built or
-tagged.
-**Phase:** 3 — SDI output. WU-15a (scheduled playback of one looped,
-file-sourced, warped frame) is `green`. WU-15b (the one-hour unattended
-endurance run) is still `todo` — this session did not run it, only scoped
-exactly how it will run, per this session's own brief: resolve two real
-open questions "before running anything for real, not to assume."
+**Session:** 18
+**Tag:** `wu-15a-green`, still the current recovery point — WU-15b closes
+`green` this session but produces no new buildable tree state for
+`close.sh` to tag against (see below), so there is no new tag.
+**Phase:** 3 — SDI output. WU-14, WU-15a and WU-15b are all `green`.
+**Phase 3 is done in full** — architecture.md 10's own Phase 3 "done when"
+line ("warped frames appear on a broadcast monitor... stable for an hour")
+is satisfied.
 
-**This was a short, decision-only session — no hardware access, no code
-touched beyond documentation.** Read `HANDOFF.md`/`INVARIANTS.md`/
-`DECISIONS.md`/`CORRECTIONS.md`/`WORK-UNITS.md` in order per
-`SESSION-PROTOCOL.md`, then re-read `DECISIONS.md` ADR-032 (the WU-15a/
-WU-15b split and `LoopedFramePlayback`'s own design), ADR-034/035 (the 4K
-Mini incident and the `close.sh` exception it left), ADR-036 (the
-warp-visibility false alarm, read for its own diagnostic-rigor standard),
-and ADR-037 (the Monitor 3G/Recorder 3G hardware split) — all as this
-session's own brief asked. WU-15b's own `WORK-UNITS.md` line and ADR-032
-both already fix *what* WU-15b is (WU-15a's own mechanism, run for an hour,
-no new `Files:`/`Accept:` lines) but neither ever fixed *how* "run for an
-hour" is actually invoked, or how an hour-long unattended run is actually
-expected to survive being unattended — two real gaps, not assumptions to
-paper over before Steve spends an hour of real hardware time on this.
+**This session closed out WU-15b — the one-hour endurance run session 17
+scoped but did not run.** Steve ran it at his own real terminal, on the
+UltraStudio Monitor 3G, following session 17's own `DECISIONS.md` ADR-038
+(hand-edit `tests/test_decklink_output.cpp` line 168 from `seconds(5)` to
+`seconds(3600)`, uncommitted) and `HANDOFF.md`'s own runbook (AC power, lid
+open, `caffeinate -s`, `nohup`+`disown`).
 
-**1. Duration-invocation mechanism, decided and frozen as `DECISIONS.md`
-ADR-038.** `tests/test_decklink_output.cpp`'s own bounded-run test
-hardcodes `std::this_thread::sleep_for(std::chrono::seconds(5))` (line
-168) with no existing parameter for a caller to ask for longer. Two
-options were weighed: a real CLI arg or environment variable (rejected —
-new implementation by ADR-032's own already-frozen standard, needing a
-name/type/default/validation decision none of `architecture.md` or any
-existing ADR speaks to, and a real foot-gun if a stray default or leaked
-env var ever made a future `close.sh` run hang for an hour on one test)
-versus hand-editing the existing literal for exactly one manual run,
-uncommitted, reverted immediately after (chosen — genuinely no new
-implementation; `close.sh`'s own `ctest` run stays at its documented
-~5-second cost forever regardless of what one dirty working tree
-temporarily does). See ADR-038 for the full reasoning and the exact
-mechanics: edit line 168 to `seconds(3600)`, `cmake --build build`, run
-`./build/test_decklink_output` directly (not `close.sh` — its git-dirty
-gate would correctly refuse, and there is nothing here for it to tag
-anyway), then `git checkout -- tests/test_decklink_output.cpp` to revert
-before touching the repository again.
+**1. Result reported: `completed=89998 displayedLate=0 dropped=0
+flushed=0`, but printed as "over a 5-second bounded run."** That duration
+text is wrong, not the numbers — flagged immediately rather than taken at
+face value: `bmdModePAL` runs 25fps, and 3600s x 25fps = 90000, which
+89998 sits within a couple of frames of (ordinary preroll/stop-boundary
+slop), nothing like what a genuine 5-second run would produce (~125
+frames). Steve confirmed directly this was the real hour-long run. Root
+cause: `test_decklink_output.cpp`'s own completion `fprintf` hardcodes "a
+5-second bounded run" as separate literal text, never touched by ADR-038's
+own edit instructions (which only named the `sleep_for(...)` literal) —
+logged as `CORRECTIONS.md` C-014, a gap in ADR-038's own runbook
+completeness, not a defect in `LoopedFramePlayback` or in the real result.
 
-**2. Unattended one-hour survival plan, decided and frozen below (not an
-ADR — no code-design weight, the same category this file's own
-"Environment check" section already uses for hands-on hardware
-confirmations).** Closing a MacBook's lid triggers system sleep regardless
-of any software-level sleep-prevention assertion unless the machine is in
-clamshell mode with an external display already attached and powered — not
-confirmed available here, so the frozen instruction is simply: don't close
-the lid. On top of that, `caffeinate -s` prevents idle/timer system sleep
-for as long as its wrapped command runs, while the Mac stays on AC power
-(both conditions `caffeinate -s`'s own man page requires for the assertion
-to hold at all). Run under `nohup` + background + `disown` rather than in a
-foreground tab Steve has to leave open and untouched, so an accidental
-Terminal.app quit doesn't `SIGHUP` the run. See "What to run at your
-terminal," below, for the exact command line.
+**2. By-eye confirmation obtained separately.** Steve confirmed the
+cylinder warp stayed visible on the monitor for the whole run — not the
+ADR-036 false-alarm plain-zone-plate look session 16 already chased down
+once. Both halves of WU-15b's own `Accept:` (the zero counts, and "one
+hour on a broadcast monitor") are now satisfied.
 
-**No corrections this session.** Nothing earlier was found wrong — this
-session only filled two gaps neither ADR-032 nor `WORK-UNITS.md`'s own
-WU-15b line had ever actually closed, which is normal, expected
-session-opening work per `SESSION-PROTOCOL.md`, not an error to log in
-`CORRECTIONS.md`.
+**3. A real-terminal `index.lock` snag, caused by this session's own
+earlier device-bridge activity, found and fixed.** Steve's own `git
+checkout -- tests/test_decklink_output.cpp` (the ADR-038 revert step)
+failed with `fatal: Unable to create .../.git/index.lock: File exists` —
+not caused by anything Steve did; a stale, empty `index.lock` left behind
+by this session's own earlier `git status` calls made over the device
+bridge (the same "bridge can't unlink certain files on this mount"
+limitation `HANDOFF.md`'s own "Delivery mechanics" sections have flagged
+since session 16, this time regenerated by a status check made *after* the
+last cleanup pass, not caught before Steve's own next command). Confirmed
+nothing was actually running (`ps aux | grep git`, empty) before moving it
+into `_to_delete/` via the bridge; Steve retried and both `git checkout --`
+and `git status` came back clean. `tests/test_decklink_output.cpp` is
+confirmed back to exactly `wu-15a-green`'s own committed content.
 
-**Tests:** unchanged this session — no test was built or run (no
-Blackmagic SDK, no AppleClang, no hardware access from the cloud sandbox,
-same constraint as every hardware-dependent unit since WU-14).
+**No corrections to any design decision this session** — C-014 corrects a
+runbook gap in ADR-038 (a session-17 planning omission: it didn't say the
+log line's own duration text would go stale), not a claim about the
+codebase's actual behaviour, which checked out throughout.
 
-**Build:** unchanged this session — no production or test code was
-touched. `tests/test_decklink_output.cpp` and `src/io/decklink_output.hpp`/
+**Tests:** `test_decklink_output` — one real hour-long invocation, outside
+the normal `ctest`/`close.sh` matrix (per ADR-038, that binary was run
+directly under a temporarily hand-edited duration, then the edit reverted)
+— zero dropped, zero displayed-late, clean stop, confirmed by eye. The
+normal `ctest`/`close.sh` suite (including `test_decklink_output`'s own
+~5-second default invocation) is unaffected and untouched this session.
+
+**Build:** unchanged — no production or test code was committed this
+session. `tests/test_decklink_output.cpp`, `src/io/decklink_output.hpp`/
 `.cpp` are exactly as `wu-15a-green` left them.
 
 ## Where we are
 
-`src/io/decklink_output.hpp`/`.cpp` — `LoopedFramePlayback`, unchanged
-since `wu-15a-green`, confirmed working on real hardware (both the 4K Mini
-and the Monitor 3G). `tests/test_decklink_output.cpp` — unchanged since
-`wu-15a-green`; its own bounded-run literal (line 168, `seconds(5)`) is the
-one Steve temporarily edits per ADR-038 for the WU-15b run itself, then
-reverts. `DECISIONS.md` now runs through ADR-038. See `WORK-UNITS.md`'s
-WU-15b entry for the short status note pointing at both.
+Phase 3 (SDI output) is complete: device enumeration (`WU-14`), one looped
+warped frame scheduled and confirmed on real hardware (`WU-15a`), and a
+full unattended hour of the same mechanism with zero dropped/late frames
+and a sustained by-eye warp confirmation (`WU-15b`, this session). `src/
+io/decklink_output.hpp`/`.cpp` — `LoopedFramePlayback` — is unchanged since
+`wu-15a-green` and needs no further verification for this phase.
+`DECISIONS.md` runs through ADR-038; `CORRECTIONS.md` runs through C-014.
 
-**Corrections this session:** none.
+**Corrections this session:** C-014 (see above).
 
-**Delivery mechanics:** this session ran remotely via the device-bridge
-tools throughout, same as every hardware-adjacent session since WU-14 —
-but touched only `DECISIONS.md`, `WORK-UNITS.md` and this file; no `src/`,
-`tests/` or `CMakeLists.txt` change. One commit this session — see `git
-log` for its actual hash, made after this file was written. Working tree
-is clean as of this handoff.
+**Delivery mechanics:** ran remotely via the device-bridge tools
+throughout, same as every hardware-adjacent session since WU-14 — touched
+only `WORK-UNITS.md`, `CORRECTIONS.md` and this file; no `src/`, `tests/`
+or `CMakeLists.txt` change. One commit this session — see `git log` for
+its actual hash, made after this file was written. Working tree is clean
+as of this handoff (confirmed both from this session's own device-bridge
+view and from Steve's own real terminal, after the `index.lock` snag in
+item 3 above was cleared).
 
 ## Next work unit
 
-WU-15b itself — Steve's own hands-on step, not a session's own job to
-assert green from a terminal (ADR-032, unchanged). Both open questions
-this session was asked to resolve are now frozen (ADR-038; the survival
-plan below), so there is nothing left to decide before running it — only
-to run it and report back `stats().dropped`/`stats().displayedLate`/
-`stats().completed` (the log line `test_decklink_output.cpp`'s own test
-already prints at `stop()`) plus a by-eye confirmation the warped cylinder
-stayed visible throughout, watching specifically for ADR-036's own
-already-documented 4:3-on-16:9 false-alarm mode.
+Phase 3 is done. Next is Steve's own call, same framing session 16 already
+left open: **WU-16** (thread pool, QoS, per-worker bin arenas — Phase 4,
+`8-thread output bit-identical to single-threaded`, I6) — or one of
+`DECISIONS.md` ADR-037's own three still-unresolved follow-ups, now worth
+a fresh look with Phase 3 actually closed rather than still in flight:
 
-After WU-15b closes, next is WU-16 (thread pool, QoS, per-worker bin
-arenas — Phase 4) — or, per `DECISIONS.md` ADR-037's own three named
-follow-ups (not resolved yet, not this session's job either): retiring or
-rescoping `test_decklink_device.cpp`'s full-duplex check, revisiting
-genlock for two independent-clock devices, or naming the Recorder 3G
-explicitly in future capture-side scoping. Worth a look before picking
-whichever of WU-16 or one of those three comes next.
+1. `tests/test_decklink_device.cpp`'s `test_at_least_one_device_is_full_duplex`
+   (WU-14) checks a fact that will never be true of the real going-forward
+   hardware (Monitor 3G + Recorder 3G, two separate devices) — retire,
+   rescope, or something else, not decided.
+2. Genlock (ADR-010) was reasoned about for one shared-clock device; two
+   independent devices have no such shared clock. Worth revisiting once
+   the Recorder 3G is actually touched by this project's own code — not
+   yet, Phase 3 never needed input.
+3. Future capture-side work should target the Recorder 3G by name, once
+   scoped with its own `Files:`/`Accept:` — first real candidate for that
+   is whichever unit first touches DeckLink input (WU-20, Phase 5, not
+   Phase 4's own concern).
+
+None of these are this session's own job to resolve — named here so
+whichever session picks the next work unit sees them before defaulting
+straight to WU-16.
 
 ## Open questions
 
-Unchanged from session 16: Q1 (tile size), Q3 (macOS/Desktop Video
-version), Q4 (lattice edge damping, C-008(a)). Q2 (4K Mini program
-outputs) remains moot per ADR-037.
+Unchanged: Q1 (tile size), Q3 (macOS/Desktop Video version), Q4 (lattice
+edge damping, C-008(a)). Q2 (4K Mini program outputs) remains moot per
+ADR-037.
 
-Resolved this session: WU-15b's own duration-invocation mechanism
-(ADR-038) and its unattended-survival plan (below) — both were genuinely
-open, not previously assumed either way, per this session's own brief.
+Resolved this session: whether Steve's reported WU-15b run was genuinely
+the one-hour version despite its own misleading log text (yes — confirmed
+both by arithmetic and directly by Steve; C-014) and whether the by-eye
+warp check held for the whole run (yes, confirmed directly).
 
 ## Blocked / red
 
-Nothing red, nothing blocked. WU-15b is `todo`, waiting on Steve's own
-hour at the real terminal — not blocked, just not yet run.
+Nothing red, nothing blocked. Phase 3 is closed out in full.
 
 ## Environment check
 
-Unchanged from session 16 (ADR-037): **UltraStudio Monitor 3G** is the
-active output target, confirmed working (`bmdModePAL` +
-`bmdFormat10BitYUV`); **UltraStudio Recorder 3G** is in hand for input, not
-yet touched by any code; **UltraStudio 4K Mini** remains on hold pending a
-PSU replacement, not part of the active plan. WU-15b runs against the
-Monitor 3G, same as WU-15a's own verification did.
+Unchanged from session 17 (ADR-037): **UltraStudio Monitor 3G** is the
+active output target, now confirmed working for both a bounded smoke test
+(WU-15a) and a full unattended hour (WU-15b, this session); **UltraStudio
+Recorder 3G** is in hand for input, not yet touched by any code;
+**UltraStudio 4K Mini** remains on hold pending a PSU replacement, not
+part of the active plan.
 
 ## Append to DECISIONS.md
 
-ADR-038 was appended in full this session; see `DECISIONS.md`. Does not
-reopen ADR-032 — completes a gap that entry left implicit (WU-15b's own
-*scope* versus its *invocation mechanism*).
+Nothing this session — no new design decision. ADR-038 (session 17) is
+unchanged; this session only supplied the real-run evidence ADR-038's own
+runbook was written to produce.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session — see "No corrections this session" above.
+C-014 was appended in full this session; see `CORRECTIONS.md`. Does not
+reopen ADR-032, ADR-033 or ADR-038 — corrects a runbook-completeness gap
+in ADR-038, not a design decision any of those entries freeze.
 
 ---
 
 ## What to run at your terminal
 
-**WU-15b — the one-hour endurance run.** Two things are now frozen
-(ADR-038 for the first, this section for the second) so this is a
-mechanical recipe, not a judgement call:
-
-1. Confirm a clean tree: `git status` (should show nothing to commit — if
-   it doesn't, stop and figure out why before proceeding).
-2. Edit `tests/test_decklink_output.cpp` line 168:
-   ```cpp
-   std::this_thread::sleep_for(std::chrono::seconds(5));
-   ```
-   becomes
-   ```cpp
-   std::this_thread::sleep_for(std::chrono::seconds(3600));
-   ```
-   This is the file's only bounded-run-length literal — nothing else
-   needs to change.
-3. Rebuild: `cmake --build build`.
-4. Keep the Mac on AC power and **do not close the lid** for the whole
-   hour — clamshell sleep overrides any software sleep-prevention unless
-   an external display is already attached and powered, which isn't
-   confirmed here.
-5. Run it detached, so an accidental Terminal.app close doesn't kill it:
-   ```sh
-   nohup caffeinate -s ./build/test_decklink_output > /tmp/wu15b_run.log 2>&1 &
-   disown
-   ```
-   Point a broadcast monitor at the Monitor 3G's SDI output for the hour,
-   watching for the warped cylinder — remember ADR-036's own false-alarm
-   mode: a 720x576, 4:3-ish frame on a 16:9 monitor can look deceptively
-   close to un-warped at a glance. Look for the letterboxing/oval shape
-   specifically, not just "does it look round."
-6. After an hour, check `/tmp/wu15b_run.log` for the
-   `completed=... displayedLate=... dropped=... flushed=...` line the test
-   itself prints at `stop()`. `Accept:` is `displayedLate == 0` and
-   `dropped == 0` across the whole run.
-7. Revert the edit: `git checkout -- tests/test_decklink_output.cpp`, then
-   `git status` to confirm the tree is clean again before doing anything
-   else in the repository — including any future `close.sh` run for a
-   later work unit, whose own git-dirty gate would otherwise (correctly)
-   refuse on what would look like an unrelated dirty tree.
-8. Report back: the four counts, and whether the by-eye check held for
-   the whole hour. That's WU-15b's own `Accept:` criteria, in full —
-   nothing else to check, and nothing to tag (ADR-032: WU-15b was never
-   scoped with `Files:`/`Accept:` source lines a `close.sh` run could gate
-   on).
-
-If anything about the Monitor 3G/Recorder 3G split changes, or the 4K
-Mini's PSU gets replaced, let me know whenever it happens — no rush,
-doesn't block WU-15b.
+Nothing outstanding from this session — WU-15b is `green`, Phase 3 is
+closed out in full, and the working tree is clean (confirmed at your own
+terminal after the `index.lock` snag was cleared). Whenever you're ready
+to start the next work unit (WU-16, or one of ADR-037's three named
+follow-ups above), that's the next session's own job to scope properly,
+same as always.
