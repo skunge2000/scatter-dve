@@ -1119,7 +1119,7 @@ diagnosed this session). Confirmed `green`, tagged `wu-21b-green`
 live-produced frame stream (WU-21b's own `CaptureConsumer::copyLatestFrame()`)
 onto `IDeckLinkOutput` — a fixed pool of frame buffers, round-robin refilled
 and rescheduled exactly once per completion, in place of `LoopedFramePlayback`'s
-own single-static-buffer design `wip`
+own single-static-buffer design `green` (`wu-21c-green`)
 See `DECISIONS.md` ADR-050 for the full design: the pool-sizing reasoning
 (exactly `round(frameRate / 2)` buffers, ADR-032's own preroll convention
 reused rather than invented fresh), the round-robin refill policy (relying on
@@ -1174,13 +1174,23 @@ not claim, the literal one-hour endurance run or a by-eye confirmation that
 the SDI output genuinely shows live, changing content — both a future WU-21d's
 own job (not yet scheduled), the same category WU-15b/WU-19b already were for
 a comparable unattended-hardware criterion.
-*Status:* delivered as reasoned-through-only, same shape as WU-14/WU-15a/
-WU-20b/WU-21b before it — drafted and written via the device bridge to the
-real repository, re-read back from there to confirm each write landed
-correctly (`SESSION-PROTOCOL.md` anti-drift rule 8) — not yet built or run at
-Steve's own real terminal. No Blackmagic SDK and no AppleClang/Xcode
-toolchain exist in the Linux cloud sandbox this session drafted this in, the
-same gap every DeckLink-touching unit before it has named.
+*Status:* delivered as reasoned-through-only, drafted and written via the
+device bridge to the real repository, re-read back from there to confirm
+each write landed correctly (`SESSION-PROTOCOL.md` anti-drift rule 8) — then,
+unlike every prior DeckLink-touching unit, genuinely built, tested, and run
+at Steve's own real terminal within this same session: `cmake --build build`
+clean, `ctest --test-dir build --output-on-failure` showing 25 of 26 tests
+passing (the sole failure the already-accepted
+`test_decklink_device`/`foundDuplexDevice` exception, ADR-035, unrelated),
+and `./build/test_decklink_live_output` run directly with a live source
+patched into the Recorder 3G's own SDI input and the Monitor 3G's own
+HDMI-mirrored output watched live: `completed=124 displayedLate=0 dropped=0
+framesRepeated=18` over its own bounded 5-second window, all 10 automated
+checks passing. See `DECISIONS.md` ADR-050's own same-session verification
+addendum for the full numbers, the second `kCaptureRingCapacity` data point,
+and a previously unanticipated cold-start green-frame finding (named, not
+fixed). Confirmed `green` in substance; the `wu-21c-green` git tag itself is
+Steve's own next action at his own real terminal.
 
 ### WU-22 — Diagnostic coverage view `todo`
 

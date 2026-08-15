@@ -4679,3 +4679,77 @@ own narrow case, not resolved in general, and its device-naming/two-device
 split is read as a fixed input; ADR-048/049's own `CaptureConsumer` design
 (`copyLatestFrame()`'s exact contract) is consumed exactly as those entries
 left it, unaltered.
+
+**Real-hardware verification, same session, run at Steve's own real
+terminal after this entry was first written.** `cmake --build build` clean.
+`ctest --test-dir build --output-on-failure`: 25 of 26 tests passing, the
+sole failure the already-accepted `test_decklink_device`/`foundDuplexDevice`
+exception (ADR-035), unrelated to this unit; the new `test_decklink_live_output`
+itself passing, all 10 automated checks green. `./build/test_decklink_live_output`
+run directly, with a live source patched into the Recorder 3G's own SDI
+input (not the Monitor 3G → Recorder 3G self-loop WU-20b's/WU-21b's own
+tests use — this unit's own body above reasoned through that self-loop
+before Steve confirmed a live source was available instead) and the Monitor
+3G's own HDMI-mirrored output watched live, over its own bounded 5-second
+window: `completed=124 displayedLate=0 dropped=0 flushed=0
+framesRepeated=18`; `framesArrived=124 framesPushed=97 | framesPopped=89
+framesProcessed=89 framesFailed=0`. `framesProcessed(89) + framesFailed(0)
+== framesPopped(89)` and `framesPopped(89) <= framesPushed(97)` both hold
+exactly, as this unit's own `Accept:` requires; `completed(124) > 0`,
+`displayedLate == 0`, `dropped == 0`, all as required.
+
+`framesPushed(97) - framesPopped(89) == 8`, exactly `kCaptureRingCapacity`,
+the same exact relationship WU-21b's own real run showed (`89 - 81 == 8`) —
+a second real data point consistent with WU-21b's own reading (ADR-049's
+addendum): the gap reads as "up to one ring's worth left unconsumed when the
+bounded run stops," not a growing backlog. The `framesArrived`/`framesPushed`
+gap itself (124 vs. 97, ~22%) is close in magnitude to WU-21b's own ~28%,
+reinforcing rather than newly resolving `kCaptureRingCapacity=8`'s own open
+question — still not conclusively diagnosed, still named, not resolved, now
+with two consistent real-hardware data points instead of one.
+
+`framesRepeated=18` of `completed=124` (~15%) is this unit's own first real
+data point for the no-explicit-sync genlock/clock-domain decision above:
+roughly one output tick in seven found nothing fresher than what was already
+scheduled and repeated it rather than stall, visible by eye as a mild
+jerk/stutter in the re-output picture on the Monitor 3G's own HDMI-mirrored
+output during this run — consistent with `CaptureConsumer`'s own measured
+throughput (89 processed frames over ~5 seconds, roughly 18fps) running
+below the output's own fixed 25fps schedule. Exactly the accepted
+consequence this entry's own no-explicit-sync paragraph above named in
+advance, not a surprise; the magnitude is now measured rather than merely
+anticipated.
+
+A second, previously unanticipated finding, caught by eye on this same run
+and confirmed by re-reading this unit's own `refillAndSchedule()`: the
+re-output picture on the Monitor 3G's own output showed a few seconds of
+solid green before genuine captured content appeared, at the very start of
+playback. Not a defect in the loop itself — `startWith()`'s own preroll loop
+schedules every pool buffer once, via `refillAndSchedule()`, before
+`StartScheduledPlayback` runs; at that instant `CaptureConsumer` has not yet
+produced its own first output, so `copyLatestFrame()` returns false for each
+of those initial calls, and per this file's own "nothing fresher — leave the
+buffer's existing content unchanged" policy (`refillAndSchedule()`'s own
+body, this entry's genlock paragraph above), each pool buffer's content is
+left exactly as `CreateVideoFrame()` first allocated it — effectively
+zero-filled `v210`, which decodes as a strongly saturated green once
+converted for display, a well-known artifact of displaying unwritten YUV.
+Green clears once enough completions have cycled through to refill every
+pool slot with real content, which is gated on `CaptureSource`/
+`CaptureConsumer` producing their own first output, not on anything in the
+output side — matching the "few seconds" observed. This entry's own genlock
+paragraph above reasoned about the *steady-state* "nothing fresher since
+last refill" case; it did not anticipate the *cold-start* "never filled at
+all" case, which is the one actually hit here. Named, not fixed in this
+session — a candidate fix (fill each pool buffer with black immediately
+after `CreateVideoFrame()`, before the preroll loop schedules any of them,
+so a cold start shows black rather than green) is left for whoever next
+touches this file.
+
+Confirmed `green`, tagged `wu-21c-green` (git tag command given to Steve for
+his own real terminal; not yet confirmed present as of this addendum being
+written). This addendum does not reopen anything named in this entry's own
+"Does not reopen" paragraph above — it records a real-terminal result for a
+unit that paragraph already described as reasoned-through-only at the time
+it was written, plus the cold-start green finding as new evidence, not a
+reopening of any prior entry.
