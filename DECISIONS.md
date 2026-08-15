@@ -1519,3 +1519,135 @@ picks progressive for the stated reason) rather than amended; ADR-021's
 `scatter-core`/`scatter` file-placement precedent and ADR-031's `ComPtr::
 adopt()`/enumeration are reused unaltered, not modified, by this unit's own
 code.
+
+**ADR-033 — Display mode confirmed: `bmdModePAL`, not `bmdModePALp`.
+Completes, not reopens, ADR-032's own deferred fallback note.**
+ADR-032 named `bmdModePALp` as WU-15a's first choice, explicitly flagged it
+"unverified this session," and named `bmdModePAL` as "the documented
+fallback... a decision for whichever session next touches this." That
+session is this one, continuing the same sitting rather than a later one:
+the real terminal's first run of `test_decklink_output` failed at
+`LoopedFramePlayback::create()` with no signal beyond a null result, so
+`decklink_output.cpp`'s `startWith()` gained per-step `stderr` diagnostics
+(temporary — see its own header comment; to be folded into `PlaybackStats`
+or dropped once this unit is fully green, not left as permanent scaffolding)
+before asking for a second run. That run's own output is the evidence this
+entry freezes:
+
+```
+LoopedFramePlayback::startWith: DoesSupportVideoMode failed, hr=0x00000000 supported=false (displayMode=0x70616c70)
+```
+
+`hr == S_OK` (`0x00000000`) with `supported == false` — the call itself
+succeeded; the UltraStudio 4K Mini's driver simply does not offer
+`bmdModePALp` (`'palp'`, confirmed by the printed `displayMode` value) in
+combination with `bmdFormat10BitYUV` via `bmdVideoConnectionUnspecified`/
+`bmdNoVideoOutputConversion`. Not a code defect — `DoesSupportVideoMode()`
+did exactly its job, and `LoopedFramePlayback::create()` failed cleanly (a
+null `ComPtr`, not a crash or hang) exactly as ADR-032 already required of
+it. `tests/test_decklink_output.cpp`'s `kDisplayMode` changes to
+`bmdModePAL`; ADR-032's own reasoning for why this is an honest substitution
+for a *static* test frame (both fields of an interlaced-transmitted frame
+still come from the one unchanging buffer WU-15a plays back, so there is no
+combing artifact to reveal the substitution) is unchanged and not repeated
+here.
+
+Not logged in `CORRECTIONS.md`: nothing was claimed and found wrong.
+ADR-032 explicitly declined to assert `bmdModePALp` would work — it named
+the risk and pre-selected a fallback precisely because it could not verify
+either from the cloud sandbox — so this session hitting that named risk and
+using the named fallback is the mechanism working as designed, not a
+correction to an earlier claim. Same distinction `HANDOFF.md`'s own
+"Corrections this session" section drew for WU-14's session: an item
+flagged unverified resolving (here, via its own documented fallback rather
+than the primary choice working outright) is not the same thing as an
+earlier claim turning out wrong.
+
+Does not reopen ADR-032 — completes its own explicitly-deferred fallback
+decision, the same relationship ADR-029 has to ADR-028's own deferred
+opacity-mechanism sketch.
+
+**ADR-034 — UltraStudio 4K Mini hardware fault: pause work against it;
+UltraStudio Monitor 3G becomes the active hardware target for continued
+WU-15a/WU-15b verification. Does not supersede ADR-006 or ADR-013.**
+
+Immediately after the passing run recorded in ADR-033 (`test_decklink_output`
+green, 5.34s), Steve ran the full suite (`ctest --test-dir build
+--output-on-failure`). Two tests failed — `test_decklink_device` and
+`test_decklink_output`, both on `CHECK(!devices.empty())` — and the
+UltraStudio 4K Mini was found completely unresponsive: absent from Desktop
+Video Setup, absent from Media Express, absent from Apple's own Thunderbolt
+System Report (not merely "no signal" — not enumerated as a Thunderbolt
+device at all), and no longer providing USB-PD/Thunderbolt power passthrough
+to the MacBook Pro. Steve diagnosed this by hand: restarting the Blackmagic
+driver helper did not recover it; swapping the spare UltraStudio Monitor 3G
+onto the same Thunderbolt port and cable worked immediately and normally.
+That swap isolates the fault to the 4K Mini unit itself — not the Mac, not
+the port, not the cable, not the driver install.
+
+**Causation assessment, stated with its actual limits, not overclaimed
+either way.** This project's code — `decklink_device.cpp`/`.hpp` (WU-14) and
+`decklink_output.cpp`/`.hpp` (WU-15a) — calls only the DeckLink SDK's public,
+documented API surface: `IDeckLinkIterator` enumeration,
+`IDeckLinkProfileAttributes` capability queries, `DoesSupportVideoMode()`,
+`EnableVideoOutput()`/`DisableVideoOutput()`, `CreateVideoFrame()` plus
+`IDeckLinkVideoBuffer::GetBytes()`/`StartAccess()`/`EndAccess()`,
+`ScheduleVideoFrame()`, `StartScheduledPlayback()`/`StopScheduledPlayback()`,
+and `SetScheduledFrameCompletionCallback()`. None of that surface reaches
+firmware, PCIe/Thunderbolt bus (re-)enumeration, or USB-PD/Thunderbolt power
+negotiation — those are the driver's and the device's own firmware's job,
+below anything a user-space SDK client can touch. This is a materially
+different failure from the one named risk architecture.md 12 already
+carries ("a reference-count leak locks the device until reboot"): that risk
+describes a *driver-state* lockout where the device stays hardware-visible
+but refuses new sessions until the process (or host) restarts — recoverable
+by a reboot, and within reach of this project's own `ComPtr` refcounting
+being wrong. What was actually observed — gone from the Thunderbolt bus
+itself, no power passthrough — is a hardware/firmware/power-level fault, not
+a refcount leak, and reboot-recoverability was never established either way
+before this session's own hardware access ended. On the evidence available
+(clean, fast, fully-passing single-test run; unit dead only after a
+later, broader suite run that itself passed its non-hardware-dependent
+tests normally; the fault isolated to this one unit via direct swap) it is
+judged **unlikely** this project's code caused it, but this is not proven
+with certainty — a genuinely rare coincidence (the unit's first-ever real
+signal-output use surfacing a pre-existing hardware fault) cannot be ruled
+out from software evidence alone. No corresponding `CORRECTIONS.md` entry:
+nothing this project earlier claimed about the SDK or the hardware has been
+shown wrong by this incident.
+
+**Decision:** pause further work against the 4K Mini. For the remainder of
+WU-15a's own verification (full-suite green, `close.sh 15a`, Steve's by-eye
+confirmation) and for WU-15b when it starts, the **UltraStudio Monitor 3G**
+becomes the active hardware playback target, until the 4K Mini's status is
+resolved (Blackmagic support and/or a hardware check, both Steve's own next
+steps, not this project's). **No code change follows from this pivot.**
+`decklink_device.cpp`'s enumeration (WU-14) and
+`firstPlaybackCapableOutput()` in `tests/test_decklink_output.cpp` (WU-15a)
+already select by `IDeckLinkProfileAttributes`/`supportsPlayback` and
+`QueryInterface(IID_IDeckLinkOutput)`, not by model name or a 4K-Mini-
+specific assumption — the Monitor 3G, once it is the (or the first)
+playback-capable device the SDK's own iterator returns, is picked up by the
+existing code unchanged. What genuinely is unverified and becomes this
+pivot's own open question: whether `DoesSupportVideoMode(bmdModePAL,
+bmdFormat10BitYUV)` succeeds on the Monitor 3G the way it did on the 4K
+Mini (ADR-033) — the Monitor 3G is a simpler, output-only device (no
+capture inputs at all, per architecture.md's own description of it as a
+diagnostic-coverage-view target, ADR-011) and its supported mode list is not
+assumed to be a superset or subset of the 4K Mini's without checking.
+
+**Relationship to earlier ADRs, stated precisely:** does not supersede
+ADR-006 ("Host is the M1 Max MacBook Pro with UltraStudio 4K Mini") or
+ADR-013 ("Single machine... with the UltraStudio 4K Mini attached") — those
+describe this project's primary target hardware for the reasons given there
+(full duplex, 12G headroom, composite/component inputs the Monitor 3G does
+not have), and nothing about this incident changes that the 4K Mini remains
+the intended hardware once it is working again. Nor does it amend ADR-011
+(diagnostic coverage view to the Monitor 3G or the Mac's own display, not a
+second SDI output) — this pivot uses the Monitor 3G in a role beyond that
+one (as the primary WU-15a/WU-15b verification target, not a secondary
+coverage view) for as long as the 4K Mini is unavailable, which is a
+hardware-availability-driven substitution, not a redesign of what either
+device is for. If the 4K Mini does not recover, a future session would need
+its own ADR to actually change the project's primary-hardware decision;
+this entry does not make that call.

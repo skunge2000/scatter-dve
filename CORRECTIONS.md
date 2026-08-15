@@ -340,3 +340,38 @@ safe to assert for values that provably involve no rounding at all (exact
 zeros, exact powers of two, values read back without arithmetic), the same
 distinction this correction's own fix draws between the `x`/`z` checks
 (loosened) and the `y` check (left exact).
+
+**C-013 — `bmdModePALp` ("576p25") failing `DoesSupportVideoMode` on the
+real UltraStudio 4K Mini was attributed to this one device's driver, not to
+576p25 not being a real broadcast signal in the first place.**
+*Claimed (`DECISIONS.md` ADR-032/ADR-033, this session):* `bmdModePALp`
+being unsupported was framed as "the UltraStudio 4K Mini's driver simply
+does not offer `bmdModePALp`... in combination with `bmdFormat10BitYUV`" —
+implying a different device, or a future driver, might offer it. *Correct:*
+Steve's own domain knowledge, given directly in this session: 576p25 "is
+not a valid HDMI, SDI or analogue output format" — full stop, not a
+device-specific gap. Checked against a secondary source rather than taken
+on faith alone: ITU-R BT.1358 does define a 576p25 raster on paper, and it
+sees real use on DVD-Video and file-based delivery, but the progressive SD
+format actual broadcast infrastructure and hardware (EDTV) deployed was
+**576p50** (Australia's SBS/Seven Network, historically), not 25p; standard
+SD transmission over SDI/HDMI/analogue is interlaced —
+576i25 (50 fields/second) — full stop, which is exactly what
+`bmdModePAL` provides and what this session's own second real-terminal run
+confirmed working (`ctest`: `test_decklink_output` green, 5.34s). No code
+change follows from this correction beyond what ADR-033 had already done —
+`bmdModePAL` was already the fix — but the *reasoning* for why
+`bmdModePALp` failed needed correcting so a future session does not retry
+it against different hardware or a driver update expecting a different
+result. **Also worth separating explicitly:** ADR-007's own "576i25 /
+576p25" development-standard naming is about this project's *internal*
+processing raster during Phase 1/2 (file-to-file, no hardware, no signal
+format at all — just 25 progressive frames per second of pixel data) and
+is unaffected by this correction; the confusion this session made was
+carrying that internal, signal-format-free convention over into Phase 3's
+literal choice of `BMDDisplayMode` as if "576p25" named an SDI mode the way
+"576i25" genuinely does. Does not reopen ADR-032, ADR-033 or ADR-007 — the
+decisions those entries freeze (looped single-frame playback's mechanism;
+`bmdModePAL` as the working display mode; the internal-raster development
+target) are all unchanged; this corrects the *stated reason* one of them
+gave, per `CORRECTIONS.md`'s own purpose.

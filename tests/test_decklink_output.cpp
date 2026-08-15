@@ -49,15 +49,20 @@ namespace {
 constexpr int kWidth  = 720;
 constexpr int kHeight = 576;
 
-// ADR-007's own "576i25 / 576p25" development standard, progressive: this
-// project has no de-interlace/field-split machinery yet (WU-23, not built),
-// so a frame rendered as one whole progressive raster is played back as one
-// whole progressive raster -- bmdModePALp, not bmdModePAL. See ADR-032:
-// whether the UltraStudio 4K Mini actually supports bmdModePALp with
-// bmdFormat10BitYUV is unverified this session; LoopedFramePlayback::create()
-// checks DoesSupportVideoMode() itself and fails cleanly (not a crash) if it
-// does not, which is exactly what the first CHECK below would then catch.
-constexpr BMDDisplayMode kDisplayMode = bmdModePALp;
+// ADR-007's own "576i25 / 576p25" development standard. ADR-032's own first
+// choice was bmdModePALp (progressive, matching this project's own lack of
+// de-interlace/field-split machinery -- WU-23, not built) with bmdModePAL
+// named as the documented fallback if the real hardware did not support it.
+// Confirmed at the real terminal, this session: DoesSupportVideoMode()
+// returns S_OK with supported == false for bmdModePALp + bmdFormat10BitYUV
+// on this UltraStudio 4K Mini -- not a code defect, exactly the scenario
+// ADR-032 anticipated and already reasoned about (a static, motion-free
+// frame transmitted as interlaced is visually indistinguishable from
+// progressive, since both fields of every frame come from the same
+// unchanging buffer). See DECISIONS.md ADR-033, which freezes this as the
+// confirmed working choice rather than leaving it as ADR-032's own
+// unresolved fallback note.
+constexpr BMDDisplayMode kDisplayMode = bmdModePAL;
 
 ComPtr<IDeckLinkOutput> firstPlaybackCapableOutput(const std::vector<DeviceInfo>& devices) {
     for (const auto& d : devices) {

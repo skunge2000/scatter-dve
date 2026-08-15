@@ -352,9 +352,31 @@ hour" half (that is WU-15b, below). Does not claim endurance.
 AppleClang/Xcode toolchain at all, the same shape ADR-031 already used for
 WU-14 — reasoned through against the real SDK headers and the SDK's own
 `FilePlayback`/`SignalGenerator` samples (ADR-032's own citations), written
-straight to the real machine via the device bridge, unbuilt. Needs building
-and running at the real terminal before this line can go green; see
-`HANDOFF.md`.
+straight to the real machine via the device bridge. Built and run at the
+real terminal this session: `test_decklink_output` passed both checks
+(`ctest -R test_decklink_output`, 5.34s) against the real UltraStudio 4K
+Mini, after switching the display mode from `bmdModePALp` to `bmdModePAL`
+(ADR-033; `bmdModePALp` — "576p25" — is not a real transmittable SDI/HDMI/
+analogue signal at all, not merely unsupported by this one device — see
+`CORRECTIONS.md` C-013). **Still needed before this line goes `green`:**
+the full suite / `./tools/close.sh 15a` at the real terminal (only the one
+new test has been run in isolation so far), and Steve's own by-eye
+confirmation that the warped cylinder frame actually appeared on a
+broadcast monitor during the run — the automated checks confirm the
+DeckLink-side mechanics, not what is actually on the wire.
+
+**Hardware incident, this session, after the above:** running the full
+suite immediately after the passing `test_decklink_output` run left the
+UltraStudio 4K Mini completely unresponsive (gone from Desktop Video, Media
+Express, and Apple's own Thunderbolt System Report; no Thunderbolt power
+passthrough). Isolated by hand to the unit itself, not the Mac/port/cable/
+driver — see `DECISIONS.md` ADR-034 for the full incident record and
+causation assessment. **Verification target changes to the UltraStudio
+Monitor 3G** until the 4K Mini's status is resolved; no code change follows
+(device selection was already generic, not 4K-Mini-specific — ADR-034). The
+`bmdModePAL` mode-support finding above (ADR-033) was confirmed on the 4K
+Mini specifically and is not yet re-confirmed on the Monitor 3G — first job
+of the next real-terminal run.
 
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
