@@ -971,7 +971,7 @@ see `HANDOFF.md`) — this session's own sandbox verified none of it by
 compiling or running it; Steve's real terminal verified the build and the
 test, and has since tagged it.
 ### WU-21a — `runFrameBytes()`: the in-memory sibling of `runFrame()`/
-`runFrameFile()` `wip`
+`runFrameFile()` `green` (`wu-21a-green`)
 See `DECISIONS.md` ADR-048 for the full design and for why this session split
 WU-21 into three pieces (a/b/c) rather than building "full loop through at
 576i25" as one unit — the same "portable piece now, DeckLink-specific piece
@@ -1025,9 +1025,16 @@ iteration, not a design/reasoning error — see ADR-048): the I7 check first
 used `testpat::makeRamp()` and failed, because a ramp's own non-flat chroma
 does not survive `chroma::upsampleImage()`/`downsampleImage()` unchanged
 regardless of the lattice (C-006); fixed by switching to
-`testpat::makeZonePlate()`. Not yet built or run at Steve's own real
-terminal, not yet tagged — this line stays `wip` until that happens (matching
-every other unit's own convention).
+`testpat::makeZonePlate()`. Confirmed at Steve's own real terminal:
+`cmake --build build` clean, `ctest --test-dir build --output-on-failure`
+shows `test_pipeline_bytes` passing alongside the rest of the suite
+(`test_decklink_device`'s `foundDuplexDevice` failure is ADR-035's own
+already-accepted exception, unrelated). `./tools/close.sh 21a` itself refused
+to tag, exactly as expected, because it has no knowledge of ADR-035 and saw
+that one failing test — the manual `git tag -a wu-21a-green ...` step every
+unit since ADR-035 has actually used was run instead. Confirmed `green`,
+tagged `wu-21a-green` (verified directly against the real repository's own
+`git tag` — see `HANDOFF.md`).
 
 ### WU-21b — DeckLink capture-side pixel read: drain `CaptureFrameRing` on a
 consumer thread, `StartAccess`/`GetBytes`/`EndAccess` against a retained

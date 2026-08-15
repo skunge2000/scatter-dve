@@ -10,10 +10,15 @@ tag`/`git describe` (not trusted from session 26's own handoff account, which
 described both as uncertain/unconfirmed going in). `WORK-UNITS.md`'s WU-20a
 and WU-20b lines are corrected from `wip` to `green` accordingly. WU-21a
 (`runFrameBytes()`, the in-memory sibling of `runFrame()`/`runFrameFile()`)
-was built and genuinely verified in this session's own cloud sandbox this
-session — `WORK-UNITS.md`'s WU-21a line is `wip`, not `green`: built and run
-for real here, but not yet built or run at Steve's own real terminal, and
-tagging is Steve's own step, not the assistant's.
+was built and genuinely verified in this session's own cloud sandbox, then
+built, tested, and tagged at Steve's own real terminal within the same
+session: `cmake --build build` clean, `ctest` green except the already-accepted
+`test_decklink_device` exception (ADR-035), `./tools/close.sh 21a` correctly
+refused to auto-tag over that exception, `git tag -a wu-21a-green ...` run
+manually per the standing ADR-035 convention, confirmed present on `git tag`.
+`WORK-UNITS.md`'s WU-21a line is now `green` (`wu-21a-green`) — the first
+unit this project has had a tag confirmed within the very session it was
+built, rather than at the start of the next one.
 **Phase:** 5 (Live capture) continues. WU-21 ("full loop through at 576i25")
 was scoped this session — real `Files:`/`Accept:` text, done only after the
 reading below, same discipline as every prior unit — and split into three
@@ -139,10 +144,16 @@ wrong. Nothing here was ever claimed working before it actually was.
 
 **Phase 5 (Live capture) continues.** WU-20a and WU-20b both confirmed
 `green` and tagged (verified directly against the real repository this
-session). WU-21a (`runFrameBytes()`) is implemented and genuinely verified
-in this session's own cloud sandbox — full 8-configuration matrix plus
-ASan/UBSan, all clean — `wip` in `WORK-UNITS.md` because it has not yet been
-built or run at Steve's own real terminal and not yet tagged. WU-21b
+session). WU-21a (`runFrameBytes()`) is implemented, genuinely verified in
+this session's own cloud sandbox (full 8-configuration matrix plus
+ASan/UBSan, all clean), and — within this same session — also built,
+tested, and tagged at Steve's own real terminal: `cmake --build build`
+clean, `ctest` green (`test_pipeline_bytes` passing, only the already-accepted
+`test_decklink_device`/ADR-035 exception failing), `./tools/close.sh 21a`
+correctly declined to auto-tag over that exception, `git tag -a
+wu-21a-green ...` run manually per the standing ADR-035 convention, and
+confirmed present on `git tag` alongside `wu-20a-green`/`wu-20b-green`.
+`WORK-UNITS.md`'s WU-21a line is now `green` (`wu-21a-green`). WU-21b
 (DeckLink capture-side pixel read) is sketched in `WORK-UNITS.md`, not
 built. `DECISIONS.md` now runs through ADR-048; `CORRECTIONS.md` unchanged
 through C-016.
@@ -151,11 +162,14 @@ through C-016.
 via the device bridge this session and re-read back from there to confirm
 the write landed correctly, per `SESSION-PROTOCOL.md`'s own anti-drift rule
 8 (C-016's own lesson, explicitly applied here) — nothing in this handoff is
-asserted from the write call returning without error alone. Steve builds,
-tests, and tags at his own terminal — the standing operational note
-(device-bridge commits on this machine leave stale `.git/index.lock`/
-`HEAD.lock` files) still applies; git commands are not run via the bridge
-this session either.
+asserted from the write call returning without error alone. Steve committed,
+built, tested, closed, and tagged at his own terminal within this same
+session (one stale `.git/index.lock` from an unrelated earlier process was
+hit and cleared before the commit — not a device-bridge write this time,
+since git commands are never run via the bridge). This `WORK-UNITS.md`'s
+own WU-21a status-line update (to `green`) is itself being written back to
+the real repository and re-read to confirm before this session closes — see
+the end of this file.
 
 ## Next work unit
 
@@ -195,10 +209,10 @@ either.
 
 ## Blocked / red
 
-Nothing red. WU-21a is implemented and genuinely verified in this session's
-own cloud sandbox (8-configuration matrix + ASan/UBSan, all green). Only the
-real-terminal build/test/tag step remains, which is Steve's own action, not
-a block.
+Nothing red. WU-21a is fully closed — genuinely verified in this session's
+own cloud sandbox (8-configuration matrix + ASan/UBSan, all green) and,
+within the same session, built, tested, closed, and tagged (`wu-21a-green`)
+at Steve's own real terminal.
 
 ## Environment check
 
@@ -234,37 +248,40 @@ ADR-043 precedent this follows.
 
 ## What to run at your terminal
 
-Nothing has been committed yet — same standing operational note as every
-prior session: committing through the device bridge on this repo reliably
-leaves stale `.git/index.lock`/`HEAD.lock` files behind, so this was left for
-you to run directly:
+Already done this session, in full, at your own terminal:
 
 ```
 cd ~/src/scatter-dve
+rm -f .git/index.lock   # stale lock from an unrelated earlier process, confirmed no real git process was running first
 git add src/core/resolve.hpp src/core/pipeline.cpp \
         tests/test_pipeline_bytes.cpp CMakeLists.txt \
         DECISIONS.md WORK-UNITS.md HANDOFF.md
 git commit -m "WU-21a: runFrameBytes(), the in-memory sibling of runFrame()/runFrameFile() -- ADR-048; WU-20a/WU-20b confirmed green"
-```
+# -> 502dd8c, 7 files changed, 850 insertions(+), 238 deletions(-)
 
-Build and test (portable, no SDK/hardware needed for this unit specifically,
-but the full suite includes the DeckLink-gated targets as always if
-`BLACKMAGIC_SDK_DIR` is configured):
-
-```
 cmake --build build
 ctest --test-dir build --output-on-failure
-```
+# -> 96% tests passed, 1 failed (test_decklink_device / foundDuplexDevice,
+#    ADR-035's own already-accepted exception); test_pipeline_bytes passing
 
-Expect all tests green, including the new `test_pipeline_bytes`
-(`test_decklink_device`'s `foundDuplexDevice` failure, if the DeckLink target
-is configured, is ADR-035's own already-accepted exception, unrelated). Once
-confirmed, close and tag:
-
-```
 ./tools/close.sh 21a
+# -> TESTS FAILED (the same accepted exception) -- close.sh correctly
+#    declined to auto-tag, per its own no-exceptions design
+
 git tag -a wu-21a-green -m "WU-21a: runFrameBytes(), verified byte-identical to runFrameFile() for a genuine warp and I7-exact for flat chroma"
+git tag
+# -> wu-21a-green present, alongside wu-20a-green and wu-20b-green
 ```
 
-`wu-20a-green` and `wu-20b-green` were both already confirmed present on
-`git tag` this session — no action needed for either.
+Nothing outstanding from this session. `WORK-UNITS.md`'s WU-21a status line
+has been updated to `green` (`wu-21a-green`) to match and is being written
+back to the real repository as this handoff closes — you do not need to
+commit that update by hand; it will show as an uncommitted change to
+`WORK-UNITS.md` (and this `HANDOFF.md`) next time you look, same as every
+other session's own closing pair of files. A short commit for those two
+alone next session (or now, your call) is the only loose end:
+
+```
+git add WORK-UNITS.md HANDOFF.md
+git commit -m "WU-21a: mark green, tagged wu-21a-green (session 27 close)"
+```
