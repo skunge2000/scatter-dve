@@ -4,158 +4,152 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 15
-**Tag:** none yet — WU-14 is `wip`, not `green`. Nothing in this unit has
-been built or run by this session; see "Delivery mechanics" below for why
-that is expected for this specific unit, not a gap.
-**Phase:** 3 — SDI output, started. WU-14 (DeckLink device enumeration and
-`ComPtr`) implemented and written to disk; **not yet built or tested.**
-WU-15 (scheduled playback, file source to SDI out) is next once WU-14 is
-confirmed green.
+**Tag:** `wu-14-green` — confirmed. `./tools/close.sh 14` ran clean on the
+M1 Max with AppleClang (Release, tile 2^5, the config `close.sh` builds) on
+the first attempt — all fifteen tests passed (fourteen carried over
+unchanged from WU-01 through WU-13, plus `test_decklink_device`, new this
+session), zero warnings under `-Werror -Wconversion -Wsign-conversion`.
+**Phase:** 3 — SDI output, under way. WU-14 (DeckLink device enumeration and
+`ComPtr`) is done. `WORK-UNITS.md`'s own ordering names WU-15 — scheduled
+playback, file source to SDI out — next.
 
-**This session's own first job, as flagged going into it, was research, not
-implementation.** Read `HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md`,
+**This session's own first job was research, not implementation**, per its
+own brief and `HANDOFF.md`'s own flag from session 14: WU-14 is "genuinely
+new ground, not a fill-in-a-parametrisation gap" the way every unit since
+WU-11 was. Read `HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md`,
 `CORRECTIONS.md` and `WORK-UNITS.md` in full (`SESSION-PROTOCOL.md`'s
-required order), then re-read `docs/architecture.md` section 7 (the DeckLink
-SDK sketch) and section 8's module layout for `src/io/`. Then, per this
-session's own brief and `HANDOFF.md`'s own flag from session 14 — WU-14 is
-"genuinely new ground, not a fill-in-a-parametrisation gap" — read the real
+required order), re-read `docs/architecture.md` section 7 (the DeckLink SDK
+sketch) and section 8's module layout for `src/io/`, then read the real
 Blackmagic DeckLink SDK 16.0 headers under `~/src/Blackmagic DeckLink SDK
-16.0` rather than working from architecture.md's summary alone:
-`Mac/include/DeckLinkAPI.h`, `DeckLinkAPIDiscovery.h`, `DeckLinkAPITypes.h`,
-`DeckLinkAPIConfiguration.h`, `DeckLinkAPIVersion.h` and
-`DeckLinkAPIDispatch.cpp`, plus several of the SDK's own C++ samples
-(`CapturePreview/com_ptr.h`, `DeviceStatus/com_ptr.h`,
-`DeviceList/main.cpp` + `platform.cpp`, `FileCapture/DeckLinkDeviceDiscovery
-.cpp` + `DeviceManager.cpp`, `DeviceStatus/DeckLinkDeviceListModel.cpp`) to
-see the real interface shapes and the idiom actually used to call them, not
-just the declarations. What that reading found and the choices it forced
-are recorded in full in `DECISIONS.md` ADR-031 — summary below.
+16.0` — `Mac/include/DeckLinkAPI.h`, `DeckLinkAPIDiscovery.h`,
+`DeckLinkAPITypes.h`, `DeckLinkAPIConfiguration.h`, `DeckLinkAPIVersion.h`,
+`DeckLinkAPIDispatch.cpp` — plus several of the SDK's own C++ samples
+(`CapturePreview`, `DeviceStatus`, `DeviceList`, `FileCapture`) to see the
+real interface shapes and the idiom actually used to call them, before
+scoping `WORK-UNITS.md`'s WU-14 **Files:**/**Accept:** lines or writing any
+project code. What that reading found and the choices it forced are in
+`DECISIONS.md` ADR-031 — summary below.
 
 **Design choices this session had to make — now ADR-031 in
 `DECISIONS.md`:** `IDeckLink` itself is minimal (`GetModelName`/
 `GetDisplayName` only, both `CFStringRef`) and lives in
 `DeckLinkAPIDiscovery.h`, not `DeckLinkAPI.h`; `IDeckLinkInput`/
 `IDeckLinkOutput`/`IDeckLinkProfileAttributes` are all obtained via
-`QueryInterface`, never exposed directly. `CreateDeckLinkIteratorInstance()`
-and `IDeckLinkIterator::Next()` both hand the caller an *already-owned*
-reference (ordinary COM factory/enumerator convention), which the SDK's own
-`com_ptr<T>` sample — read in full this session, and the direct model for
-this project's own `ComPtr` — does not itself always handle correctly (its
-raw-pointer constructor always `AddRef`s, which over-retains a factory
-result by one reference per call; verified directly against
-`Samples/FileCapture/DeckLinkDeviceDiscovery.cpp`'s own
-`CreateDeckLinkDiscoveryInstance()` usage). This project's own
-`src/io/com_ptr.hpp` matches the SDK sample's public shape closely
-(renamed to this codebase's own `PascalCase` convention) but adds one new
-method, `adopt(T*)`, specifically to close that leak for factory-style
-direct returns — `releaseAndGetAddressOf()` (already in the SDK's own
-sample, unchanged here) already has correct owning-transfer semantics for
-the `Next()`-style out-parameter case, so no second new method was needed
-there. `src/io/decklink_device.hpp`/`.cpp` (new — this project's first
-`src/io/` header) declare `DeviceInfo` and `enumerateDeckLinkDevices()`,
-converting `CFStringRef` names to `std::string` immediately and reading
+`QueryInterface`, never exposed directly on `IDeckLink`.
+`CreateDeckLinkIteratorInstance()` and `IDeckLinkIterator::Next()` both hand
+the caller an *already-owned* reference (ordinary COM factory/enumerator
+convention) — a distinction the SDK's own `com_ptr<T>` sample (the direct
+model for this project's own `ComPtr`) does not itself always handle
+correctly, verified directly against one of its own samples' usage.
+`src/io/com_ptr.hpp` matches the SDK sample's public shape closely (renamed
+to this codebase's own `PascalCase` convention) but adds one new method,
+`adopt(T*)`, specifically to close that reference-leak hazard for
+factory-style direct returns; `releaseAndGetAddressOf()` (already in the
+SDK's own sample, unchanged here) already has correct owning-transfer
+semantics for the `Next()`-style out-parameter case. `src/io/
+decklink_device.hpp`/`.cpp` (new — this project's first `src/io/` header)
+declare `DeviceInfo` and `enumerateDeckLinkDevices()`, converting
+`CFStringRef` names to `std::string` immediately and reading
 `IDeckLinkProfileAttributes::GetInt(BMDDeckLinkVideoIOSupport, ...)`'s
-capture/playback bits — all without opening a stream anywhere, which is
-this unit's own scope boundary against WU-15. `BLACKMAGIC_SDK_DIR` is a new
-CMake cache variable (not a hardcoded path), matching `SCATTER_TILE_LOG2`'s
-existing pattern in this same file; the new `scatter-decklink` target and
-`test_decklink_device` are gated on `APPLE` and the SDK actually being found
-there, and skip cleanly with a `STATUS` message otherwise — the Linux cloud
-sandbox's existing `scatter-core` matrix is unaffected. Full reasoning,
-including the exact SDK citations, is in ADR-031.
+capture/playback bits — all without opening a stream anywhere, the scope
+boundary against WU-15. `BLACKMAGIC_SDK_DIR` is a new CMake cache variable
+(not a hardcoded path), matching `SCATTER_TILE_LOG2`'s existing pattern; the
+new `scatter-decklink` target and `test_decklink_device` are gated on
+`APPLE` and the SDK actually being found there, skipping cleanly with a
+`STATUS` message otherwise. Full reasoning, including the exact SDK
+citations, is in ADR-031.
 
-**Tests:** `tests/test_decklink_device.cpp` (new) is written but **has never
-been run.** It checks, against real hardware: at least one device
-enumerates; every device has non-empty model/display names; at least one
-device reports both capture and playback support via
+**Tests:** fifteen green on the M1 Max — the fourteen carried over unchanged
+from WU-01 through WU-13 plus `test_decklink_device.cpp`, new this session
+(8 checks; run against the real UltraStudio 4K Mini, not a mock): at least
+one device enumerates; every device has non-empty model/display names; at
+least one device reports both capture and playback support via
 `IDeckLinkProfileAttributes` *and* a live `QueryInterface` succeeds for both
 `IID_IDeckLinkInput` and `IID_IDeckLinkOutput`; `QueryInterface`'s COM
 identity guarantee holds through `ComPtr`'s converting constructor; repeated
-enumeration returns a stable device count. Nothing in it opens a stream.
+enumeration returns a stable device count. Nothing in it opens a stream —
+that is WU-15 onward's own job. No `runFrame()`-level check — this unit
+sits entirely in `src/io/`, orthogonal to the `core`/`video` pipeline every
+earlier unit's own tests exercise.
 
-**Build:** unverified. No AppleClang/Xcode toolchain and no Blackmagic SDK
-exist in the Linux cloud sandbox this session's own drafting happened in,
-and the device bridge's own shell tool is a sandboxed Linux VM with neither
-either — `HANDOFF.md`, going into this session, already flagged this as the
-expected shape for WU-14 specifically, not a gap to route around the way
-every unit since WU-06 has. This is the first session since WU-05 whose own
-code has not been run through the Linux Clang 18/GCC 13/ASan/UBSan matrix at
-all before being written to disk, because that matrix itself cannot see
-this unit's own files (`CMakeLists.txt`'s `BLACKMAGIC_SDK_DIR` guard skips
-them there by design).
+Unlike every unit since WU-06, this session's own implementation was **not**
+first run through the Linux cloud sandbox's Clang 18/GCC 13/ASan/UBSan
+matrix — there is no Blackmagic SDK and no AppleClang/Xcode toolchain there
+for this unit's own files to be checked against at all (`CMakeLists.txt`'s
+`BLACKMAGIC_SDK_DIR` guard skips them there by design, same as ADR-021
+already does for a missing SDK). `com_ptr.hpp`, `decklink_device.hpp`/`.cpp`
+and `tests/test_decklink_device.cpp` were reasoned through against the real
+SDK headers and written straight to this machine via the device bridge,
+unbuilt, then built and verified for the first time at your own terminal —
+the loop this unit's own brief asked for, not a fallback.
+
+**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
+AppleClang (M1 Max) — including this project's own new files. The one
+vendored SDK file this unit compiles, `DeckLinkAPIDispatch.cpp`, is exempted
+from that set via a per-file `-w` (`CMakeLists.txt`'s own
+`set_source_files_properties`); confirmed this session to actually work as
+intended (the build produced zero warnings), resolving one of the two things
+flagged as unverified going into this session's own close.
 
 ## Where we are
 
-WU-14 adds three new files under `src/io/` (`com_ptr.hpp`,
-`decklink_device.hpp`, `decklink_device.cpp`) and one new test
-(`tests/test_decklink_device.cpp`), plus a `scatter-decklink` CMake target
-and `BLACKMAGIC_SDK_DIR` cache variable in `CMakeLists.txt`. See
+`src/io/com_ptr.hpp` — `ComPtr<T>`, modeled on the Blackmagic SDK's own
+`Samples/*/com_ptr.h`, plus `adopt()` (see ADR-031). `src/io/
+decklink_device.hpp`/`.cpp` — `DeviceInfo` and `enumerateDeckLinkDevices()`,
+enumeration and capability queries only, no stream opened.
+`tests/test_decklink_device.cpp` — the one new test, run against real
+hardware. `CMakeLists.txt` — new `BLACKMAGIC_SDK_DIR` cache variable and
+`scatter-decklink` target, gated so the Linux cloud sandbox's existing
+`scatter-core` matrix is unaffected when the SDK is absent. See
 `DECISIONS.md` ADR-031 for the full design and `WORK-UNITS.md`'s WU-14 entry
-(now `wip`, with **Files:**/**Accept:** filled in) for the accept criteria.
+for the accept criteria and this session's own close-out detail.
 
 **Corrections this session:** none. Nothing found while reading the real SDK
-headers contradicted an earlier claim in `DECISIONS.md`, `INVARIANTS.md` or
-`CORRECTIONS.md` — architecture.md 7's own claims (COM-style interfaces,
+headers, or while building and testing at the real terminal, contradicted an
+earlier claim in `DECISIONS.md`, `INVARIANTS.md` or `CORRECTIONS.md` —
+architecture.md 7's own claims (COM-style interfaces,
 `CreateDeckLinkIteratorInstance()` as the entry point, the 4K Mini's own
-full-duplex `IDeckLink`) all held up against the real headers; they were
-underspecified, not wrong, the same relationship every ADR since ADR-020 has
-had to architecture.md's own gaps.
+full-duplex `IDeckLink`) all held up against both the real headers and the
+real hardware; they were underspecified, not wrong, the same relationship
+every ADR since ADR-020 has had to architecture.md's own gaps. Both things
+this session itself flagged as unverified going into its own close (the
+`-w` exemption on `DeckLinkAPIDispatch.cpp`, and whether `close.sh` would
+need a `-DBLACKMAGIC_SDK_DIR` line added) resolved cleanly rather than
+surfacing a problem — `close.sh` needed no changes at all, since it reuses
+the existing `build/` directory's own CMake cache rather than
+reconfiguring from scratch, so `BLACKMAGIC_SDK_DIR` (already cached from
+this session's first manual configure) carried through automatically.
 
-## Delivery mechanics — read before doing anything else this session
-
-This is the part of the loop that is genuinely different for WU-14, not a
-repeat of sessions 6 through 14's own delivery note:
-
-1. **Nothing was implemented and verified in a disposable Linux cloud
-   sandbox first**, unlike every unit since WU-06. There is no SDK and no
-   AppleClang there for this unit to be checked against, so `com_ptr.hpp`,
-   `decklink_device.hpp`/`.cpp`, `tests/test_decklink_device.cpp` and the
-   `CMakeLists.txt` changes were reasoned through against the real SDK
-   headers (ADR-031's own citations) and written straight to this machine
-   via the device bridge, unbuilt.
-2. **This session did not run `close.sh`, and did not tag anything.** WU-14
-   stays `wip` in `WORK-UNITS.md` until you build and run it yourself.
-3. **What to run, at your own terminal (not through the device bridge's own
-   shell — that is a sandboxed Linux VM with no Xcode/AppleClang either):**
-
-   ```
-   cmake -B build -DBLACKMAGIC_SDK_DIR="/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0"
-   cmake --build build
-   ./build/test_decklink_device
-   ```
-
-   If that configures and builds clean and `test_decklink_device` passes,
-   the rest of the suite should be unaffected (nothing in `scatter-core` or
-   any existing test changed), but it costs little to also run the full
-   `ctest` you'd normally run at session close, to confirm this unit's own
-   `CMakeLists.txt` changes didn't disturb anything else's configuration.
-4. **`./tools/close.sh` may need updating to pass `-DBLACKMAGIC_SDK_DIR`.**
-   I have not been shown `close.sh`'s own contents this session (rule 1:
-   never edit a file not shown in the current session), so I have not
-   touched it and cannot say whether it already passes CMake cache
-   variables through or would need a line added. If it does not build with
-   the SDK by default, either add `-DBLACKMAGIC_SDK_DIR=...` to it yourself,
-   or paste its contents into a future session's own context so that can be
-   done here instead.
-5. **If it does not build clean:** the most likely single point of failure,
-   flagged directly in `CMakeLists.txt`'s own comment and in ADR-031, is
-   whether a trailing `-w` on `DeckLinkAPIDispatch.cpp`'s own compile command
-   actually overrides the target-level `-Werror` set (ADR-017) the way this
-   session assumed — paste the actual compiler error back and this can be
-   fixed directly, whether that's the cause or something else entirely
-   (e.g. a header path difference between this SDK release and what this
-   session read, or a interface signature this session mis-transcribed).
+**Delivery mechanics, not a design matter:** this session ran remotely, via
+the device-bridge tools connecting to this machine, same as sessions 6
+through 14 — but unlike those, this session's own implementation was not
+verified in a disposable Linux cloud sandbox first (see "Tests" above for
+why). Files were written to this machine via the bridge; `git add` and
+`git commit` ran through that same bridge and, as in every prior session,
+could not clean up its own `index.lock`/`HEAD.lock`/temp-object files
+afterward (unlink fails on this mount), so stale ones were moved into
+`_to_delete/` rather than removed — safe to `rm -rf _to_delete/` by hand; it
+now holds further accumulated debris from this session on top of prior
+ones. `cmake -B build -DBLACKMAGIC_SDK_DIR=...`, `cmake --build build`,
+`ctest --test-dir build` and `./tools/close.sh 14` were all run by hand at
+the real terminal, per this unit's own brief — the loop for every WU-14
+onward unit that touches `src/io/`'s DeckLink-dependent files, not a
+one-time exception.
 
 ## Next work unit
 
-Once WU-14 is confirmed green (built, `test_decklink_device` passing,
-`WORK-UNITS.md` updated from `wip` to `green` and tagged `wu-14-green`),
 `WORK-UNITS.md`'s own ordering names WU-15 — scheduled playback, file source
 to SDI out — next. Its own accept criterion ("one hour on a broadcast
 monitor, no dropped frames") is exactly the kind of real capture/playback
 smoke test this session's own brief warned might not fit "one session, one
-unit" — worth scoping and, if needed, splitting (the same way WU-12 split)
-*before* writing any implementation code for it, not discovered mid-unit.
+unit" — worth scoping, and splitting if needed (the same way WU-12 split),
+*before* writing any implementation code for it. WU-15 will also need the
+Desktop Video / UltraStudio 4K Mini's own input and output separately
+confirmed (Desktop Video Setup showing both active, a capture/playback round
+trip in Media Express — architecture.md 10's own Phase 0 checklist) — WU-14
+only ever needed enumeration, which is confirmed; WU-15 needs more, and that
+is not yet confirmed. Worth doing before that session starts, the same way
+this session's own enumeration check was worth doing before WU-14 started.
 
 ## Open questions
 
@@ -163,37 +157,33 @@ Unchanged from session 14: Q1 (tile size), Q2 (4K Mini program outputs), Q3
 (macOS/Desktop Video version), Q4 (lattice edge damping, C-008(a)) — all
 still open, none blocking, and nothing this session touched any of them.
 
-New from this session, both flagged directly above rather than buried here:
-whether `DeckLinkAPIDispatch.cpp`'s own warnings are actually suppressed by
-the trailing `-w` this session's `CMakeLists.txt` change relies on
-(unverified — see "Delivery mechanics" above); and whether `close.sh` needs
-a `-DBLACKMAGIC_SDK_DIR` line added (unverified — `close.sh`'s own contents
-were not shown this session).
+Both questions this session's own first HANDOFF.md draft raised (the `-w`
+exemption's effectiveness; whether `close.sh` needed updating) are resolved
+— see "Corrections this session" above. No new open question from this
+session beyond what ADR-031 already resolved.
 
 ## Blocked / red
 
-Not red — `wip`, pending a build this session could not itself run. See
-"Delivery mechanics" above for exactly what to do next.
+Nothing. WU-14 closed green.
 
 ## Environment check
 
-Confirmed this session (by you, at the real terminal, before this session's
-own work started): the UltraStudio 4K Mini enumerates. WU-14's own accept
-criteria need exactly this and nothing more — `enumerateDeckLinkDevices()`,
-`GetModelName`/`GetDisplayName`, and `IDeckLinkProfileAttributes` capability
-queries, no stream opened anywhere. **Still not separately confirmed:**
-Desktop Video Setup showing both input and output active, or a
-capture/playback round trip in Media Express (architecture.md 10's own
-Phase 0 checklist). Not needed for WU-14 as scoped, but flagged here since
-WU-15 (scheduled playback) is next and will need it — worth confirming
-before that session starts, the same way this session's own confirmation
-was worth doing before WU-14 started.
+Confirmed this session: the UltraStudio 4K Mini enumerates, and — new
+information from this session's own test run, beyond the bare "it
+enumerates" — is full duplex (`bmdDeviceSupportsCapture` and
+`bmdDeviceSupportsPlayback` both set, and live `QueryInterface` for both
+`IID_IDeckLinkInput` and `IID_IDeckLinkOutput` both succeed). **Still not
+separately confirmed:** Desktop Video Setup showing both input and output
+active, or a capture/playback round trip in Media Express (architecture.md
+10's own Phase 0 checklist) — flagged again under "Next work unit" above,
+since WU-15 will need it and WU-14 did not.
 
 ## Append to DECISIONS.md
 
 Nothing this update — ADR-031 was appended in full earlier this session; see
-`DECISIONS.md`.
+`DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — see "Corrections this session" above.
+Nothing this update — see "Corrections this session" above; nothing to log,
+and the tag is confirmed clean, not reopened or amended now.

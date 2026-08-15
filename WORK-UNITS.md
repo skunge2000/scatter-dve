@@ -274,7 +274,7 @@ modes, and keyframed/morphed lattices are all reproduced.
 
 ## Phase 3 — SDI output
 
-### WU-14 — DeckLink device enumeration and ComPtr `wip`
+### WU-14 — DeckLink device enumeration and ComPtr `green`
 **Files:** `src/io/com_ptr.hpp`, `src/io/decklink_device.hpp`,
 `src/io/decklink_device.cpp` (all new), `tests/test_decklink_device.cpp`
 (new); plus `CMakeLists.txt` (new `scatter-decklink` target and
@@ -295,16 +295,35 @@ No stream is opened anywhere in this unit — no
 `EnableVideoInput()`/`EnableVideoOutput()`/`StartStreams()`/scheduled
 playback call in `decklink_device.cpp` or its test; that is WU-15 onward's
 own job. See `DECISIONS.md` ADR-031 for the full design.
-*Status this session:* implemented and written to disk via the device
-bridge; **not yet built or run**. This unit needs the real Blackmagic SDK
-and an AppleClang/Xcode toolchain, neither present in the Linux cloud
-sandbox this session's own implementation and verification work ran in —
-the same reason ADR-021 kept `file_source.cpp`/`file_sink.cpp` out of any
-SDK dependency, now the reason this unit's own code has never actually been
-compiled by this session at all, only reasoned through against the real SDK
-headers. Stays `wip` until built and `test_decklink_device` run at the real
-terminal; see `HANDOFF.md` for exactly what to run and what is and is not
-yet confirmed.
+*Done:* `wu-14-green` tagged. Implemented in a Linux cloud sandbox with no
+Blackmagic SDK and no AppleClang/Xcode toolchain at all — the first unit
+since WU-05 whose own code was never run through the Linux Clang 18/GCC 13/
+ASan/UBSan matrix before being written to disk, since that matrix cannot see
+anything gated behind `BLACKMAGIC_SDK_DIR` (see `DECISIONS.md` ADR-031 for
+why, and for the full design: the real SDK's `IDeckLink`/`IDeckLinkIterator`
+shape, the owned- vs. borrowed-reference distinction `ComPtr::adopt()`
+exists for, and the capability-check design). Built and verified for the
+first time at the real terminal, on the M1 Max with AppleClang: configured
+clean (`DeckLink SDK found at .../Blackmagic DeckLink SDK 16.0`), built
+clean under `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` (the `-w` exemption on the SDK's own vendored
+`DeckLinkAPIDispatch.cpp` worked as intended — zero warnings anywhere,
+including this project's own new files), and `test_decklink_device` passed
+all 8 checks against the real UltraStudio 4K Mini — one device enumerated,
+non-empty model/display names, full-duplex confirmed both by the
+`BMDDeckLinkVideoIOSupport` attribute bits and by live `QueryInterface` for
+both `IID_IDeckLinkInput` and `IID_IDeckLinkOutput`, `QueryInterface`'s COM
+identity guarantee held, repeated enumeration stable. `./tools/close.sh 14`
+then ran clean on the first attempt — all fifteen tests passed (fourteen
+carried over unchanged from WU-01 through WU-13, plus
+`test_decklink_device`), and `close.sh` needed no changes: it reuses the
+existing `build/` directory's CMake cache, which already had
+`BLACKMAGIC_SDK_DIR` set from this session's own first configure, so the
+variable did not need to be re-passed or added to `close.sh` itself — one
+of the two things `HANDOFF.md` flagged as unverified going into this
+session's own close, now resolved. Phase 3 (SDI output) is under way:
+device enumeration and `ComPtr` are done; WU-15 (scheduled playback, file
+source to SDI out) is next.
 ### WU-15 — Scheduled playback, file source to SDI out `todo`
 **Accept:** one hour on a broadcast monitor, no dropped frames.
 
