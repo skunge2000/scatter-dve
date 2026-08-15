@@ -324,8 +324,52 @@ of the two things `HANDOFF.md` flagged as unverified going into this
 session's own close, now resolved. Phase 3 (SDI output) is under way:
 device enumeration and `ComPtr` are done; WU-15 (scheduled playback, file
 source to SDI out) is next.
-### WU-15 — Scheduled playback, file source to SDI out `todo`
-**Accept:** one hour on a broadcast monitor, no dropped frames.
+### WU-15a — Scheduled playback: one looped warped frame, file source to SDI out `wip`
+See `DECISIONS.md` ADR-032 for the full design and for why this splits from
+the single WU-15 line above (`HANDOFF.md`'s own flag going into this
+session, resolved after reading the real SDK — the same order ADR-028 used
+for WU-12a/WU-12b).
+**Files:** `src/io/decklink_output.hpp`, `src/io/decklink_output.cpp` (both
+new), `tests/test_decklink_output.cpp` (new); plus `CMakeLists.txt`
+(`decklink_output.cpp` added to the existing `scatter-decklink` target,
+`test_decklink_output` added alongside `test_decklink_device` — CMakeLists.txt
+edits have never counted against the "3 source files" cap in any earlier
+unit either).
+**Accept:** a genuinely warped frame (a cylinder over a zone plate, built
+via WU-11's `buildCylinderLattice()` and WU-10's `runFrameFile()`) is
+written to a real `.v210` file, then read back and played out via
+`LoopedFramePlayback` on the real UltraStudio 4K Mini for a bounded
+few-second run: `IDeckLinkOutput::RowBytesForPixelFormat(bmdFormat10BitYUV,
+...)` matches this project's own `v210::rowBytesMin()` at the test width
+(ADR-032's own consistency check); every `ScheduledFrameCompleted()` result
+over that run is `bmdOutputFrameCompleted`, never
+`bmdOutputFrameDisplayedLate` or `bmdOutputFrameDropped`; `stop()` returns
+cleanly. Steve confirms once, by eye, that the warped frame is visible on a
+broadcast monitor while the test runs — architecture.md 10 Phase 3's own
+"warped frames appear on a broadcast monitor" half, not its "stable for an
+hour" half (that is WU-15b, below). Does not claim endurance.
+*Status:* implemented in a Linux cloud sandbox with no Blackmagic SDK and no
+AppleClang/Xcode toolchain at all, the same shape ADR-031 already used for
+WU-14 — reasoned through against the real SDK headers and the SDK's own
+`FilePlayback`/`SignalGenerator` samples (ADR-032's own citations), written
+straight to the real machine via the device bridge, unbuilt. Needs building
+and running at the real terminal before this line can go green; see
+`HANDOFF.md`.
+
+### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
+The literal, still-unmet half of architecture.md 10 Phase 3's own accept
+criterion ("stable for an hour"). Not new implementation — WU-15a's own
+`LoopedFramePlayback` mechanism, unchanged, run for longer than one session
+can itself assert green (`SESSION-PROTOCOL.md`'s own "one session, one work
+unit" sizing). No `Files:` line: this is Steve's own hands-on verification
+step (start WU-15a's own test, or a longer-duration invocation of the same
+mechanism, leave it running unattended for an hour, report the logged
+`stats().dropped`/`stats().displayedLate`/`stats().completed` counts back),
+the same category of thing `HANDOFF.md`'s own "Environment check" section
+already asks for by hand, not a session's own job to assert from a
+terminal. See `DECISIONS.md` ADR-032.
+**Accept:** one hour on a broadcast monitor, zero
+`stats().dropped`/`stats().displayedLate` across the whole run.
 
 ---
 

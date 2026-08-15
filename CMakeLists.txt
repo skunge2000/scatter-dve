@@ -223,6 +223,7 @@ set(BLACKMAGIC_SDK_DIR "" CACHE PATH
 if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPI.h")
     add_library(scatter-decklink STATIC
         src/io/decklink_device.cpp
+        src/io/decklink_output.cpp
         "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp")
     target_include_directories(scatter-decklink PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -257,7 +258,19 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_device PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_device COMMAND test_decklink_device)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink and test_decklink_device configured")
+    # WU-15a — test_decklink_output.cpp exercises both scatter-decklink
+    # (LoopedFramePlayback, device enumeration) and scatter-core (runFrameFile,
+    # buildCylinderLattice, testpat helpers, v210::rowBytesMin — building and
+    # writing the real .v210 file it plays back), so it links both static
+    # libraries, unlike test_decklink_device above. See DECISIONS.md ADR-032.
+    add_executable(test_decklink_output tests/test_decklink_output.cpp)
+    target_link_libraries(test_decklink_output PRIVATE scatter-decklink scatter-core)
+    target_include_directories(test_decklink_output PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+    add_test(NAME test_decklink_output COMMAND test_decklink_output)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device and test_decklink_output configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()

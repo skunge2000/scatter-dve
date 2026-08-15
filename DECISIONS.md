@@ -1311,3 +1311,211 @@ single-machine, SDK-free `scatter-core` boundary is extended to a second
 target (`scatter-decklink`) rather than crossed, and ADR-017's warning set
 is applied unchanged to every file this project owns, with only the one
 vendored SDK file exempted, not the set itself relaxed.
+
+**ADR-032 — Scheduled playback: the real SDK's output-buffer access shape,
+the preroll/refill idiom taken from the SDK's own samples rather than
+architecture.md's illustrative figure, the WU-15a/WU-15b split, and this
+unit's own frame-source scope — frozen at WU-15a, Phase 3's second unit.**
+`docs/architecture.md` 7's Output subsection sketches the mechanism
+("`CreateVideoFrame()` and write into `GetBytes()`... `ScheduleVideoFrame()`
+with a 3-frame preroll, then `StartScheduledPlayback()`... Refill from
+`SetScheduledFrameCompletionCallback`") without fixing several things a
+literal reading gets wrong or leaves open — the same kind of gap ADR-031
+found for enumeration, found this time by reading `IDeckLinkOutput`/
+`IDeckLinkVideoFrame`/`IDeckLinkMutableVideoFrame` themselves in
+`DeckLinkAPI.h` and the SDK's own `FilePlayback`/`SignalGenerator` samples
+(`DeckLinkPlaybackDevice.cpp`, `SyncController.mm`) rather than
+architecture.md's summary alone, per this session's own brief. This entry
+also records the WU-15 split `HANDOFF.md` flagged going into this session
+as likely needed, decided *after* this reading, not before it — the same
+order ADR-028 followed for WU-12a/WU-12b.
+
+- **`GetBytes()` is not a method on `IDeckLinkVideoFrame`/
+  `IDeckLinkMutableVideoFrame` at all.** architecture.md 7's "write into
+  `GetBytes()`" reads as if it were direct; it is not. `DeckLinkAPI.h`
+  declares `GetBytes()` on a separate interface, `IDeckLinkVideoBuffer`,
+  obtained via `QueryInterface(IID_IDeckLinkVideoBuffer, ...)` from the
+  frame `CreateVideoFrame()` returns, and bracketed by
+  `StartAccess()`/`EndAccess()`. Confirmed directly against the real SDK's
+  own `SignalGenerator` sample (`SyncController.mm`'s `ScopedBufferBytes`
+  helper: `com_ptr<IDeckLinkVideoBuffer> buffer(IID_IDeckLinkVideoBuffer,
+  frame); buffer->StartAccess(flags); buffer->GetBytes(&lockedMem); ...
+  buffer->EndAccess(flags)`), not assumed from architecture.md's summary —
+  exactly the discipline this session's own brief asked for. `src/io/
+  decklink_output.cpp`'s `fillFrameBuffer()` follows this shape.
+- **Row bytes: ask the SDK, do not assume this project's own
+  `v210::rowBytesMin()` agrees with it.** architecture.md 7 already states
+  this rule for the *input* side ("Always use `GetBytesPerRow()`; never
+  compute row stride yourself") but says nothing about output; the same
+  reasoning applies symmetrically, so `decklink_output.cpp` calls
+  `IDeckLinkOutput::RowBytesForPixelFormat(bmdFormat10BitYUV, width,
+  &rowBytes)` and uses that value for both `CreateVideoFrame()`'s
+  `rowBytes` argument and how many bytes it reads from the source file —
+  never `video::v210::rowBytesMin()`, which this file does not even
+  include. `bmdFormat10BitYUV` is literally FourCC `'v210'`
+  (`DeckLinkAPIModes.h`'s own comment), so the two values are expected to
+  agree in practice; `tests/test_decklink_output.cpp`'s
+  `test_v210_rowbytes_matches_project_own_computation()` checks this
+  directly, once, against the real hardware, rather than leaving it an
+  unstated assumption every other check in that file would otherwise rely
+  on silently.
+- **Frame source for this unit: raw packed `.v210` bytes read directly from
+  disk via `<fstream>`, not `video::readV210File()`'s unpack path
+  (WU-05).** `IDeckLinkOutput::CreateVideoFrame()`'s buffer for
+  `bmdFormat10BitYUV` wants exactly the packed byte layout the file already
+  contains — unpacking to `Sample` planes and repacking would be pure waste
+  for this unit's own job of moving bytes from a file to a DeckLink buffer
+  unchanged, and would pull in a `video/v210.hpp` dependency
+  `decklink_output.cpp` does not otherwise need. `src/io/decklink_output.cpp`'s
+  own `readRawFile()` mirrors `file_source.cpp`'s existing "read exactly N
+  bytes, fail if short" idiom (WU-05), applied to a raw byte buffer instead
+  of an unpacked image.
+- **Preroll depth: half a second of frames, computed from the negotiated
+  display mode's own frame rate — not architecture.md 7's illustrative
+  "3-frame" figure.** Neither real sample uses 3 frames: `FilePlayback`'s
+  `DeckLinkPlaybackDevice::play()` prerolls `round(m_frameRate / 2.0)`
+  frames ("Preroll 1/2 second of frames," its own comment);
+  `SignalGenerator`'s `SyncController.mm` `startRunning()` sets
+  `selectedDevice.videoPrerollSize = framesPerSecond / 2` ("Set the preroll
+  to 1/2 second of video frames"). architecture.md 7's "3-frame" reads as
+  the *minimum* the mechanism needs to have anything queued at all, not a
+  number either real sample actually ships. Chosen: follow the real
+  samples' own idiom — `std::lround(framesPerSecond / 2.0)`, computed from
+  `IDeckLinkDisplayMode::GetFrameRate()`'s own `frameDuration`/`timeScale`
+  for whichever display mode was actually negotiated, not hardcoded to any
+  one standard's frame rate.
+- **Refill idiom: exactly one replacement frame scheduled per
+  `ScheduledFrameCompleted()` call, not a batch refill.** Matches
+  `FilePlayback`'s own shape exactly:
+  `DeckLinkPlaybackDevice::ScheduledFrameCompleted()` calls
+  `scheduleVideo()` once per completion. `LoopedFramePlayback::
+  ScheduledFrameCompleted()` calls its own `scheduleOne()` once, the
+  simplest mechanism that keeps the DeckLink-internal queue at a roughly
+  constant depth with no extra bookkeeping (a target queue depth, a
+  buffered-frame-count poll, etc. — none of it needed once refill is
+  exactly "one out, one back in").
+- **Stop sequencing: `StopScheduledPlayback()` then
+  `SetScheduledFrameCompletionCallback(nullptr)` then
+  `DisableVideoOutput()`, no condition-variable wait.** `SignalGenerator`'s
+  own `stopRunning()` does exactly this, relying on `DisableVideoOutput()`'s
+  own documented behaviour ("`DisableVideoOutput` will block until all
+  scheduled frames are completed or flushed," that sample's own comment) —
+  a simpler shape than `FilePlayback`'s own `stopScheduledPlayback()`,
+  which additionally takes a mutex and waits on a condition variable for
+  `ScheduledPlaybackHasStopped()`. Chosen: `SignalGenerator`'s simpler
+  shape — this unit has no UI thread to keep responsive during the wait
+  (`FilePlayback`'s own reason for the extra machinery, dispatching back to
+  a main queue) and no audio stream to coordinate against, so the extra
+  synchronization buys nothing here.
+- **A real (non-trivial) `IUnknown` reference count on
+  `LoopedFramePlayback` itself, not a shortcut.** It registers itself
+  directly as the `IDeckLinkVideoOutputCallback` (`SetScheduledFrameCompletionCallback(this)`)
+  rather than using a separate delegate object the way `SignalGenerator`'s
+  `DeckLinkOutputDevice` does (`DeckLinkOutputCallback`, a distinct heap
+  object) — one class playing both roles, since this unit has no UI object
+  of its own for a delegate pattern to make sense against. `create()`
+  heap-allocates it and adopts the constructor's own initial `m_refCount{1}`
+  via `ComPtr::adopt()` (ADR-031's own "already one reference, take
+  ownership, no `AddRef`" case, applied here to this project's own object
+  rather than an SDK factory return) rather than the SDK's; `AddRef()`/
+  `Release()` are real, atomic, delete-on-zero, matching the SDK's own
+  `DeckLinkOutputCallback`/`DeckLinkPlaybackDevice` samples exactly —
+  `SetScheduledFrameCompletionCallback()` takes ownership the same way any
+  COM interface pointer handed to a callee for storage does, so this object
+  must survive exactly as long as something (the SDK, or this project's own
+  caller) holds a reference to it, not merely as long as `create()`'s own
+  caller happens to keep its `ComPtr` alive.
+
+**The WU-15a/WU-15b split.** `WORK-UNITS.md`'s WU-15 line, going into this
+session, stated one accept criterion — "one hour on a broadcast monitor, no
+dropped frames" — directly copied from architecture.md 10's own Phase 3
+"done when" line. `HANDOFF.md`'s own note flagged this, going into this
+session, as "exactly the kind of real capture/playback smoke test... worth
+scoping, and splitting if needed... *before* writing any implementation
+code for it," the same instruction this session's own brief repeated. Read
+*after* the SDK research above, not before it (same order ADR-028 used for
+WU-12a/WU-12b): an hour-long unattended run is not something this session
+can itself assert green — no hardware access from the cloud sandbox, and
+even at the real terminal an hour exceeds what "one session, one work unit"
+(`SESSION-PROTOCOL.md`) sensibly means by a single sitting. Split into:
+
+- **WU-15a (this session).** `src/io/decklink_output.hpp`/`.cpp` (new) —
+  `LoopedFramePlayback`, the mechanism above. `tests/test_decklink_output.cpp`
+  (new) — builds one genuinely warped frame (a cylinder over a zone plate,
+  reusing WU-11's `buildCylinderLattice()` and WU-10's `runFrameFile()`,
+  exactly as any earlier unit's own tests already do) and writes it to a
+  real `.v210` file, so "file source" is genuine, not simulated; enumerates
+  the real UltraStudio 4K Mini (WU-14's `enumerateDeckLinkDevices()`,
+  unchanged) and obtains its `IDeckLinkOutput` via `QueryInterface`; runs
+  `LoopedFramePlayback` for a bounded few-second window; asserts zero
+  `bmdOutputFrameDisplayedLate`/`bmdOutputFrameDropped` results and at least
+  one `bmdOutputFrameCompleted`, and a clean `stop()`. This is "get one
+  static warped frame scheduled and playing," the first half of
+  architecture.md 10's own Phase 3 "done when" line ("warped frames appear
+  on a broadcast monitor") — confirmed once, by eye, at the real terminal
+  while the bounded test runs; the automated checks confirm the DeckLink
+  side's own mechanics (no dropped/late frames over that window, clean
+  start/stop), not what is actually on the wire, the same division of
+  labour ADR-031's own `HANDOFF.md` note already draws between what a test
+  can assert and what a human confirms by hand.
+- **WU-15b (not this session, not yet scheduled in `WORK-UNITS.md`'s own
+  numbering beyond this note).** The literal, still-unmet half of
+  architecture.md 10's own Phase 3 criterion: run the same
+  `LoopedFramePlayback` mechanism unattended for one hour on the real
+  hardware, confirm `stats().dropped`/`stats().displayedLate` are still
+  zero and `stats().completed` is consistent with an hour's worth of
+  frames at the negotiated frame rate, "stable for an hour." This is not
+  implementation work — WU-15a's own mechanism, unchanged, run for longer
+  — so it is not scoped with new `Files:`/`Accept:` source-file lines the
+  way every other work unit in this file is; it is Steve's own hands-on
+  verification step (start it, leave it running, report the logged
+  dropped-frame count back), the same category of thing HANDOFF.md's own
+  "Environment check" section already asks for by hand (Desktop Video
+  Setup, Media Express), not a session's own job to assert green from a
+  terminal.
+
+**Display mode: `bmdModePALp`, not `bmdModePAL`.** ADR-007 names both
+"576i25 / 576p25" as this project's development standard without choosing
+between them for output. This project has no de-interlace/field-split
+machinery yet (`WORK-UNITS.md`'s WU-23, Phase 6, not built) — every frame
+`runFrame()`/`runFrameFile()` produces today is one whole progressive
+raster — so playing it out as one whole progressive raster
+(`bmdModePALp`) is the honest match; `bmdModePAL` would transmit the same
+progressive content as an interlaced signal with no field-splitting step
+ever run on it, which is not what "576i25" is supposed to mean even though
+a *static* test frame would not visibly show the difference. Whether the
+UltraStudio 4K Mini actually supports `bmdModePALp` with `bmdFormat10BitYUV`
+is **unverified this session** — `LoopedFramePlayback::create()` checks
+`DoesSupportVideoMode()` itself and fails cleanly (a null `ComPtr` result,
+not a crash) rather than assuming; if it turns out unsupported at the real
+terminal, `bmdModePAL` is the documented fallback (this project's own
+progressive-only limitation would then mean picking a supported progressive
+HD mode instead, or accepting interlaced transmission of progressive
+content for this one smoke test only — a decision for whichever session
+next touches this, not resolved here).
+
+**This entire unit is unverified by this session — deliberately, same
+reason ADR-031 gives for WU-14.** No Blackmagic SDK and no AppleClang/Xcode
+toolchain exist in the Linux cloud sandbox this session drafted in;
+`decklink_output.hpp`/`.cpp` and `tests/test_decklink_output.cpp` are
+reasoned through against the real SDK headers and samples (this entry's own
+citations above) rather than compiled and run by this session at all.
+`WORK-UNITS.md`'s WU-15a line stays `wip`, not `green`, until built and run
+at the real terminal.
+
+Not decided here, deliberately: WU-15b's own eventual `WORK-UNITS.md` entry
+number and exact reporting format (a log line, per this unit's own
+`PlaybackStats`, is enough for now); decoding a real multi-frame file
+sequence, as opposed to looping one static frame (a later, not-yet-named
+unit's job — WU-15a's own frame source is deliberately the minimal thing
+that is still honestly "file source to SDI out," per the user's own framing
+of the split going into this session); and anything about live capture
+input (WU-20, Phase 5, untouched).
+
+Does not reopen `docs/architecture.md`, ADR-007, ADR-013, ADR-021 or
+ADR-031 — same relationship every ADR since ADR-020 has to the document;
+ADR-007's "576i25 / 576p25" naming is read literally (both named, output
+picks progressive for the stated reason) rather than amended; ADR-021's
+`scatter-core`/`scatter` file-placement precedent and ADR-031's `ComPtr::
+adopt()`/enumeration are reused unaltered, not modified, by this unit's own
+code.
