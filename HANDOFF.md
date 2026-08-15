@@ -4,21 +4,25 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 21
-**Tag:** `wu-16a-green` is the most recent *tag*. WU-16b (this session) is
-implemented and verified in a Linux cloud sandbox but not yet built at the
-real terminal — same shape WU-16a's own first turn left things in, and the
-same next action: Steve runs the build/test/`close.sh` sequence below,
-then tags `wu-16b-green` by hand once he has (this unit adds no Apple-only
-surface, so there is no reason to expect the real-terminal run to differ
-from the sandbox, but the assistant does not run `close.sh` — see
-"What to run at your terminal," below).
+**Tag:** `wu-16a-green` is still the most recent *tag* as of this file
+being written — WU-16b is fully confirmed green at the real terminal
+(below) but not yet tagged: `./tools/close.sh 16b` correctly refused
+(its own gate is "any failure blocks tagging," ADR-035), because
+`test_decklink_device`'s already-known full-duplex exception was present
+in the run — exactly the same shape WU-15a's and WU-16a's own closes hit.
+Steve's own next step is to tag `wu-16b-green` by hand, the same way
+`wu-15a-green`/`wu-16a-green` were — see "Next work unit," below, for the
+exact command.
 **Phase:** 3 (SDI output) remains done in full, unchanged since session
 18. Phase 4 (Threading and NEON): WU-16a is confirmed green
 (`wu-16a-green`, tagged by Steve since the last session's own handoff).
 WU-16b (PASS 1 row-band parallelism, per-worker generation-time bin
 arenas — the other half of Phase 4's threading work, named but not scoped
-at WU-16a's own close) is implemented and verified this session; its own
-`WORK-UNITS.md` line stays `wip` pending the real-terminal run above.
+at WU-16a's own close) is implemented, committed, and now confirmed at
+the real terminal — building clean under AppleClang (including
+`scatter-decklink`, unaffected by this unit, which touches no
+`src/io/`/`decklink_*` file) and passing every test except the one
+already-understood `test_decklink_device` exception.
 
 **This session's own first job, per Steve's own brief and
 `SESSION-PROTOCOL.md`'s own discipline: read `core/binner.hpp`/`.cpp`
@@ -88,8 +92,8 @@ run before the test was relied on, fixed by switching to a compressive
 map (matching `tests/test_binner.cpp`'s own convention). No production
 code was implicated.
 
-**Tests / Build — Linux cloud sandbox (this session):** all sixteen
-tests green (fourteen carried over from before WU-16a, plus
+**Tests / Build — Linux cloud sandbox (this session's own first turn):**
+all sixteen tests green (fourteen carried over from before WU-16a, plus
 `test_threading` and the new `test_row_band`) across Clang 18 and GCC 13,
 Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 — eight configurations,
 zero warnings under this project's full `-Wall -Wextra -Wpedantic
@@ -98,40 +102,67 @@ zero warnings under this project's full `-Wall -Wextra -Wpedantic
 sizes (clean) and GCC 13 with `-fsanitize=thread` (clean — no data race;
 run both across the full suite and standalone against
 `test_threading`/`test_row_band`). Unlike WU-16a, this unit adds no new
-Apple-only surface at all (`setWorkerQoS()` is untouched), so there is no
-open verification question the way `setWorkerQoS()`'s own `#ifdef
-__APPLE__` branch was going into WU-16a's own second turn — only the
-procedural real-terminal `close.sh` run remains, per this project's own
-"the assistant does not run `close.sh`" rule.
+Apple-only surface at all (`setWorkerQoS()` is untouched), so there was
+no open compile-time verification question the way `setWorkerQoS()`'s own
+`#ifdef __APPLE__` branch was going into WU-16a's own second turn.
+
+**Tests / Build — real terminal, M1 Max, AppleClang (Steve's own second
+turn, this session):** `cmake -B build && cmake --build build` succeeded
+clean (`ninja: no work to do` on the `close.sh` run itself, since Steve
+had already built incrementally beforehand) — every file this unit
+touches or adds compiles clean under AppleClang, including
+`scatter-decklink`/`test_decklink_device`/`test_decklink_output` (built
+here since `BLACKMAGIC_SDK_DIR` is cached from an earlier session; this
+unit touches none of those files). Full suite: 17 of 18 passing.
+`test_threading` and `test_row_band` both green (0.07s, 0.00s). The one
+failure, `test_decklink_device.cpp:53`,
+`test_at_least_one_device_is_full_duplex` (`foundDuplexDevice` staying
+false) — this is **ADR-035's own already-named, already-accepted
+exception**, unrelated to WU-16b: the UltraStudio Monitor 3G is
+playback-only by design, so that check correctly reports no duplex
+device found with it as the only attached device, the same "15/16" /
+"16/17" pattern WU-15a's and WU-16a's own closes already hit. WU-16b
+touches no `src/io/`, `decklink_*` or `test_decklink_*` file at all, so
+this is not a regression this unit introduced —
+`test_decklink_output` itself passed both its checks (5.15s), confirming
+the DeckLink-side mechanics this unit doesn't touch are still fine.
+`./tools/close.sh 16b` correctly refused to tag (its own gate cannot
+distinguish an accepted exception from a real failure, by design), the
+same way it correctly refused for WU-15a and WU-16a.
 
 ## Where we are
 
 Phase 3 (SDI output) remains done in full (WU-14/15a/15b, session 18).
-Phase 4: WU-16a green (`wu-16a-green`). WU-16b implemented and verified in
-the Linux cloud sandbox this session; `WORK-UNITS.md` stays `wip` pending
-Steve's own real-terminal run and `close.sh 16b`. `DECISIONS.md` now runs
-through ADR-041; `CORRECTIONS.md` now runs through C-015.
+Phase 4: WU-16a fully implemented and verified, both in the Linux cloud
+sandbox and now at the real terminal — only blocked from an automatic
+`green` tag by the same known, accepted `test_decklink_device` exception
+ADR-035 already covers. `DECISIONS.md` now runs through ADR-041;
+`CORRECTIONS.md` now runs through C-015.
 
 **Corrections this session:** C-015 (see above).
 
-**Delivery mechanics:** implemented and verified in this session's own
-Linux cloud sandbox (Ubuntu 24.04, Clang 18.1.3, GCC 13.3.0), not the
-device bridge's own more limited Linux VM. Final files were written to
-the real repository via the device bridge. **Not committed this
-session** — per the operational note from the WU-16a session (repeated
-below), committing through the device bridge on this repo reliably
-leaves stale `.git/index.lock`/`HEAD.lock` files behind, since the bridge
-can write files but cannot unlink anything on Steve's machine. Rather
-than proxy `git add`/`git commit` through the bridge again, this
-session's own close hands Steve the exact commands to run at his own
-terminal instead (below) — an untested convenience, but one that avoids
-repeating a known friction point.
+**Delivery mechanics:** implementation and verification (writing
+`binner.hpp`/`.cpp`, `pipeline.cpp`, `test_row_band.cpp`, and the full
+eight-configuration + ASan/UBSan + TSan matrix) were done in a separate
+Linux cloud sandbox, not the device bridge's own Linux VM; final files
+were written to the real repository and committed via the device bridge.
+One commit this session (`c3f0dba`), confirmed on the real machine via a
+read-only `git log`/`git status` check (no lock-file issue this time —
+only reads were needed from the assistant's own side; Steve did the
+`git add`/`git commit` at his own terminal per this file's own prior
+instructions). Working tree is clean as of this handoff.
 
 ## Next work unit
 
-**Steve's own next action: build, test and (if green) `close.sh` WU-16b
-at his own terminal, then commit and tag by hand.** Exact commands under
-"What to run at your terminal," below.
+**Steve's own next action: tag `wu-16b-green` by hand**, accepting the
+ADR-035 exception himself exactly the way he did for `wu-15a-green` and
+`wu-16a-green` — `close.sh` will not do this automatically, by design:
+
+```
+cd ~/src/scatter-dve
+git tag -a wu-16b-green -m "WU-16b: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-16b)"
+git push origin HEAD --tags   # if you keep a remote; close.sh would have done this
+```
 
 After that: **WU-17** (NEON v210 unpack and pack) is next in Phase 4, per
 `WORK-UNITS.md`'s own ordering — its own `Accept:` line ("bit-identical to
@@ -159,9 +190,9 @@ arenas); a persistent, caller-owned `ThreadPool` reused across frames
 
 ## Blocked / red
 
-Nothing red. WU-16b is fully green in the Linux cloud sandbox; only the
-real-terminal `close.sh` run and the commit/tag are outstanding, both
-Steve's own next steps per "Next work unit," above.
+Nothing red. WU-16b is fully green at both the Linux sandbox and the real
+terminal; only the tag itself is outstanding, and that is Steve's own
+manual step per "Next work unit," above.
 
 ## Environment check
 
@@ -191,28 +222,22 @@ no production code implicated.
 
 ## What to run at your terminal
 
+Already done, this session:
+
 ```
 cd ~/src/scatter-dve
-cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure
-./tools/close.sh 16b
-```
-
-If `close.sh 16b` reports the same, already-understood
-`test_decklink_device` full-duplex exception ADR-035 already covers
-(15/16 or 16/17, not a clean N/N) and nothing else fails, that exception
-is expected and does not block tagging — the same call Steve made for
-`wu-15a-green` and `wu-16a-green`. If `close.sh` itself tags cleanly,
-nothing further is needed. If it refuses (its own gate cannot distinguish
-an accepted exception from a real failure, by design), tag by hand:
-
-```
 git add src/core/binner.hpp src/core/binner.cpp src/core/pipeline.cpp \
         tests/test_row_band.cpp CMakeLists.txt \
         DECISIONS.md CORRECTIONS.md WORK-UNITS.md HANDOFF.md
 git commit -m "WU-16b: PASS 1 row-band parallelism, per-worker generation-time bin arenas (ADR-041)"
+./tools/close.sh 16b                      # correctly refused to tag — by design
+```
+
+Still to do — tag it by hand (see "Next work unit," above):
+
+```
 git tag -a wu-16b-green -m "WU-16b: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-16b)"
-git push origin HEAD --tags   # if you keep a remote
+git push origin HEAD --tags
 ```
 
 Adjust the exact exception wording in the tag message if the real run's
