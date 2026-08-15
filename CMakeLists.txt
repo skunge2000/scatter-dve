@@ -74,11 +74,18 @@ endif()
 # same "extend an existing file" shape as WU-12b, only its own new test
 # executable below.
 #
-# WU-16 adds src/core/pipeline.hpp (new -- ADR-026 already anticipated its
+# WU-16a adds src/core/pipeline.hpp (new -- ADR-026 already anticipated its
 # arrival at this unit) and extends the existing src/core/pipeline.cpp with
 # a ThreadPool and a threaded PASS 2 (architecture.md section 6; DECISIONS.md
 # ADR-040). Needs the platform thread library -- Threads::Threads, below --
 # which no earlier unit has required.
+#
+# WU-16b extends src/core/binner.hpp/.cpp (a new row-range-aware
+# generateFragmentsRowRange(), architecture.md section 6's own row-band
+# parallelism; DECISIONS.md ADR-041) and src/core/pipeline.cpp again (PASS 1
+# now row-band-parallel too, when PipelineParams::threads > 1) -- no new
+# source file for scatter-core itself, only its own new test executable
+# below (test_row_band).
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -160,6 +167,7 @@ scatter_test(test_layered_composite)
 scatter_test(test_morph)
 scatter_test(test_threading)
 target_include_directories(test_threading PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+scatter_test(test_row_band)
 
 # ---------------------------------------------------------------------------
 # make_testpat — WU-03. First executable that is not a test: it writes raw

@@ -514,7 +514,7 @@ is satisfied across WU-14, WU-15a and WU-15b together.
 
 ## Phase 4 — Threading and NEON
 
-### WU-16a — Thread pool, QoS, per-worker bin arenas: PASS 2 (tile-parallel) `wip`
+### WU-16a — Thread pool, QoS, per-worker bin arenas: PASS 2 (tile-parallel) `green`
 See `DECISIONS.md` ADR-040 for the full design and for why this splits
 from the single bare WU-16 line above (this session's own first job, per
 Steve's own brief: real scoping before any code — architecture.md
@@ -552,35 +552,63 @@ the project's full `-Wall -Wextra -Wpedantic -Wconversion
 sizes (clean) and, new for this unit, GCC 13 with `-fsanitize=thread`
 (clean, no data race — the first genuinely concurrent code inside
 `scatter-core`, so this was checked empirically rather than trusted on
-reasoning alone, per this project's own C-011/C-012 lesson). **Still
-needed before this line goes `green`:** `setWorkerQoS()`'s own
-`#ifdef __APPLE__` branch (`pthread_set_qos_class_self_np`,
-`<pthread/qos.h>`) is unverified — no AppleClang/Xcode toolchain exists in
-the Linux cloud sandbox this unit was implemented in, the same gap
-ADR-031/032 already named for WU-14/WU-15a's own Apple-only surfaces — so
-the full suite and `./tools/close.sh 16a` still need a real-terminal run
-before this can be tagged `wu-16a-green`.
+reasoning alone, per this project's own C-011/C-012 lesson).
+*Done:* `wu-16a-green` tagged. Steve's own real-terminal run (M1 Max,
+AppleClang) confirmed `setWorkerQoS()`'s `#ifdef __APPLE__` branch
+compiles clean and the full suite passes 16/17 — the one failure,
+`test_decklink_device`'s full-duplex check, is ADR-035's own already-
+accepted exception (the UltraStudio Monitor 3G is playback-only),
+unrelated to this unit. `./tools/close.sh 16a` correctly refused to tag
+automatically (its own gate cannot distinguish an accepted exception from
+a real failure, by design, ADR-035); Steve tagged `wu-16a-green` by hand,
+the same way he did for `wu-15a-green`.
 
 ### WU-16b — Thread pool: PASS 1 row-band parallelism, per-worker
-generation-time bin arenas `todo`
-Not scoped with `Files:`/`Accept:` lines yet — named here, per
-`DECISIONS.md` ADR-040's own "not decided here, deliberately" note, for
-whichever future session picks it up. architecture.md section 6's fuller
-two-pass design: partition `core/binner.cpp`'s `generateFragments()` by
-source row bands across `ThreadPool`'s own workers, each with a private,
-preallocated per-tile fragment-bin arena (not the single shared
-`TileBins` PASS 1 currently populates), then a barrier (`ThreadPool::
-runOnAll()`'s own two-consecutive-calls shape already supports this, per
-ADR-040), then PASS 2 (WU-16a, unchanged) reading every worker's own
-generation-time arena for each tile it resolves. Needs a row-range-aware
-addition to `core/binner.hpp`/`.cpp` that keeps the `v`-parameter
-denominator keyed to the source raster's whole height, not a band's (see
-ADR-040 for why the current `generateFragments()` cannot simply be called
-once per band with a shorter `SourceRaster::height`) — whichever session
-starts this should read `core/binner.cpp`'s own `pixelToLattice()` first,
-the same "read the real shape before scoping" discipline ADR-031/032 used
-for the DeckLink SDK, applied here to this project's own frozen code
-instead of a third-party one.
+generation-time bin arenas `wip`
+See `DECISIONS.md` ADR-041 for the full design. Completes architecture.md
+section 6's full two-pass design that ADR-040 (WU-16a) deliberately
+scoped down to PASS 2 alone.
+**Files:** `src/core/binner.hpp` (one new `generateFragmentsRowRange()`
+entry point; `generateFragments()` itself becomes a thin wrapper around
+it, signature and behaviour unchanged), `src/core/binner.cpp`,
+`src/core/pipeline.cpp` (PASS 1 now row-band-parallel when
+`PipelineParams::threads > 1`; `resolveOneTile()` generalised to read a
+list of per-worker PASS-1 arenas instead of one shared `TileBins`),
+`tests/test_row_band.cpp` (new); plus `CMakeLists.txt`
+(`test_row_band` added — CMakeLists.txt edits have never counted against
+the "3 source files" cap in any earlier unit either). No
+`src/core/pipeline.hpp` change — `ThreadPool`'s own two-consecutive-
+`runOnAll()`-calls barrier, unused since WU-16a, is exactly what this
+unit needed and already had.
+**Accept:** `generateFragmentsRowRange()`, called once per row band
+across several bands (including more bands than a source raster has
+rows, so some bands are empty) and reassembled tile by tile, reproduces
+a single whole-raster `generateFragments()` call exactly — same
+fragments present, every field (position, colour, weight) bit-identical
+— `tests/test_row_band.cpp`'s `checkRowRangeReassembly()` and its two
+callers. `runFrame()` stays bit-identical to `threads == 1` (I6) now that
+PASS 1 itself runs row-band-parallel too, including when `threads`
+exceeds the source raster's own row count so some workers get an empty
+band — `test_threaded_pipeline_more_workers_than_source_rows()`, plus
+every pre-existing `tests/test_threading.cpp` check (unchanged, still
+passing) now exercising the combined PASS-1+PASS-2-parallel path instead
+of WU-16a's own PASS-2-only one.
+*Status:* implemented and verified in a Linux cloud sandbox — Clang 18
+and GCC 13, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, all sixteen tests green — the fourteen carried over from
+before WU-16a plus `test_threading` and the new `test_row_band`, zero
+warnings under the project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes (clean) and GCC 13 with `-fsanitize=thread` (clean, no data race,
+both across the full suite and standalone against
+`test_threading`/`test_row_band`) — checked with particular care since
+this unit adds the project's first concurrent code inside PASS 1.
+Unlike WU-16a, this unit adds no new Apple-only surface — `setWorkerQoS()`
+is untouched — but per this project's own convention the assistant does
+not run `close.sh`; the full suite and `./tools/close.sh 16b` still need
+a real-terminal run before this can be tagged `wu-16b-green`.
+
 ### WU-17 — NEON v210 unpack and pack `todo`
 **Accept:** bit-identical to scalar reference.
 ### WU-18 — NEON chroma resampling `todo`

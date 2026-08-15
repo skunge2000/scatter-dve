@@ -408,3 +408,41 @@ only ever wrong during the one temporary, uncommitted state ADR-038's own
 edit produces, never in anything committed. Does not reopen ADR-032,
 ADR-033 or ADR-038 — this corrects a gap in ADR-038's own runbook
 completeness, not a design decision any of those entries freeze.
+
+**C-015 — a decode()-by-colour-signature fragment-reassembly check (WU-16b's
+own `tests/test_row_band.cpp`, first draft) assumed a source pixel's own
+(px, py) signature identifies at most one `Frag` per tile, without
+checking that assumption against 4.6's own supersampling.**
+*Claimed (this session's own first draft of
+`test_row_range_reassembles_with_more_bands_than_rows()`):* a magnifying
+pixel-affine map (scale 2.0, chosen only so `numBands` (11) could exceed
+`H` (5) at a source small enough to be a cheap test) was a safe choice for
+a check built on `tests/test_binner.cpp`'s own `decode()` technique
+(`Frag::Y`/`Cb` re-encoding a fragment's own source `(px, py)`).
+*Correct:* under magnification, `chooseSupersample()` (`core/binner.cpp`,
+4.6) subdivides a source pixel into up to 16 sub-samples, several of which
+can land on the same integer destination cell — measured directly (this
+session, the exact construction first drafted): multiple source pixels'
+own signature keys appeared 4 or 16 times in a single tile. `decode()`'s
+own signature identifies which *source pixel* a fragment came from, not
+which *sub-sample*, so a magnifying map breaks the "at most one `Frag` per
+signature per tile" assumption this test's own reassembly check depends
+on — not a defect in `generateFragmentsRowRange()`, `generateFragments()`,
+or the row-range reassembly property genuinely under test, and caught by
+this session's own diagnostic run (a standalone reproduction outside the
+test harness) before the test was relied on as evidence of anything.
+`tests/test_binner.cpp`'s own decode()-based checks all use compressive
+maps (det J < 1, so `chooseSupersample()` always returns 1) for exactly
+this reason, a constraint this session's first draft of the second
+row-band test did not carry over from it. Fixed within this unit's own
+test file: `test_row_range_reassembles_with_more_bands_than_rows()` now
+uses a compressive map (scale 0.5) instead of a magnifying one, matching
+`tests/test_binner.cpp`'s own convention and this same file's other
+row-range test; `generateFragmentsRowRange()` itself was never in
+question, and the fix touches no production code. **General lesson for
+future units:** a `decode()`-by-colour-signature technique for checking
+`Frag` identity or uniqueness is only valid where `chooseSupersample()`
+returns 1 everywhere (det J < 1, no subdivision) — a future unit reusing
+this pattern under magnification needs a genuinely sub-sample-unique key
+(e.g. also encoding `sx`/`sy`) or a different verification approach
+entirely.

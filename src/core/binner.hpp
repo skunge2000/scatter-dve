@@ -135,6 +135,34 @@ struct BinStats {
     std::size_t droppedOffRaster = 0;  // sub-samples whose destination fell outside the raster; no Frag emitted
 };
 
+// Pass 1, row-range variant — WU-16b (DECISIONS.md ADR-041). Generates and
+// bins fragments only for source rows in [rowStart, rowEnd) (0 <= rowStart
+// <= rowEnd <= src.height, unchecked — same unchecked-precondition
+// convention every other tile/row-range index in this codebase already
+// uses, e.g. Lattice::at()), while every u/v lattice-parameter calculation
+// stays keyed to src.width/src.height in full — never to rowEnd - rowStart
+// or to a caller-shortened SourceRaster — so a caller partitioning
+// [0, src.height) into disjoint row bands and calling this once per band
+// produces exactly the fragments generateFragments() below would for each
+// of those same rows in one whole-raster call: same (u, v) per source
+// pixel, same supersampling decisions, same destination positions. See
+// ADR-040 for why the naive alternative (calling generateFragments() once
+// per band against a SourceRaster whose own height field was shortened to
+// the band's extent) corrupts the v-parameter's denominator instead, and
+// ADR-041 for this entry point's own design.
+//
+// Every other parameter has the same meaning as generateFragments()'s
+// own. Bins are written into outBins, which the caller sizes for the
+// destination raster — WU-16b's own per-worker "generation-time bin
+// arena" is one whole-frame TileBins per row-band-generating worker, not a
+// partial one, since a row band's own fragments can land in any tile
+// depending on the warp; core/pipeline.cpp is where that arena actually
+// lives.
+BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
+                                    double maxK, const SupersampleConfig& ss,
+                                    std::uint8_t tag, int rowStart, int rowEnd,
+                                    TileBins& outBins);
+
 // Pass 1: generate and bin fragments for an entire source raster.
 //
 // lattice maps continuous lattice-parameter (u, v) to destination (x, y,
@@ -145,6 +173,14 @@ struct BinStats {
 // 4.6's adaptive supersampling; tag is copied into every emitted Frag
 // unchanged (priority/surface id, 4.7 — not otherwise used here). Bins are
 // written into outBins, which the caller sizes for the destination raster.
+//
+// WU-16b: now a thin wrapper around generateFragmentsRowRange() above,
+// covering the whole raster in one row range — this function's own
+// signature and behaviour are exactly WU-08's frozen ones, unchanged (see
+// ADR-041; SESSION-PROTOCOL.md rule 2, "never rename or refactor... names
+// in headers are fixed" — read the same way ADR-026/030 already read it,
+// as forbidding a change to an existing function's own contract, not as
+// forbidding a new sibling entry point next to it).
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins);

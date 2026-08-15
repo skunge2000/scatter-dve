@@ -3,198 +3,218 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 20
-**Tag:** `wu-15a-green` is still the most recent *tag* as of this file being
-written — WU-16a is fully confirmed green at the real terminal (below) but
-not yet tagged: `./tools/close.sh 16a` correctly refused (its own gate is
-"any failure blocks tagging," ADR-035), because `test_decklink_device`'s
-already-known full-duplex exception was present in the run. Steve's own
-next step is to tag `wu-16a-green` by hand, the same way `wu-15a-green`
-was — see "Next work unit," below, for the exact command.
+**Session:** 21
+**Tag:** `wu-16a-green` is the most recent *tag*. WU-16b (this session) is
+implemented and verified in a Linux cloud sandbox but not yet built at the
+real terminal — same shape WU-16a's own first turn left things in, and the
+same next action: Steve runs the build/test/`close.sh` sequence below,
+then tags `wu-16b-green` by hand once he has (this unit adds no Apple-only
+surface, so there is no reason to expect the real-terminal run to differ
+from the sandbox, but the assistant does not run `close.sh` — see
+"What to run at your terminal," below).
 **Phase:** 3 (SDI output) remains done in full, unchanged since session
-18. Phase 4 (Threading and NEON): WU-16a (thread pool, QoS, per-worker
-bin arenas — PASS 2's own tile-parallelism) is implemented, committed,
-and now confirmed at the real terminal — the one piece this session's own
-Linux cloud sandbox could not verify (`setWorkerQoS()`'s Apple-only QoS
-branch) compiles clean on AppleClang.
+18. Phase 4 (Threading and NEON): WU-16a is confirmed green
+(`wu-16a-green`, tagged by Steve since the last session's own handoff).
+WU-16b (PASS 1 row-band parallelism, per-worker generation-time bin
+arenas — the other half of Phase 4's threading work, named but not scoped
+at WU-16a's own close) is implemented and verified this session; its own
+`WORK-UNITS.md` line stays `wip` pending the real-terminal run above.
 
-**This session did real scoping before writing any code, per
-`SESSION-PROTOCOL.md`'s own discipline and Steve's own brief**, then
-implemented, verified in a Linux cloud sandbox, and committed WU-16a; a
-second turn, after Steve ran the build at his own real terminal, closes
-out what that sandbox could not check. See `DECISIONS.md` ADR-040 for the
-full design.
+**This session's own first job, per Steve's own brief and
+`SESSION-PROTOCOL.md`'s own discipline: read `core/binner.hpp`/`.cpp`
+closely (`generateFragments()`'s row loop, `pixelToLattice()`) before
+writing anything, and verify ADR-040's own diagnosis against the real
+code rather than assume it.** It checks out exactly as ADR-040 described:
+the row loop's bound and `pixelToLattice()`'s own `v`-denominator both
+read the same `SourceRaster::height` field, so a row-band-parallel PASS 1
+cannot be built by calling `generateFragments()` once per band against a
+`SourceRaster` whose own `height` was shortened to the band's extent —
+that moves the `v`-parameter's whole domain, not just which rows are
+visited. See `DECISIONS.md` ADR-041 for the full design this session
+implements from that finding.
 
-`WORK-UNITS.md`'s WU-16 line was bare going in — a title and one accept
-criterion, no `Files:` — and `docs/architecture.md` section 6 describes a
-fuller two-pass design (PASS 1 row-band parallelism with per-worker
-generation-time bin arenas, *and* PASS 2 tile-parallelism) than fits
-`SESSION-PROTOCOL.md`'s "3 source files" cap without reopening
-`core/binner.hpp`/`.cpp` (WU-08, frozen). Split the same way this project
-has split an over-scoped unit before (ADR-028's WU-12a/WU-12b, ADR-032's
-WU-15a/WU-15b): **WU-16a (this session) is PASS 2's tile-parallelism
-alone; WU-16b (not this session, not yet scoped with `Files:`/`Accept:`)
-is PASS 1's row-band parallelism**, named in `WORK-UNITS.md` for whoever
-picks it up next.
+**1. `src/core/binner.hpp`/`.cpp`, extended.** New
+`generateFragmentsRowRange()` — same parameters as `generateFragments()`
+plus `rowStart`/`rowEnd`; the row loop's bound becomes `rowStart`/
+`rowEnd` while every `pixelToLattice()`/`pixelJacobian()` call inside
+stays keyed to `src.width`/`src.height` in full — the "honest fix" ADR-040
+named. `generateFragments()` itself is now a thin wrapper,
+`generateFragmentsRowRange(..., 0, src.height, outBins)` — WU-08's own
+frozen signature and behaviour, unchanged.
 
-**1. `src/core/pipeline.hpp`, new.** `ThreadPool` (persistent worker
-threads, a generation-counter dispatch that doubles as a barrier across
-two consecutive `runOnAll()` calls) and `setWorkerQoS()` (Apple-only
-`pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)`, a no-op
-elsewhere). Arrives exactly where ADR-026 (WU-10) said it would.
+**2. `src/core/pipeline.cpp`, extended.** `runFrame()`'s `threads > 1`
+branch: PASS 1 now partitions `src`'s rows into `params.threads`
+contiguous bands (`(worker * src.height) / numWorkers` boundaries —
+architecture.md 6's own "partitions the source by row bands," contrasted
+with PASS 2's own unchanged interleaved `tileIndex % threads` split), one
+worker per band, each writing into its own whole-frame `TileBins` (a
+private "generation-time bin arena" — not a partial one, since a row
+band's own fragments can land in any tile depending on the warp) via
+`generateFragmentsRowRange()`. A second `ThreadPool::runOnAll()` call is
+architecture.md 6's own barrier, free — `core/pipeline.hpp`'s own doc
+comment already anticipated this exact use, unused until now; no
+`pipeline.hpp` change needed. PASS 2 (tile-parallel, unchanged
+partitioning) now reads every worker's own PASS-1 arena for a given tile,
+in fixed worker order, instead of one shared `TileBins`.
+`resolveOneTile()` is generalised to take `std::span<const TileBins*
+const>` instead of a single `TileBins&` — the `threads <= 1` path wraps
+its own single `TileBins` in a one-element `std::array`, arithmetically
+identical to before (verified by the full pre-existing test suite still
+passing unchanged against this refactored path, not just reasoned) —
+extending WU-16a's own "both paths share one function, so they cannot
+silently diverge" property from two paths to three, rather than
+hand-duplicating a second bank-resolve/normalise/composite body for the
+multi-source case.
 
-**2. `src/core/pipeline.cpp`, extended.** `runFrame()` now branches on
-`PipelineParams::threads`: `<= 1` runs the exact WU-10 loop, refactored to
-share a new `resolveOneTile()` helper but otherwise untouched and never
-touching `ThreadPool` at all (the oracle, ADR-015, stays independently
-simple); `> 1` constructs a local `ThreadPool`, gives each worker its own
-persistent `TileAccum` + `AccumCell` scratch buffer (the "per-worker bin
-arena" this unit's own scope covers), and statically partitions
-`TileBins`' own tiles across workers by `tileIndex % threads`.
+**3. `tests/test_row_band.cpp`, new.** Direct checks of
+`generateFragmentsRowRange()` against `generateFragments()` (row bands
+reassembled, tile by tile, bit-identical to a whole-raster call — two
+constructions: uneven bands, and more bands than source rows) plus the
+pipeline-level edge case `tests/test_threading.cpp`'s own thread-count
+matrix never exercised: `runFrame()` at thread counts exceeding the
+source raster's own row count, so several workers get an empty PASS-1
+row band.
 
-**3. `src/core/resolve.hpp`, one field added.** `PipelineParams::threads`,
-default `1` — additive, every existing caller unchanged.
+**4. `CMakeLists.txt`.** `test_row_band` added (`scatter_test()`); no new
+target dependency.
 
-**4. `tests/test_threading.cpp`, new.** Direct `ThreadPool` checks
-(dispatch reaches every worker exactly once per round, clean teardown)
-plus the literal accept criterion: a genuinely warped (cylinder over a
-zone plate), multi-tile, non-tile-size-multiple frame run at
-`threads` in `{0, -3, 1, 2, 3, 5, 8, 16}`, every one checked bit-for-bit
-against the `threads == 1` reference; a second, differently-shaped
-geometry checked at `threads == 1` vs `8` specifically.
+**Correction this session:** C-015 (`CORRECTIONS.md`) — this session's
+own first draft of `test_row_range_reassembles_with_more_bands_than_rows()`
+used a magnifying map, which triggers 4.6's own supersampling and breaks
+the decode()-by-colour-signature technique's own "at most one Frag per
+signature per tile" assumption (several sub-samples of one source pixel
+can land on the same destination cell); caught by a standalone diagnostic
+run before the test was relied on, fixed by switching to a compressive
+map (matching `tests/test_binner.cpp`'s own convention). No production
+code was implicated.
 
-**5. `CMakeLists.txt`.** `find_package(Threads REQUIRED)`,
-`Threads::Threads` linked into `scatter-core` (first unit that needed
-it), `test_threading` added.
-
-**No corrections this session.** Nothing earlier was found wrong.
-
-**Tests / Build — Linux cloud sandbox (this session's own first turn):**
-all fifteen tests green (fourteen carried over unchanged, plus
-`test_threading`) across Clang 18 and GCC 13, Release and Debug,
-`SCATTER_TILE_LOG2` 4 and 5 — eight configurations, zero warnings under
-this project's full `-Wall -Wextra -Wpedantic -Wconversion
--Wsign-conversion -Werror` set — plus GCC 13 with
+**Tests / Build — Linux cloud sandbox (this session):** all sixteen
+tests green (fourteen carried over from before WU-16a, plus
+`test_threading` and the new `test_row_band`) across Clang 18 and GCC 13,
+Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 — eight configurations,
+zero warnings under this project's full `-Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Werror` set — plus GCC 13 with
 `-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
 sizes (clean) and GCC 13 with `-fsanitize=thread` (clean — no data race;
-run both across the full suite and standalone against `test_threading`).
-
-**Tests / Build — real terminal, M1 Max, AppleClang (Steve's own second
-turn, this session):** `cmake -B build && cmake --build build` succeeded
-clean — `setWorkerQoS()`'s `#ifdef __APPLE__` branch
-(`pthread_set_qos_class_self_np`, `<pthread/qos.h>`) compiles as written,
-resolving this session's own last open question. Full suite: 16 of 17
-passing. `test_threading` itself: green, all checks, 0.10-0.25s.
-The one failure, `test_decklink_device.cpp:53`,
-`test_at_least_one_device_is_full_duplex` (`foundDuplexDevice` staying
-false) — this is **ADR-035's own already-named, already-accepted
-exception**, unrelated to WU-16a: the UltraStudio Monitor 3G is
-playback-only by design, so that check correctly reports no duplex
-device found with it as the only attached device, exactly the same
-"15/16" (now 16/17, one more test in the suite) pattern WU-15a's own
-close.sh run hit. WU-16a touches no `src/io/`, `decklink_*` or
-`test_decklink_*` file at all, so this is not a regression this unit
-introduced — `./tools/close.sh 16a` correctly refused to tag (its own
-gate cannot distinguish an accepted exception from a real failure, by
-design), the same way it correctly refused for WU-15a.
+run both across the full suite and standalone against
+`test_threading`/`test_row_band`). Unlike WU-16a, this unit adds no new
+Apple-only surface at all (`setWorkerQoS()` is untouched), so there is no
+open verification question the way `setWorkerQoS()`'s own `#ifdef
+__APPLE__` branch was going into WU-16a's own second turn — only the
+procedural real-terminal `close.sh` run remains, per this project's own
+"the assistant does not run `close.sh`" rule.
 
 ## Where we are
 
 Phase 3 (SDI output) remains done in full (WU-14/15a/15b, session 18).
-Phase 4: WU-16a fully implemented and verified, both in the Linux cloud
-sandbox and now at the real terminal — only blocked from an automatic
-`green` tag by the same known, accepted `test_decklink_device` exception
-ADR-035 already covers. WU-16b (PASS 1's own row-band parallelism) is
-named in `WORK-UNITS.md` but not scoped or built. `DECISIONS.md` now runs
-through ADR-040; `CORRECTIONS.md` is unchanged since C-014 (session 18).
+Phase 4: WU-16a green (`wu-16a-green`). WU-16b implemented and verified in
+the Linux cloud sandbox this session; `WORK-UNITS.md` stays `wip` pending
+Steve's own real-terminal run and `close.sh 16b`. `DECISIONS.md` now runs
+through ADR-041; `CORRECTIONS.md` now runs through C-015.
 
-**Corrections this session:** none.
+**Corrections this session:** C-015 (see above).
 
-**Delivery mechanics:** implementation and verification (writing
-`pipeline.hpp`/`.cpp`, `resolve.hpp`, `test_threading.cpp`, and the full
-eight-configuration + ASan/UBSan + TSan matrix) were done in a separate
-Linux cloud sandbox, not the device bridge's own Linux VM; final files
-were written to the real repository and committed via the device bridge.
-One commit this session (`b052625`). A stale `.git/index.lock` (left over
-from a previous session, no process holding it) blocked that commit
-until Steve removed it by hand — device-bridge tools cannot delete files
-on the connected machine, so that one step needed his own terminal.
-Working tree is clean as of this handoff.
+**Delivery mechanics:** implemented and verified in this session's own
+Linux cloud sandbox (Ubuntu 24.04, Clang 18.1.3, GCC 13.3.0), not the
+device bridge's own more limited Linux VM. Final files were written to
+the real repository via the device bridge. **Not committed this
+session** — per the operational note from the WU-16a session (repeated
+below), committing through the device bridge on this repo reliably
+leaves stale `.git/index.lock`/`HEAD.lock` files behind, since the bridge
+can write files but cannot unlink anything on Steve's machine. Rather
+than proxy `git add`/`git commit` through the bridge again, this
+session's own close hands Steve the exact commands to run at his own
+terminal instead (below) — an untested convenience, but one that avoids
+repeating a known friction point.
 
 ## Next work unit
 
-**Steve's own next action: tag `wu-16a-green` by hand**, accepting the
-ADR-035 exception himself exactly the way he did for `wu-15a-green` —
-`close.sh` will not do this automatically, by design:
+**Steve's own next action: build, test and (if green) `close.sh` WU-16b
+at his own terminal, then commit and tag by hand.** Exact commands under
+"What to run at your terminal," below.
 
-```
-cd ~/src/scatter-dve
-git tag -a wu-16a-green -m "WU-16a: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-16a)"
-git push origin HEAD --tags   # if you keep a remote; close.sh would have done this
-```
-
-After that: **WU-16b** (PASS 1 row-band parallelism, per-worker
-generation-time bin arenas — see `DECISIONS.md` ADR-040 and
-`WORK-UNITS.md`'s own WU-16b heading) is next in Phase 4, followed by
-WU-17 (NEON v210 unpack/pack) and WU-18/19 as already listed.
+After that: **WU-17** (NEON v210 unpack and pack) is next in Phase 4, per
+`WORK-UNITS.md`'s own ordering — its own `Accept:` line ("bit-identical to
+scalar reference") is already written; no other scoping is recorded for
+it yet.
 
 ## Open questions
 
 Unchanged: Q1 (tile size), Q3 (macOS/Desktop Video version), Q4 (lattice
 edge damping, C-008(a)). Q2 remains moot per ADR-037. ADR-037's own
-follow-ups #1 (`test_decklink_device.cpp`'s full-duplex check — now hit
-again by this session, still the same accepted exception, still not
-resolved structurally) and #2 (genlock) remain open, unrelated to this
-session's own work — Phase 5's problem, not Phase 4's.
+follow-ups #1 (`test_decklink_device.cpp`'s full-duplex check) and #2
+(genlock) remain open, unrelated to this session's own work — Phase 5's
+problem, not Phase 4's.
 
-Nothing new this session — `setWorkerQoS()`'s own open question (did the
-Apple branch compile?) is resolved: yes.
+New, named but not resolved, per ADR-041's own "not decided here"
+section: per-row-band load balancing (PASS 1's own contiguous bands can
+carry uneven fragment-generation cost under a warp whose magnification
+varies sharply across the frame, the same class of concern C-011 already
+raised for a shape's own front-facing point); bump-allocated/preallocated
+bin arenas (architecture.md 6's own "preallocated, bump-allocated" phrase
+is not what `TileBins`' own `std::vector<Frag>::push_back()` growth
+implements, for either WU-16a's single arena or this unit's `numWorkers`
+arenas); a persistent, caller-owned `ThreadPool` reused across frames
+(WU-19's own job, unchanged from ADR-040's own deferral).
 
 ## Blocked / red
 
-Nothing red. WU-16a is fully green at both the Linux sandbox and the real
-terminal; only the tag itself is outstanding, and that is Steve's own
-manual step per "Next work unit," above.
+Nothing red. WU-16b is fully green in the Linux cloud sandbox; only the
+real-terminal `close.sh` run and the commit/tag are outstanding, both
+Steve's own next steps per "Next work unit," above.
 
 ## Environment check
 
-Unchanged from session 18/19 (ADR-037/039): **UltraStudio Monitor 3G** is
-the active, confirmed output target — and, per this session's own real-
-terminal run, still correctly reports as non-duplex (ADR-035, expected).
-**UltraStudio Recorder 3G** is in hand, named (ADR-039) as Phase 5's own
-input target, still untouched by any code. **UltraStudio 4K Mini**
-remains on hold pending a PSU replacement. None of this is relevant to
-WU-16a/16b's own work — pure `src/core/`, no DeckLink code touched.
+Unchanged from session 18–20 (ADR-037/039): **UltraStudio Monitor 3G** is
+the active, confirmed output target. **UltraStudio Recorder 3G** is in
+hand, named (ADR-039) as Phase 5's own input target, still untouched by
+any code. **UltraStudio 4K Mini** remains on hold pending a PSU
+replacement. None of this is relevant to WU-16b's own work — pure
+`src/core/`, no DeckLink code touched, no hardware needed to verify it.
 
 ## Append to DECISIONS.md
 
-ADR-040 was appended in full this session; see `DECISIONS.md`. Does not
+ADR-041 was appended in full this session; see `DECISIONS.md`. Does not
 reopen `docs/architecture.md`, ADR-002, ADR-008, ADR-013, ADR-015,
-ADR-017, ADR-024, ADR-026, ADR-029 or ADR-031 — see ADR-040's own closing
-paragraph for the precise relationship to each. Not reopened by this
-session's second turn either: the real-terminal run only confirms what
-ADR-040 already flagged as unverified: it does not change the design.
+ADR-017, ADR-024, ADR-026, ADR-029, ADR-031 or ADR-040 — see ADR-041's own
+closing paragraph for the precise relationship to each.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session.
+C-015 was appended in full this session; see `CORRECTIONS.md`. A
+test-authoring assumption (decode()-by-colour-signature reassembly checks
+require `chooseSupersample()` to return 1 everywhere) caught and fixed
+within this same session, before being relied on as evidence of anything;
+no production code implicated.
 
 ---
 
 ## What to run at your terminal
 
-Already done, this session:
-
 ```
 cd ~/src/scatter-dve
-cmake -B build && cmake --build build     # clean — Apple QoS branch confirmed
-ctest --test-dir build --output-on-failure   # 16/17, the known ADR-035 exception
-./tools/close.sh 16a                      # correctly refused to tag — by design
+cmake -B build && cmake --build build
+ctest --test-dir build --output-on-failure
+./tools/close.sh 16b
 ```
 
-Still to do — tag it by hand (see "Next work unit," above):
+If `close.sh 16b` reports the same, already-understood
+`test_decklink_device` full-duplex exception ADR-035 already covers
+(15/16 or 16/17, not a clean N/N) and nothing else fails, that exception
+is expected and does not block tagging — the same call Steve made for
+`wu-15a-green` and `wu-16a-green`. If `close.sh` itself tags cleanly,
+nothing further is needed. If it refuses (its own gate cannot distinguish
+an accepted exception from a real failure, by design), tag by hand:
 
 ```
-git tag -a wu-16a-green -m "WU-16a: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-16a)"
-git push origin HEAD --tags
+git add src/core/binner.hpp src/core/binner.cpp src/core/pipeline.cpp \
+        tests/test_row_band.cpp CMakeLists.txt \
+        DECISIONS.md CORRECTIONS.md WORK-UNITS.md HANDOFF.md
+git commit -m "WU-16b: PASS 1 row-band parallelism, per-worker generation-time bin arenas (ADR-041)"
+git tag -a wu-16b-green -m "WU-16b: build green, tests pass (test_decklink_device's full-duplex check is ADR-035's known exception, unrelated to WU-16b)"
+git push origin HEAD --tags   # if you keep a remote
 ```
+
+Adjust the exact exception wording in the tag message if the real run's
+own result differs from what's described above — the message should say
+what actually happened, not what this handoff predicted would happen.

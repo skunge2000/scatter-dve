@@ -2292,3 +2292,230 @@ reused ADR-023; ADR-026's own anticipation of `pipeline.hpp` and its
 `BLACKMAGIC_SDK_DIR`-style "fail soft on a platform without this surface"
 shape is reused for a second, unrelated Apple-only dependency, not
 altered.
+
+**ADR-041 — Thread pool: PASS 1 row-band parallelism, per-worker
+generation-time bin arenas, completing architecture.md section 6's full
+two-pass design ADR-040 deliberately scoped down to PASS 2 alone. Frozen
+at WU-16b, Phase 4's second unit.**
+
+ADR-040 (WU-16a) named this unit and its own reason for existing in full:
+"a row-range parameter on `generateFragments()` that leaves `src.height`
+itself untouched for the `v` calculation — straightforward in itself, but
+it touches `core/binner.hpp` *and* `core/binner.cpp`, which together with
+`core/pipeline.hpp` (new) and `core/pipeline.cpp` (touched) would be four
+source files before this unit's own test, one over
+`SESSION-PROTOCOL.md`'s... cap." With `core/pipeline.hpp` already built
+and unchanged by this unit, the four-file problem does not recur:
+WU-16b's own scope is exactly the row-range entry point ADR-040 already
+specified, plus the `core/pipeline.cpp` dispatch/merge logic that uses it
+— three source files (`core/binner.hpp`, `core/binner.cpp`,
+`core/pipeline.cpp`) plus one new test, within the cap. This session's own
+first job, per Steve's own brief (the same discipline WU-16a's own
+session used, and ADR-031/032 used before that for the DeckLink SDK):
+read `core/binner.cpp`'s `generateFragments()` and its anonymous-namespace
+`pixelToLattice()` closely before writing anything, and verify ADR-040's
+own diagnosis against the real code rather than assume it. It checks out
+exactly as ADR-040 described: `generateFragments()`'s row loop
+(`for (int py = 0; py < src.height; ++py)`) and `pixelToLattice(double(py),
+src.height)`'s own denominator both read the same `SourceRaster::height`
+field, so a row-band parallel PASS 1 cannot be built by calling the
+existing function once per band against a `SourceRaster` whose own
+`height` was shortened to the band's extent — that would move the
+`v`-parameter's whole domain, not just which rows are visited, corrupting
+the lattice mapping for every row in the band.
+
+**`generateFragmentsRowRange()`, new, `core/binner.hpp`/`.cpp` — the
+row-range-aware entry point ADR-040 already specified.** Same parameter
+list as `generateFragments()` plus `rowStart`/`rowEnd` (unchecked
+preconditions, `0 <= rowStart <= rowEnd <= src.height` — the same
+unchecked-index convention every other tile/row index in this codebase
+already uses, e.g. `Lattice::at()`); the row loop's bound becomes
+`rowStart`/`rowEnd`, while every `pixelToLattice()`/`pixelJacobian()` call
+inside the loop body is untouched and still reads `src.width`/
+`src.height` in full — the "honest fix" ADR-040 named. `generateFragments()`
+itself is now a thin wrapper, `generateFragmentsRowRange(..., 0,
+src.height, outBins)` — its own signature and behaviour are exactly WU-08's
+frozen ones, unchanged; `SESSION-PROTOCOL.md` rule 2 ("never rename or
+refactor... names in headers are fixed") is read here the same way
+ADR-026/030 already read it for `core/resolve.hpp`/`core/lattice.hpp`: as
+forbidding a change to an existing function's own contract, not as
+forbidding a new sibling entry point beside it. Verified directly, not
+just reasoned through: `tests/test_row_band.cpp`'s
+`checkRowRangeReassembly()` partitions a source raster into several row
+bands (including more bands than source rows, so several bands are empty)
+using the exact `(worker * height) / numWorkers` formula
+`core/pipeline.cpp` itself uses, generates each band into its own
+`TileBins`, and checks the union against a single whole-raster
+`generateFragments()` call tile by tile — not just the same set of source
+pixels present, but every matching fragment's own encoded position,
+colour and weight fields bit-identical. See `CORRECTIONS.md` C-015 for an
+error this session's own first draft of that test file made and caught
+before relying on it.
+
+**Row-band partition: contiguous, `(worker * src.height) / numWorkers`,
+not interleaved.** architecture.md 6's own words are "Pass 1 partitions
+the source by row *bands*" — contiguous ranges — in contrast to its own
+"Pass 2 partitions by tile" (no "bands" language there), which WU-16a
+already implemented as an interleaved `tileIndex % threads` split. Taken
+literally: PASS 1 gets contiguous bands, PASS 2 keeps its own interleaved
+tile split, unchanged. `rowStart(w) = (w * src.height) / numWorkers`,
+`rowEnd(w) = ((w + 1) * src.height) / numWorkers` covers `[0, src.height)`
+exactly once, with no gap or overlap, for any `numWorkers`, and degrades
+harmlessly to an empty band (`rowStart == rowEnd`) whenever `numWorkers`
+exceeds `src.height` — verified directly, not just reasoned: `tests/
+test_row_band.cpp`'s `test_row_range_reassembles_with_more_bands_than_rows()`
+(row-range level) and `test_threaded_pipeline_more_workers_than_source_rows()`
+(pipeline level, `runFrame()` at `threads` in `{2, 3, 8, 16}` against a
+4-row source) both exercise this directly, the same "harmless, not a
+crash" standard WU-16a's own `test_threaded_pipeline_matches_single_threaded()`
+already established for PASS 2's own more-workers-than-tiles case
+(`threads == 16` there). Per-row-band load-balancing (a warp whose
+magnification varies sharply across the frame gives some bands far more
+supersampled fragments to generate than others, the same class of concern
+C-011 already raised for a shape's own front-facing point) is explicitly
+not addressed here — flagged as a possible future refinement, the same
+"not decided here" treatment ADR-040 already gave PASS 2's own uneven
+per-tile fragment cost, for the same reason: no throughput measurement
+from this session's own Linux cloud sandbox would be a meaningful basis
+for choosing a scheme, and correctness (I6) does not depend on the
+partition being balanced, only on it being a true partition.
+
+**Per-worker "generation-time bin arena": one whole-frame `TileBins` per
+row-band-generating worker, not a partial one.** A row band's own
+fragments can land in *any* tile, not just tiles "near" that band's own
+source rows — the warp is exactly what determines destination position,
+and nothing about a contiguous row range constrains it (a cylinder's or
+sphere's own curvature already routes source rows nonlinearly across the
+destination, and I1's own folds/tears are the extreme case). So each
+worker's own arena must be sized for the whole destination raster, the
+same size `TileBins` PASS 1 built as a single shared instance in WU-16a.
+All `numWorkers` arenas are fully constructed, serially, on the calling
+thread before `pool.runOnAll()` ever dispatches PASS 1 — no reallocation
+happens once the parallel section starts, the same "preallocate before
+the hot parallel section" shape WU-16a's own per-worker `TileAccum`/
+`tileCells` arenas already used one stage later, applied here one stage
+earlier. Memory cost is `numWorkers` times a single `TileBins`' own size
+where WU-16a needed one — an inherent consequence of "private per-tile
+bin arena... per worker" (architecture.md 6's own words), not a
+regression this unit introduces or a concern architecture.md itself
+raises; not measured or tuned, same as every other throughput question
+this unit defers.
+
+**The barrier: `ThreadPool::runOnAll()`'s own two-consecutive-calls
+shape, unused until now, exactly as `core/pipeline.hpp`'s own doc comment
+already anticipated** ("the two-call barrier shape is here... for
+whichever future unit (ADR-040's own named WU-16b) parallelises pass 1
+the same way and actually needs it"). No change to `core/pipeline.hpp`
+itself — `ThreadPool` needed nothing new; `runFrame()` in
+`core/pipeline.cpp` simply calls `pool.runOnAll()` twice on the same pool,
+once for PASS 1 (row-band generation into the per-worker arenas above)
+and once for PASS 2 (tile-parallel resolve, below), and the second call's
+own work is never dispatched to any worker until the first has fully
+drained on the calling thread — architecture.md 6's own "Barrier," free.
+
+**`resolveOneTile()` generalised to take a list of PASS-1 sources
+(`std::span<const TileBins* const>`), not a single `TileBins`, extending
+WU-16a's own "both paths call the same function, so they cannot silently
+diverge" property from two paths to three.** PASS 2 now needs to splat a
+tile's own contribution from *every* worker's arena, in fixed order
+(architecture.md 6's own "each worker reads all 8 workers' lists for its
+tiles, in fixed worker order") — not from one shared `TileBins` the way
+WU-16a's own threaded PASS 2 read. Two designs were weighed: a second,
+hand-written function duplicating `resolveOneTile()`'s own bank-resolve/
+normalise/composite body for the multi-source case, or generalising the
+existing function's first parameter to a small ordered list of sources,
+with the `threads <= 1` path wrapping its own single `TileBins` in a
+one-element `std::array`. Chosen: the latter. `splatTile()` does not
+clear `accum` itself (`core/splat.hpp`'s own documented contract) and
+integer addition is associative (I6), so looping over however many
+sources a caller supplies, splatting each into one `accum` cleared once
+beforehand, is exact regardless of count or order — one source (the
+`threads <= 1` case) is not a special case needing its own code path,
+just the `N == 1` instance of the same loop, and duplicating
+`resolveOneTile()`'s own body into a second function would have
+reintroduced exactly the "two hand-written copies that could quietly
+drift apart" risk ADR-040 itself named and eliminated at WU-16a. The
+`threads <= 1` path's own call site changes from `resolveOneTile(bins,
+...)` to `resolveOneTile(soloSource, ...)`, wrapping `bins` in a
+one-element `std::array<const TileBins*, 1>` — arithmetically identical
+to WU-16a's own call (`splatTile()` is still called exactly once per
+tile, against the same tile bin, in the same order), verified rather than
+merely reasoned: the full test suite, including every pre-existing
+pipeline-level test (`test_zoneplate.cpp`, `test_shapes.cpp`,
+`test_pageturn.cpp`, `test_layered_composite.cpp`, `test_morph.cpp`,
+`test_threading.cpp`'s own `threads <= 1` checks), still passes unchanged
+against this refactored `threads <= 1` path across the full verification
+matrix below — the oracle's own output did not move, the same kind of
+differential check WU-16a's own `resolveOneTile()` extraction already
+relied on for its own byte-level `TileAccum` reuse change.
+
+**`tilesX`/`tilesY`/`totalTiles` computed via `tileCount()`
+(`core/binner.hpp`) directly, not via a shared `TileBins`' own
+`tilesX()`/`tilesY()`.** WU-16a's own code built one shared `TileBins`
+before either branch and read its `tilesX()`/`tilesY()`; WU-16b's own
+`threads > 1` branch no longer builds one shared `TileBins` at all (PASS
+1 now writes into `numWorkers` separate per-worker arenas instead), so
+there is nothing to query. `tileCount()` is the exact free function
+`TileBins`'s own constructor already calls internally to derive
+`tilesX_`/`tilesY_` (`core/binner.cpp`, unchanged) — calling it directly,
+once, before either branch, is behaviour-preserving by construction (same
+function, same arguments, just invoked one line earlier) rather than a
+new computation, and lets the `threads <= 1` branch's own `TileBins`
+construction happen after this hoist with no change to what value it
+ends up holding.
+
+**Verification.** Built and tested in a Linux cloud sandbox (Ubuntu
+24.04, Clang 18.1.3, GCC 13.3.0, cmake 3.28, ninja — the same environment
+WU-16a's own session used) across the same matrix: Clang 18 and GCC 13,
+Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all
+sixteen tests green — the fourteen carried over from before WU-16a plus
+`test_threading` and the new `test_row_band`, zero warnings under this
+project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` set), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes (clean) and GCC 13 with
+`-fsanitize=thread` (clean, no data race, both across the full suite and
+standalone against `test_threading`/`test_row_band` under
+`TSAN_OPTIONS=halt_on_error=0`) — the latter checked with particular
+care since this unit adds the project's first concurrent code inside PASS
+1 (WU-16a's own concurrency was PASS 2 only), the same "check empirically,
+not just by inspection" standard C-011/C-012 already established.
+
+Unlike WU-16a, this unit adds **no new Apple-only surface** —
+`setWorkerQoS()` (`core/pipeline.cpp`) is untouched, and every symbol this
+unit adds or changes (`generateFragmentsRowRange()`, `resolveOneTile()`'s
+new `std::span` parameter, `runFrame()`'s own row-band dispatch) is
+ordinary portable C++20 already exercised in full by the matrix above. But
+`WORK-UNITS.md`'s own WU-16b line stays `wip`, not `green`, for the same
+procedural reason every other unit's line has: per this project's own
+established convention (`SESSION-PROTOCOL.md`, "the assistant does not run
+`close.sh`"), Steve's own real-terminal `cmake --build` + `ctest` +
+`./tools/close.sh 16b` run is still outstanding, even though nothing about
+this unit's own content is expected to behave differently there than in
+the Linux sandbox above.
+
+**Not decided here, deliberately:** per-row-band load balancing (see
+above); bump-allocated/preallocated bin arenas — architecture.md 6's own
+"preallocated, bump-allocated" phrase describes an allocation strategy
+`TileBins`' own `std::vector<Frag>` growth (`push_back()`, unchanged since
+WU-08) does not implement, for either the single arena WU-16a left
+untouched or the `numWorkers` arenas this unit adds; not this unit's job
+either, the same "not decided here" ADR-040 already left this exact gap
+at. A persistent, caller-owned `ThreadPool` reused across many `runFrame()`
+calls instead of one constructed and joined per call (WU-19's own job,
+unchanged from ADR-040's own deferral — this unit still constructs one
+`ThreadPool` per `runFrame()` call when `threads > 1`, now used for two
+`runOnAll()` rounds instead of one). NEON (WU-17/18), untouched.
+
+Does not reopen `docs/architecture.md`, ADR-002, ADR-008, ADR-013,
+ADR-015, ADR-017, ADR-024, ADR-026, ADR-029, ADR-031 or ADR-040 — same
+relationship every ADR since ADR-020 has to the document; extends
+ADR-040's own deliberately-deferred WU-16b item rather than revisiting
+any decision ADR-040 itself made; ADR-024's `pixelToLattice()`/
+`pixelJacobian()` denominator convention is reused unaltered — still
+keyed to `src.width`/`src.height` in full, exactly as WU-08 fixed it, now
+simply invoked over a caller-chosen row subset rather than always the
+whole raster; ADR-015's single-threaded oracle is preserved deliberately
+(see "`resolveOneTile()` generalised," above: the `threads <= 1` path's
+own arithmetic is bit-for-bit unchanged, verified via the unmoved output
+of every pre-existing pipeline-level test, not merely reasoned to be
+unchanged).

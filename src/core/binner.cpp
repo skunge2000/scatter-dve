@@ -149,12 +149,25 @@ SubPos encodeTileLocal(double relativePixels) noexcept {
 
 }  // namespace
 
-BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
-                            double maxK, const SupersampleConfig& ss,
-                            std::uint8_t tag, TileBins& outBins) {
+BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
+                                    double maxK, const SupersampleConfig& ss,
+                                    std::uint8_t tag, int rowStart, int rowEnd,
+                                    TileBins& outBins) {
     BinStats stats;
 
-    for (int py = 0; py < src.height; ++py) {
+    // WU-16b (ADR-041): the loop bound is the caller's own row band
+    // (rowStart/rowEnd); every u/v calculation below still reads
+    // src.width/src.height in full (pixelToLattice(), pixelJacobian()) —
+    // the same fields generateFragments() passes when it covers the whole
+    // raster in one call below — so a given source pixel generates the
+    // identical fragment whether this function is called once for its own
+    // row band or once for the whole raster in one sweep. This is the
+    // "honest fix" ADR-040 named and left for this unit: the row-loop
+    // bound and the v-parameter's own denominator are two independently
+    // controllable things here, not the same field, unlike the naive
+    // "call generateFragments() once per band against a shortened
+    // SourceRaster::height" alternative ADR-040 already ruled out.
+    for (int py = rowStart; py < rowEnd; ++py) {
         for (int px = 0; px < src.width; ++px) {
             const double u0 = pixelToLattice(double(px), src.width);
             const double v0 = pixelToLattice(double(py), src.height);
@@ -253,6 +266,15 @@ BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
     }
 
     return stats;
+}
+
+// WU-16b: a thin wrapper — the whole raster is exactly the row range
+// [0, src.height). Signature and behaviour are exactly WU-08's frozen
+// ones, unchanged; see ADR-041.
+BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
+                            double maxK, const SupersampleConfig& ss,
+                            std::uint8_t tag, TileBins& outBins) {
+    return generateFragmentsRowRange(lattice, src, maxK, ss, tag, 0, src.height, outBins);
 }
 
 }  // namespace scatter

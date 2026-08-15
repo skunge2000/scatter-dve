@@ -1,9 +1,10 @@
-// scatter-dve — WU-10: single-frame pipeline orchestration; WU-16 adds
-// per-tile threading to PASS 2. Entry points declared in core/resolve.hpp
-// (see that file and DECISIONS.md ADR-026 for why this unit has no
-// pipeline.hpp of its own for runFrame()/runFrameFile() themselves); the
-// thread pool WU-16 adds is declared in core/pipeline.hpp instead (see
-// that header and DECISIONS.md ADR-040).
+// scatter-dve — WU-10: single-frame pipeline orchestration; WU-16a added
+// per-tile threading to PASS 2; WU-16b adds row-band threading to PASS 1.
+// Entry points declared in core/resolve.hpp (see that file and
+// DECISIONS.md ADR-026 for why this unit has no pipeline.hpp of its own
+// for runFrame()/runFrameFile() themselves); the thread pool WU-16a adds
+// is declared in core/pipeline.hpp instead (see that header and
+// DECISIONS.md ADR-040).
 //
 // This is architecture.md section 3's signal path, assembled end to end
 // for the first time: v210 unpack -> chroma upsample -> PASS 1 (lattice
@@ -13,25 +14,39 @@
 // PASS 1 and PASS 2 over already-4:4:4 rasters; runFrameFile() adds the
 // v210/chroma stages either side of it.
 //
-// WU-16 (ADR-040): PASS 1 (generateFragments()) is unchanged and still
-// runs single-threaded, always -- see core/pipeline.hpp's own file
-// comment for why. PASS 2 -- the per-tile splat/resolve/normalise/
-// composite loop below -- runs on ThreadPool when
-// PipelineParams::threads > 1, one worker per available thread, tiles
-// partitioned across them by a fixed, static interleaving
-// (tileIndex % threads). Both the single-threaded and threaded paths call
-// the same resolveOneTile() below, so they cannot silently diverge from
-// each other; the single-threaded path additionally never touches
+// WU-16a (ADR-040) added ThreadPool and threaded PASS 2 alone, deferring
+// PASS 1's own row-band parallelism (architecture.md section 6's fuller
+// two-pass design) as WU-16b, deliberately, because it needed a
+// row-range-aware core/binner.hpp/.cpp entry point that unit's own file
+// budget had no room for. WU-16b (ADR-041) is that entry point
+// (generateFragmentsRowRange(), core/binner.hpp) plus the row-band
+// dispatch and per-worker-arena merge below: when PipelineParams::threads
+// > 1, PASS 1 now partitions src's rows into params.threads contiguous
+// bands (architecture.md 6's own "Pass 1 partitions the source by row
+// bands"), one worker per band, each writing into its own whole-frame
+// TileBins -- a private "generation-time bin arena" -- via
+// generateFragmentsRowRange(); a second ThreadPool::runOnAll() call is
+// architecture.md 6's own "barrier" for free (core/pipeline.hpp's own doc
+// comment already named this exact use); PASS 2 then partitions by tile
+// exactly as WU-16a already did, except resolveOneTile() below now reads
+// every worker's own arena for a given tile, in fixed worker order,
+// instead of one shared TileBins -- architecture.md 6's own "each worker
+// reads all 8 workers' lists for its tiles, in fixed worker order". The
+// threads<=1 path is completely unchanged in its own arithmetic (see
+// resolveOneTile()'s own comment below) and still never touches
 // ThreadPool, core/pipeline.hpp's synchronisation primitives, or
-// setWorkerQoS() at all, so it stays exactly what ADR-015 already needs
-// it to be: an independently simple oracle, provably correct on its own
-// terms, that a threading bug in the new machinery cannot silently
-// corrupt. I6 (integer addition is associative) is why any partition of
-// tiles across any number of workers, in any completion order, still
-// writes every destination pixel exactly once with exactly the same
-// value the single-threaded path would -- no per-tile result depends on
-// any other tile's, and normalise/composite's own arithmetic
-// (core/resolve.cpp) is unchanged, called identically either way.
+// setWorkerQoS() at all, so it stays exactly what ADR-015 needs it to be:
+// an independently simple oracle, provably correct on its own terms, that
+// a threading bug in the new machinery -- now spanning both passes, not
+// just one -- cannot silently corrupt. I6 (integer addition is
+// associative) is why any partition of rows into bands, any partition of
+// tiles across workers, and any completion order, still write every
+// destination pixel exactly once with exactly the same value the
+// threads<=1 path would: splatTile() (core/splat.cpp, WU-09) accumulates
+// into an already-cleared TileAccum regardless of how many sources it is
+// called against or in what order, and normalise/composite's own
+// arithmetic (core/resolve.cpp) is unchanged, called identically in every
+// case. See DECISIONS.md ADR-041.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -40,7 +55,9 @@
 #include "video/v210.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <span>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -142,12 +159,32 @@ namespace {
 // DECISIONS.md ADR-040) but reusable across many tiles without
 // reallocating either scratch buffer, which is what makes this safe and
 // cheap to call once per tile from a single persistent per-worker arena
-// in WU-16's own threaded path below.
-void resolveOneTile(const TileBins& bins, const PipelineParams& params,
-                     video::Raster444& dest, TileAccum& accum,
-                     std::vector<AccumCell>& tileCells, int tx, int ty) {
+// in the threaded paths below.
+//
+// `sources` is every PASS-1 arena this tile's own bin should be read
+// from, splatted into the same cleared `accum` in the order given
+// (architecture.md 6's own "in fixed worker order") -- WU-16a's own
+// single-source threads<=1 and threads>1-PASS-2-only paths both passed
+// exactly one TileBins here; WU-16b's own row-band-parallel PASS 1
+// (below) passes one per worker instead, since a row band's own
+// fragments can land in any tile regardless of which band generated
+// them. splatTile() does not clear `accum` itself (core/splat.hpp's own
+// contract) and integer addition is associative (I6), so summing however
+// many sources into one cleared accum here is exact regardless of their
+// count or order -- one source (the threads<=1 case) is not a special
+// case of this loop, just the N == 1 instance of it, which is what lets
+// every path in this file keep sharing one resolveOneTile() instead of
+// hand-duplicating its own copy per path, the same "cannot silently
+// diverge" property WU-16a's own file comment already relied on for its
+// two paths, now extended to three.
+void resolveOneTile(std::span<const TileBins* const> sources,
+                     const PipelineParams& params, video::Raster444& dest,
+                     TileAccum& accum, std::vector<AccumCell>& tileCells,
+                     int tx, int ty) {
     accum.clear();
-    splatTile(bins.tile(tx, ty), accum);
+    for (const TileBins* bins : sources) {
+        splatTile(bins->tile(tx, ty), accum);
+    }
     sumBanks(accum, tileCells.data());
 
     const int originX = tx * kTileSize;
@@ -183,12 +220,15 @@ void resolveOneTile(const TileBins& bins, const PipelineParams& params,
 
 void runFrame(const Lattice& lattice, const SourceRaster& src,
               const PipelineParams& params, video::Raster444& dest) {
-    TileBins bins(params.destWidth, params.destHeight);
-    generateFragments(lattice, src, params.maxK, params.supersample,
-                       params.tag, bins);
-
-    const int tilesX = bins.tilesX();
-    const int tilesY = bins.tilesY();
+    // tileCount() (core/binner.hpp) is the exact function TileBins's own
+    // constructor already calls internally to derive tilesX_/tilesY_ --
+    // computing it here directly, rather than via a shared TileBins'
+    // tilesX()/tilesY() the way WU-16a's own code did, is behaviour-
+    // preserving (same function, same arguments) and lets both branches
+    // below share it: the threads>1 branch (WU-16b) no longer builds one
+    // shared TileBins before knowing how many tiles there are.
+    const int tilesX = tileCount(params.destWidth);
+    const int tilesY = tileCount(params.destHeight);
     const int totalTiles = tilesX * tilesY;
     const std::size_t tilePixelsN = std::size_t(kTilePixels);
 
@@ -196,45 +236,122 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         // The determinism oracle (ADR-015, I6): a plain, single-threaded
         // loop with no dependency on ThreadPool, its synchronisation
         // primitives, or setWorkerQoS() at all -- see this file's own
-        // header comment and DECISIONS.md ADR-040. One scratch TileAccum/
-        // tileCells pair, reused (cleared) across every tile in turn,
-        // exactly the loop WU-10 originally wrote.
+        // header comment and DECISIONS.md ADR-040/ADR-041. PASS 1 runs
+        // once, synchronously, over the whole raster -- exactly WU-08's
+        // own generateFragments(), unchanged -- into one TileBins; one
+        // scratch TileAccum/tileCells pair, reused (cleared) across every
+        // tile in turn, exactly the loop WU-10 originally wrote.
+        // resolveOneTile() below takes a *list* of PASS-1 sources
+        // (WU-16b); wrapping this single TileBins in a one-element span
+        // is arithmetically identical to WU-16a's own direct call --
+        // splatTile() is still called exactly once per tile, against the
+        // same tile bin, in the same order.
+        TileBins bins(params.destWidth, params.destHeight);
+        generateFragments(lattice, src, params.maxK, params.supersample,
+                           params.tag, bins);
+
         TileAccum accum;
         std::vector<AccumCell> tileCells(tilePixelsN);
+        const std::array<const TileBins*, 1> soloSource{&bins};
         for (int ty = 0; ty < tilesY; ++ty) {
             for (int tx = 0; tx < tilesX; ++tx) {
-                resolveOneTile(bins, params, dest, accum, tileCells, tx, ty);
+                resolveOneTile(soloSource, params, dest, accum, tileCells, tx, ty);
             }
         }
         return;
     }
 
-    // WU-16 (ADR-040): PASS 2 only, tile-parallel. Each worker owns one
-    // persistent TileAccum + tileCells pair -- its own "per-worker bin
-    // arena" in this unit's own scope -- reused (cleared, never
-    // reallocated) across every tile a fixed, static interleaving
-    // (tileIndex % threads) assigns it. Tiles are read-only during this
-    // phase (PASS 1 above has already fully populated `bins` on this same
-    // calling thread, with a happens-before edge to every worker's own
-    // first read via ThreadPool's own dispatch synchronisation), and each
+    // WU-16b (ADR-041): PASS 1 is now row-band-parallel too, completing
+    // architecture.md section 6's full two-pass design that WU-16a
+    // (ADR-040) deliberately scoped down to PASS 2 alone.
+    ThreadPool pool(params.threads);
+    const int numWorkers = pool.size();
+    // Bound to a named std::size_t first: `std::vector<T> v(std::size_t(
+    // numWorkers))` with a plain identifier inside the inner parentheses
+    // parses as a function declaration (-Wvexing-parse, -Werror under
+    // ADR-017) -- the same pitfall tests/test_threading.cpp's own
+    // callCount/seenThisRound already document and work around.
+    const std::size_t numWorkersN = std::size_t(numWorkers);
+
+    // Per-worker "generation-time bin arena": one whole-frame TileBins per
+    // worker, not a partial one -- a row band's own fragments can land in
+    // any tile depending on the warp, so there is no way to know in
+    // advance which tiles a given band will touch. All numWorkers arenas
+    // are fully constructed here, serially, before any worker thread
+    // starts (no reallocation happens once PASS 1 dispatch begins below),
+    // the same "preallocate before the hot parallel section" shape
+    // WU-16a's own per-worker TileAccum/tileCells arenas already used one
+    // stage later.
+    std::vector<TileBins> workerBins;
+    workerBins.reserve(std::size_t(numWorkers));
+    for (int i = 0; i < numWorkers; ++i) {
+        workerBins.emplace_back(params.destWidth, params.destHeight);
+    }
+
+    // PASS 1: contiguous row bands (architecture.md 6's own "partitions
+    // the source by row bands", as distinct from PASS 2's interleaved
+    // tileIndex % numWorkers below -- see DECISIONS.md ADR-041 for why the
+    // two passes partition differently). rowStart/rowEnd via
+    // (worker * src.height) / numWorkers bounds every band exactly once,
+    // covers [0, src.height) exactly, and degrades harmlessly to an empty
+    // band (rowStart == rowEnd, generateFragmentsRowRange() emits nothing)
+    // whenever numWorkers exceeds src.height -- the same "some workers get
+    // zero work, harmlessly" property WU-16a's own PASS-2 tile partition
+    // already relies on when numWorkers exceeds the tile count. Each
+    // worker writes only into its own workerBins[worker] -- no shared
+    // mutable state between workers during this phase, so no locking is
+    // needed (lattice and src are read-only throughout, same as WU-16a's
+    // own PASS 2 read of a single shared TileBins).
+    pool.runOnAll([&](int worker) {
+        const int rowStart = (worker * src.height) / numWorkers;
+        const int rowEnd = ((worker + 1) * src.height) / numWorkers;
+        generateFragmentsRowRange(lattice, src, params.maxK, params.supersample,
+                                   params.tag, rowStart, rowEnd,
+                                   workerBins[std::size_t(worker)]);
+    });
+
+    // Barrier: this is architecture.md 6's own barrier between pass 1 and
+    // pass 2, free per core/pipeline.hpp's own ThreadPool doc comment --
+    // runOnAll()'s second call below is never dispatched to any worker
+    // until the first has fully drained on this calling thread, so every
+    // workerBins[i] is completely populated, with a happens-before edge to
+    // every PASS-2 worker's own first read of it, before PASS 2 starts.
+
+    std::vector<const TileBins*> allArenas(numWorkersN);
+    for (int i = 0; i < numWorkers; ++i) {
+        allArenas[std::size_t(i)] = &workerBins[std::size_t(i)];
+    }
+
+    // PASS 2: tile-parallel, exactly WU-16a's own static interleaved
+    // partition (tileIndex % numWorkers) -- unchanged from ADR-040. Each
+    // worker owns one persistent TileAccum + tileCells pair, its own
+    // "per-worker bin arena" in WU-16a's sense, reused (cleared, never
+    // reallocated) across every tile it is assigned. The only change from
+    // WU-16a: resolveOneTile() now reads every worker's own PASS-1 arena
+    // for a given tile (allArenas, fixed order 0..numWorkers-1 --
+    // architecture.md 6's own "in fixed worker order") instead of one
+    // shared TileBins, splatting all of them into the same cleared accum
+    // before bank-resolving. Tiles are read-only during this phase (PASS 1
+    // above has already fully returned on this same calling thread, with
+    // the happens-before edge the barrier note above describes), and each
     // tile owns a disjoint block of `dest`'s pixels, so no two workers
     // ever read or write the same memory. See I6: the result is
     // bit-identical to the threads<=1 path above regardless of how many
-    // workers ran, or in which order any of them finished, because
-    // resolveOneTile() is the same function either way and every tile's
-    // own contribution to `dest` does not depend on any other tile's.
-    ThreadPool pool(params.threads);
-    std::vector<TileAccum> arenas(std::size_t(pool.size()));
+    // row bands or tile-workers ran, or in which order any of them
+    // finished -- splatTile() accumulates into an already-cleared accum
+    // regardless of source count or order, and no per-tile result depends
+    // on any other tile's.
+    std::vector<TileAccum> arenas(numWorkersN);
     std::vector<std::vector<AccumCell>> cellBufs(
-        std::size_t(pool.size()), std::vector<AccumCell>(tilePixelsN));
+        numWorkersN, std::vector<AccumCell>(tilePixelsN));
 
     pool.runOnAll([&](int worker) {
         TileAccum& accum = arenas[std::size_t(worker)];
         std::vector<AccumCell>& tileCells = cellBufs[std::size_t(worker)];
-        for (int idx = worker; idx < totalTiles; idx += pool.size()) {
+        for (int idx = worker; idx < totalTiles; idx += numWorkers) {
             const int tx = idx % tilesX;
             const int ty = idx / tilesX;
-            resolveOneTile(bins, params, dest, accum, tileCells, tx, ty);
+            resolveOneTile(allArenas, params, dest, accum, tileCells, tx, ty);
         }
     });
 }
