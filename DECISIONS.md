@@ -1694,3 +1694,66 @@ longer applies — worth re-checking then, not assumed permanent. No code
 change follows: weakening `test_decklink_device.cpp`'s own duplex check to
 tolerate a non-duplex device would erase real regression coverage for the
 4K Mini (this project's actual target hardware) for no benefit.
+
+**ADR-036 — WU-15a warp-visibility false alarm, closed: root cause was
+4:3-on-16:9 display scaling, not a code defect. No code change results.**
+
+Steve's first by-eye check of the Monitor 3G run (WORK-UNITS.md's own
+WU-15a entry) reported a plain, undistorted zone plate — not the cylinder
+warp `tests/test_decklink_output.cpp` is supposed to produce. Investigated
+in stages, each one real evidence rather than a guess:
+
+1. `writeWarpedTestFrame()`'s own steps (`makeZonePlate` ->
+   `buildCylinderLattice` -> `runFrameFile`) were reproduced standalone —
+   g++, no CMake, no Blackmagic SDK, in the device bridge's own Linux VM —
+   and the resulting file dumped to a PNG. Clearly, strongly warped: a
+   vertically-elongated oval with black letterboxing on both sides. Ruled
+   out `runFrameFile`/`buildCylinderLattice` as the cause.
+2. The *actual* file on Steve's own Mac (`/tmp/scatter_wu15a_frame.v210`,
+   written by the real test run) was converted the same way, via a
+   throwaway tool built with his own AppleClang. Also clearly warped,
+   confirming the pipeline is correct on the real machine too, not just in
+   the Linux reproduction.
+3. Steve still reported the plain zone plate after both of the above.
+   Temporary checksum instrumentation was added to
+   `decklink_output.cpp` (`startWith()`, `fillFrameBuffer()`, and
+   `ScheduledFrameCompleted()` reading its own `completedFrame` argument
+   back through a fresh `StartAccess`/`GetBytes`) and run for real. The
+   checksum was identical at every stage this project's own code and the
+   DeckLink SDK's own API can observe: disk read, buffer write, buffer
+   read-back, and the SDK's own completion-callback readback on the first
+   three actual completions. Cross-checked further: that exact checksum,
+   computed independently on the Linux reproduction from step 1, matched
+   byte-for-byte (`0x5fac3fb42c5f7d48`, 1 105 920 bytes both places). This
+   is as deep as any user-space API call can verify, and it came back
+   clean at every point.
+4. Steve asked to try a different shape/warp amount before accepting that
+   conclusion — reasonable and cheap, so `writeWarpedTestFrame()` was
+   swapped to a sphere (both axes, pi/2, stronger than the cylinder's
+   pi/3) as a diagnostic, confirmed warped the same way as step 1, and run
+   for real with the same checksum instrumentation still in place.
+5. Steve's own conclusion, on looking again at both the cylinder and
+   sphere results: both are actually fine. He was watching a 720x576
+   4:3-ish SD frame on a 16:9 monitor; the display's own handling stretches
+   the active picture back out horizontally, and that stretch had been
+   making the cylinder warp's own horizontal compression (real, baked into
+   the pixel content — architecture.md's whole point) look deceptively
+   close to un-warped at a glance. Recognising the sphere result for what
+   it actually was ("stretched to 16:9") is what surfaced this.
+
+**Root cause: display-side aspect handling on Steve's own monitor,
+misread at a glance — not a defect anywhere in this project's code, and
+not a `CORRECTIONS.md` entry** (nothing this project claimed was shown
+wrong; the pipeline, `decklink_output.cpp`, and the SDK's own API all
+checked out at every stage this session could verify). **No code change
+results.** The diagnostic checksum instrumentation in `decklink_output.cpp`/
+`.hpp` and the sphere swap in `tests/test_decklink_output.cpp` are both
+reverted; the unit is back to exactly ADR-032's own cylinder design. One
+durable change: `tests/test_decklink_output.cpp`'s own header comment now
+warns about this exact false-alarm mode (4:3 content on a 16:9 monitor)
+so a future by-eye confirmation doesn't repeat the same investigation.
+
+WU-15a's own `Accept:` by-eye clause is satisfied by this — Steve has now
+confirmed the warped frame is visible, on both shapes tried, accounting
+for his monitor's own scaling. Full suite + `./tools/close.sh 15a` on the
+reverted build is still Steve's own next step, not this entry's to claim.

@@ -417,6 +417,39 @@ specifically for black bars down both sides of the picture and an oval
 (not round) ring shape, before this line's own by-eye `Accept:` clause is
 either marked satisfied or treated as a real `decklink_output.cpp` bug.
 
+**Investigation closed: false alarm, not a code defect.** Steve still
+reported the plain zone plate after that, so the investigation went one
+level deeper: temporary checksum instrumentation was added to
+`decklink_output.cpp` (`startWith()`, `fillFrameBuffer()`, and
+`ScheduledFrameCompleted()`, reading its own `completedFrame` argument back
+through a fresh `StartAccess`/`GetBytes`) and run for real. Result: the
+checksum was identical at every single stage — the file on disk, what
+`fillFrameBuffer()` wrote into the DeckLink buffer, what read back
+immediately after, and what the SDK itself reported back on the first three
+actual `ScheduledFrameCompleted()` calls. Cross-checked further: the same
+checksum, computed independently on a Linux-built, no-SDK reproduction of
+the identical pipeline, matched byte-for-byte. That rules out this
+project's own code as far as anything a user-space API call can observe.
+Steve then asked to try a different shape/amount before accepting that
+conclusion (fair, cheap to check) — `writeWarpedTestFrame()` was swapped to
+a sphere warp (both axes, stronger than the cylinder) as a diagnostic,
+confirmed correctly warped in the same off-hardware reproduction, and run
+for real. Steve's own conclusion, once he looked again: both the cylinder
+and sphere runs are actually fine — the picture he was seeing already had
+the warp, but a 720x576 4:3-ish frame on his 16:9 monitor gets stretched
+back out horizontally by the display's own aspect handling, which had made
+the cylinder's own horizontal compression (baked into the pixel content)
+look deceptively close to un-warped at a glance. See `DECISIONS.md`
+ADR-036 for the full record. The diagnostic instrumentation and the sphere
+swap were both reverted — `decklink_output.cpp`/`.hpp` and
+`tests/test_decklink_output.cpp` are back to ADR-032's own cylinder design,
+unchanged by this investigation, with a caution comment added against this
+exact false alarm recurring. **`Accept:`'s by-eye clause is now
+satisfied** — Steve confirmed the warped frame is visible (accounting for
+his monitor's own 4:3-on-16:9 handling). Still needed before this line goes
+`green`: the full suite and `./tools/close.sh 15a` at the real terminal, on
+the now-reverted (clean, cylinder-only) build.
+
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
 criterion ("stable for an hour"). Not new implementation — WU-15a's own

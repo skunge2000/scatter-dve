@@ -21,6 +21,16 @@
 // below confirm the DeckLink-side mechanics (no dropped/late frames, a
 // clean stop), not what is actually on the wire; that confirmation is
 // HANDOFF.md's own job to ask for by hand.
+//
+// Known false-alarm mode, hit and resolved once already (session 16,
+// DECISIONS.md ADR-036): this is a 720x576 SD, 4:3-ish frame. On a 16:9
+// monitor, the cylinder warp's own horizontal compression (baked into the
+// pixel content -- ADR-027) can look deceptively close to un-warped once
+// the display's own 4:3-to-16:9 handling stretches the active picture back
+// out horizontally. Confirming by eye on a 16:9 monitor needs a genuinely
+// close look (or a 4:3-aware monitor mode/pillarbox setting) before
+// concluding the warp is missing -- session 16 spent real effort chasing a
+// code bug that turned out not to exist because of exactly this.
 
 #include "io/decklink_device.hpp"
 #include "io/decklink_output.hpp"
@@ -80,6 +90,14 @@ ComPtr<IDeckLinkOutput> firstPlaybackCapableOutput(const std::vector<DeviceInfo>
 // so this test's own "file source" genuinely originated from a file this
 // project's own pipeline produced, not an in-memory buffer standing in for
 // one. Returns "" on any failure along the way.
+//
+// Session 16 briefly swapped this to a sphere warp while chasing what
+// turned out to be a false alarm (ADR-036) -- restored to the cylinder,
+// ADR-032's original choice, once that investigation closed. Both shapes
+// are confirmed working against real hardware (the sphere via the same
+// mechanism, during that investigation); the cylinder is kept here as the
+// unit's own long-standing choice, not because the sphere found anything
+// wrong with it.
 std::string writeWarpedTestFrame(const std::string& outPath) {
     const std::string srcPath = outPath + ".src.v210";
 
