@@ -169,6 +169,95 @@ target_include_directories(test_testpat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tool
 # .cpp and file_sink.cpp are also physically under src/io/ but, having no SDK
 # dependency, already compile into scatter-core above (ADR-021); this target
 # will link scatter-core and add only the files that actually need the SDK.
-# Arrives at WU-14; nothing to build yet.
+#
+# WU-14 adds the first of those files: src/io/com_ptr.hpp and
+# src/io/decklink_device.hpp/.cpp (device enumeration only — architecture.md
+# 7's entry point, no stream opened; DECISIONS.md ADR-031). No
+# src/app/main.cpp yet, so there is no `scatter` executable to link yet —
+# the block below builds a `scatter-decklink` static library and its own
+# test executable instead, both gated on the Blackmagic SDK actually being
+# found (see BLACKMAGIC_SDK_DIR below), since this cannot be built in the
+# Linux cloud sandbox at all.
 # ---------------------------------------------------------------------------
 message(STATUS "scatter-dve: ${CMAKE_BUILD_TYPE}, tile 2^${SCATTER_TILE_LOG2}")
+
+# ---------------------------------------------------------------------------
+# scatter-decklink — WU-14. Requires the Blackmagic DeckLink SDK's own
+# headers and its DeckLinkAPIDispatch.cpp (architecture.md section 7:
+# "Compile DeckLinkAPIDispatch.cpp into the project; it loads
+# DeckLinkAPI.bundle via CFPlugIn at runtime"), plus CoreFoundation.framework.
+# No DeckLink dylib/framework is linked at build time — the SDK's own
+# dispatch file CFBundle-loads the real implementation from
+# /Library/Frameworks/DeckLinkAPI.framework at first call, at runtime, so
+# only the SDK's *headers* (and that one dispatch .cpp) are a build-time
+# dependency at all.
+#
+# BLACKMAGIC_SDK_DIR is a cache variable, not a hardcoded path — same
+# pattern SCATTER_TILE_LOG2 already uses above, and for the same kind of
+# reason: a path under the developer's own home directory, with a version
+# number baked into its own folder name (liable to change on the next SDK
+# update), has no business being committed into source, and the SDK's own
+# EULA (shipped alongside its headers) is a further reason not to vendor it
+# into this repository at all. Point it at the SDK root — the directory
+# that itself contains Mac/, Win/, Linux/ — e.g.:
+#
+#   cmake -B build -DBLACKMAGIC_SDK_DIR="/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0"
+#
+# (quoted: the folder name has a space in it). Left unset, or set to a path
+# that does not contain Mac/include/DeckLinkAPI.h, this whole block is
+# skipped with a STATUS message rather than a hard configure error —
+# ADR-013/ADR-021's own "no unit leaves the tree unbuildable" property: the
+# Linux cloud sandbox's existing scatter-core/test matrix must keep
+# configuring and building with no SDK present at all, exactly as it always
+# has for every unit through WU-13.
+#
+# See DECISIONS.md ADR-031 for the full design this compiles. UNVERIFIED as
+# of WU-14's own session: drafted and written via the device bridge with no
+# Blackmagic SDK and no AppleClang/Xcode toolchain available to check it
+# against (the Linux cloud sandbox has neither) — needs building and running
+# at the real terminal before this unit can go green. See HANDOFF.md.
+# ---------------------------------------------------------------------------
+set(BLACKMAGIC_SDK_DIR "" CACHE PATH
+    "Root of the Blackmagic DeckLink SDK (the directory containing Mac/, Win/, Linux/). Empty skips all DeckLink-dependent targets.")
+
+if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPI.h")
+    add_library(scatter-decklink STATIC
+        src/io/decklink_device.cpp
+        "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp")
+    target_include_directories(scatter-decklink PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        "${BLACKMAGIC_SDK_DIR}/Mac/include")
+    target_compile_features(scatter-decklink PUBLIC cxx_std_20)
+    target_link_libraries(scatter-decklink PUBLIC "-framework CoreFoundation")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(scatter-decklink PUBLIC
+            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    endif()
+    if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        check_cxx_compiler_flag("-mcpu=apple-m1" HAVE_MCPU_APPLE_M1_DECKLINK)
+        if(HAVE_MCPU_APPLE_M1_DECKLINK)
+            target_compile_options(scatter-decklink PUBLIC -mcpu=apple-m1)
+        endif()
+    endif()
+
+    # DeckLinkAPIDispatch.cpp is generated, third-party SDK code, not this
+    # project's own — its warnings are not this project's to fix, so this
+    # one file (and only this file) is exempted from the -Werror set above.
+    # A trailing -w on the same file's own compile command overrides the
+    # target-level -Werror that precedes it; standard for a vendored file
+    # like this, but UNVERIFIED here — confirm the build actually treats it
+    # this way rather than still failing on it.
+    set_source_files_properties(
+        "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp"
+        PROPERTIES COMPILE_OPTIONS "-w")
+
+    add_executable(test_decklink_device tests/test_decklink_device.cpp)
+    target_link_libraries(test_decklink_device PRIVATE scatter-decklink)
+    target_include_directories(test_decklink_device PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME test_decklink_device COMMAND test_decklink_device)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink and test_decklink_device configured")
+else()
+    message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
+endif()

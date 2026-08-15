@@ -3,195 +3,197 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 14
-**Tag:** `wu-13-green` — confirmed. `./tools/close.sh 13` ran clean on
-the M1 Max with AppleClang (Release, tile 2^5, the config `close.sh`
-builds) on the first attempt — all fourteen tests passed, no
-cloud/AppleClang divergence this time (unlike WU-11's own C-012).
-**Phase:** 2 — Shapes, **done in full**. Cylinder and sphere (WU-11), both
-of US 4,563,703 FIG. 5's page-turn compositing modes (WU-12a/WU-12b), and
-now keyframed lattices with temporal interpolation (WU-13, "Mirage's
-morph") are all reproduced. `WORK-UNITS.md`'s own ordering names WU-14 —
-DeckLink device enumeration and `ComPtr` — next, starting Phase 3 (SDI
-output). See "Next work unit" below for what's different about it.
+**Session:** 15
+**Tag:** none yet — WU-14 is `wip`, not `green`. Nothing in this unit has
+been built or run by this session; see "Delivery mechanics" below for why
+that is expected for this specific unit, not a gap.
+**Phase:** 3 — SDI output, started. WU-14 (DeckLink device enumeration and
+`ComPtr`) implemented and written to disk; **not yet built or tested.**
+WU-15 (scheduled playback, file source to SDI out) is next once WU-14 is
+confirmed green.
 
-**This session's own first job was design, not implementation** — WU-13
-went into the session as a bare `### WU-13 ... `todo`` line with no
-**Files:**/**Accept:**, unlike every unit since WU-12a. Re-read
-`docs/architecture.md` 4.1 in full (the only place the morph mechanism is
-named at all) and `DECISIONS.md` ADR-028's own boundary note (a page
-turn's `turnProgress` is not architecture.md 4.1's `t`; WU-13's own morph
-is temporal interpolation *between two whole, independently authored
-lattices*), then scoped and recorded `WORK-UNITS.md`'s WU-13
-**Files:**/**Accept:** lines and wrote `DECISIONS.md` ADR-030 (the design
-in full — keyframe count, blend formula and its bit-exactness rationale,
-linear vs. Catmull-Rom, function name/signature/home, and why no
-`core/shapes/*`, `core/binner.cpp`, `core/splat.cpp`, `core/resolve.*` or
-`core/pipeline.cpp` change is needed) *before* writing any implementation
-code, the same discipline ADR-028 itself applied to the WU-12a/WU-12b
-split. The unit fit within SESSION-PROTOCOL.md's sizing cap as scoped —
-two source files touched (`core/lattice.hpp`, `core/lattice.cpp`), one new
-test file — so no WU-13a/WU-13b split was needed.
+**This session's own first job, as flagged going into it, was research, not
+implementation.** Read `HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md`,
+`CORRECTIONS.md` and `WORK-UNITS.md` in full (`SESSION-PROTOCOL.md`'s
+required order), then re-read `docs/architecture.md` section 7 (the DeckLink
+SDK sketch) and section 8's module layout for `src/io/`. Then, per this
+session's own brief and `HANDOFF.md`'s own flag from session 14 — WU-14 is
+"genuinely new ground, not a fill-in-a-parametrisation gap" — read the real
+Blackmagic DeckLink SDK 16.0 headers under `~/src/Blackmagic DeckLink SDK
+16.0` rather than working from architecture.md's summary alone:
+`Mac/include/DeckLinkAPI.h`, `DeckLinkAPIDiscovery.h`, `DeckLinkAPITypes.h`,
+`DeckLinkAPIConfiguration.h`, `DeckLinkAPIVersion.h` and
+`DeckLinkAPIDispatch.cpp`, plus several of the SDK's own C++ samples
+(`CapturePreview/com_ptr.h`, `DeviceStatus/com_ptr.h`,
+`DeviceList/main.cpp` + `platform.cpp`, `FileCapture/DeckLinkDeviceDiscovery
+.cpp` + `DeviceManager.cpp`, `DeviceStatus/DeckLinkDeviceListModel.cpp`) to
+see the real interface shapes and the idiom actually used to call them, not
+just the declarations. What that reading found and the choices it forced
+are recorded in full in `DECISIONS.md` ADR-031 — summary below.
 
-**Tests:** All fourteen green on the M1 Max: the thirteen carried over
-unchanged from WU-01 through WU-12b plus `test_morph.cpp`, new this
-session (boundary reductions at `t == 0`/`t == 1` checked exact, every one
-of 16641 control vertices, both keyframes; an interior `t == 0.35` checked
-against an independently-computed reference blend at tight relative
-tolerance, `1e-12`, C-012; and `Lattice::jacobian()`'s analytic derivatives
-checked against central differences, WU-06's own method, at 20
-representative `(u, v)` points across 5 different morph fractions, on a
-lattice morphed from two distinct, genuinely curved keyframes — a
-page-turn mid-curl, which has its own flat/curl seam, blended with a
-cylinder). 150189 checks in `test_morph.cpp` alone (Clang 18, Release,
-tile 2^5, in the cloud sandbox; `close.sh`'s own run reports pass/fail per
-executable, not a check count). No `runFrame()`-level check — this unit
-sits at WU-06's own layer (pure lattice mathematics), not the shape layer
-WU-11/WU-12a sit at; see `DECISIONS.md` ADR-030.
+**Design choices this session had to make — now ADR-031 in
+`DECISIONS.md`:** `IDeckLink` itself is minimal (`GetModelName`/
+`GetDisplayName` only, both `CFStringRef`) and lives in
+`DeckLinkAPIDiscovery.h`, not `DeckLinkAPI.h`; `IDeckLinkInput`/
+`IDeckLinkOutput`/`IDeckLinkProfileAttributes` are all obtained via
+`QueryInterface`, never exposed directly. `CreateDeckLinkIteratorInstance()`
+and `IDeckLinkIterator::Next()` both hand the caller an *already-owned*
+reference (ordinary COM factory/enumerator convention), which the SDK's own
+`com_ptr<T>` sample — read in full this session, and the direct model for
+this project's own `ComPtr` — does not itself always handle correctly (its
+raw-pointer constructor always `AddRef`s, which over-retains a factory
+result by one reference per call; verified directly against
+`Samples/FileCapture/DeckLinkDeviceDiscovery.cpp`'s own
+`CreateDeckLinkDiscoveryInstance()` usage). This project's own
+`src/io/com_ptr.hpp` matches the SDK sample's public shape closely
+(renamed to this codebase's own `PascalCase` convention) but adds one new
+method, `adopt(T*)`, specifically to close that leak for factory-style
+direct returns — `releaseAndGetAddressOf()` (already in the SDK's own
+sample, unchanged here) already has correct owning-transfer semantics for
+the `Next()`-style out-parameter case, so no second new method was needed
+there. `src/io/decklink_device.hpp`/`.cpp` (new — this project's first
+`src/io/` header) declare `DeviceInfo` and `enumerateDeckLinkDevices()`,
+converting `CFStringRef` names to `std::string` immediately and reading
+`IDeckLinkProfileAttributes::GetInt(BMDDeckLinkVideoIOSupport, ...)`'s
+capture/playback bits — all without opening a stream anywhere, which is
+this unit's own scope boundary against WU-15. `BLACKMAGIC_SDK_DIR` is a new
+CMake cache variable (not a hardcoded path), matching `SCATTER_TILE_LOG2`'s
+existing pattern in this same file; the new `scatter-decklink` target and
+`test_decklink_device` are gated on `APPLE` and the SDK actually being found
+there, and skip cleanly with a `STATUS` message otherwise — the Linux cloud
+sandbox's existing `scatter-core` matrix is unaffected. Full reasoning,
+including the exact SDK citations, is in ADR-031.
 
-Before that, this session verified in a Linux cloud sandbox (no AppleClang
-there) on Clang 18 and GCC 13, under the project's exact warning set
-(`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`),
-Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight configurations, all
-green, zero warnings — checked explicitly in the build logs, not just exit
-codes), plus GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all` (Debug) at both tile sizes: clean, no ASan or
-UBSan report anywhere — same practice as every session since WU-06.
+**Tests:** `tests/test_decklink_device.cpp` (new) is written but **has never
+been run.** It checks, against real hardware: at least one device
+enumerates; every device has non-empty model/display names; at least one
+device reports both capture and playback support via
+`IDeckLinkProfileAttributes` *and* a live `QueryInterface` succeeds for both
+`IID_IDeckLinkInput` and `IID_IDeckLinkOutput`; `QueryInterface`'s COM
+identity guarantee holds through `ComPtr`'s converting constructor; repeated
+enumeration returns a stable device count. Nothing in it opens a stream.
 
-**Build:** clean under `-Werror -Wconversion -Wsign-conversion` on
-AppleClang (M1 Max), Clang 18 and GCC 13.
+**Build:** unverified. No AppleClang/Xcode toolchain and no Blackmagic SDK
+exist in the Linux cloud sandbox this session's own drafting happened in,
+and the device bridge's own shell tool is a sandboxed Linux VM with neither
+either — `HANDOFF.md`, going into this session, already flagged this as the
+expected shape for WU-14 specifically, not a gap to route around the way
+every unit since WU-06 has. This is the first session since WU-05 whose own
+code has not been run through the Linux Clang 18/GCC 13/ASan/UBSan matrix at
+all before being written to disk, because that matrix itself cannot see
+this unit's own files (`CMakeLists.txt`'s `BLACKMAGIC_SDK_DIR` guard skips
+them there by design).
 
 ## Where we are
 
-WU-13 adds `morphLattice(const Lattice& from, const Lattice& to, double t)`
-to the existing `core/lattice.hpp`/`.cpp` — no new source file for
-`scatter-core` itself, only its own new test executable,
-`tests/test_morph.cpp` (same "extend an existing file" shape WU-12b used
-for `compositeLayered()`). Given two already-built keyframe `Lattice`s and
-a blend fraction, it returns a new `Lattice` whose every control vertex is
-`from*(1-t) + to*t`, componentwise across `(x, y, z)` — architecture.md
-4.1's own "temporal interpolation between shape lattices... Mirage's
-morph", for exactly two keyframes (not an ordered sequence — ADR-028's own
-wording already committed to this before this session started; see
-ADR-030 for why that reading is recorded, not re-decided).
+WU-14 adds three new files under `src/io/` (`com_ptr.hpp`,
+`decklink_device.hpp`, `decklink_device.cpp`) and one new test
+(`tests/test_decklink_device.cpp`), plus a `scatter-decklink` CMake target
+and `BLACKMAGIC_SDK_DIR` cache variable in `CMakeLists.txt`. See
+`DECISIONS.md` ADR-031 for the full design and `WORK-UNITS.md`'s WU-14 entry
+(now `wip`, with **Files:**/**Accept:** filled in) for the accept criteria.
 
-**Design choices this session had to make — now ADR-030 in
-`DECISIONS.md`:** what a keyframe is operationally (nothing more than an
-already-built `Lattice`; no new struct pairs one with a time or frame
-number, and selecting which two keyframes bracket a given frame plus
-reducing that to `t` is left to a future orchestration layer, not
-scheduled — the same kind of scope cut ADR-026 made for the k-buffer's
-background and ADR-029 made for the opaque tag as a `PipelineParams`
-field); the interpolation method (linear, checked against ADR-022's
-Catmull-Rom basis and rejected for it — that basis needs a 4-point spatial
-neighbourhood a 2-keyframe temporal blend does not have, and nothing in
-architecture.md asks for tangent continuity across a morph); the exact
-blend formula (`from*(1-t) + to*t`, not the algebraically equivalent
-`from + t*(to-from)` — chosen specifically because the first form is
-bit-exact at both `t == 0` and `t == 1`, per CORRECTIONS.md C-012's
-"multiplying by an exact 0.0/1.0 introduces no rounding" lesson, giving
-the morph the same "reduces exactly to the boundary case" property
-ADR-027/ADR-028 already established for other shapes' own limiting
-parameters); and the function's home (`core/lattice.hpp`/`.cpp`, not a new
-`core/keyframe.hpp`/`.cpp` and not `core/shapes/shapes.hpp` — weighed
-against ADR-021/ADR-026's "existing header when the new scope doesn't need
-one" precedent, and against `shapes.hpp`'s own convention of *populating*
-a lattice from a parametric surface, which `morphLattice()` does not do —
-it *consumes* two already-populated lattices instead). See ADR-030 for the
-full reasoning, including the unclamped-`t` convention and why no
-`core/pipeline.cpp` change or `runFrame()`-level test is needed.
+**Corrections this session:** none. Nothing found while reading the real SDK
+headers contradicted an earlier claim in `DECISIONS.md`, `INVARIANTS.md` or
+`CORRECTIONS.md` — architecture.md 7's own claims (COM-style interfaces,
+`CreateDeckLinkIteratorInstance()` as the entry point, the 4K Mini's own
+full-duplex `IDeckLink`) all held up against the real headers; they were
+underspecified, not wrong, the same relationship every ADR since ADR-020 has
+had to architecture.md's own gaps.
 
-**Corrections this session:** none. No implementation choice made while
-writing `core/lattice.cpp` or `tests/test_morph.cpp` turned out to
-contradict an earlier claim in `DECISIONS.md`, `INVARIANTS.md` or
-`CORRECTIONS.md` — the blend formula's bit-exactness at `t == 0`/`t == 1`
-was checked directly (exact-equality tests in `tests/test_morph.cpp`), not
-merely assumed correct. `close.sh 13` itself also came back green on the
-first attempt — no platform-specific floating-point divergence this
-session, unlike WU-11's own experience with C-012 (this unit's own
-exact-equality checks are provably rounding-free by construction — see
-ADR-030 — rather than two independently-shaped expressions the way C-012's
-own trigger was).
+## Delivery mechanics — read before doing anything else this session
 
-**Delivery mechanics, not a design matter:** this session ran remotely,
-via the device-bridge tools connecting to this machine, same as sessions 6
-through 13. Implementation and the full verification matrix above ran
-first in a disposable Linux cloud sandbox, never on this machine directly.
-Files were then written to this machine via the bridge, and `git add -A &&
-git commit` ran through that same bridge; as in prior sessions it still
-cannot clean up its own `index.lock`/`HEAD.lock`/temp-object files
-afterward (unlink fails on this mount), so stale ones were moved into
-`_to_delete/` rather than removed — safe to `rm -rf _to_delete/` by hand;
-it now holds further accumulated debris from this session on top of prior
-ones. Git identity was already set locally on this mount from a prior
-session (`Stephen Neal <stephenneal@Stephens-MacBook-Pro.local>`, confirmed
-against `git log`/`git config` before committing), so nothing needed
-reconfiguring. `./tools/close.sh 13` was, as before, run by hand at the
-real terminal.
+This is the part of the loop that is genuinely different for WU-14, not a
+repeat of sessions 6 through 14's own delivery note:
+
+1. **Nothing was implemented and verified in a disposable Linux cloud
+   sandbox first**, unlike every unit since WU-06. There is no SDK and no
+   AppleClang there for this unit to be checked against, so `com_ptr.hpp`,
+   `decklink_device.hpp`/`.cpp`, `tests/test_decklink_device.cpp` and the
+   `CMakeLists.txt` changes were reasoned through against the real SDK
+   headers (ADR-031's own citations) and written straight to this machine
+   via the device bridge, unbuilt.
+2. **This session did not run `close.sh`, and did not tag anything.** WU-14
+   stays `wip` in `WORK-UNITS.md` until you build and run it yourself.
+3. **What to run, at your own terminal (not through the device bridge's own
+   shell — that is a sandboxed Linux VM with no Xcode/AppleClang either):**
+
+   ```
+   cmake -B build -DBLACKMAGIC_SDK_DIR="/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0"
+   cmake --build build
+   ./build/test_decklink_device
+   ```
+
+   If that configures and builds clean and `test_decklink_device` passes,
+   the rest of the suite should be unaffected (nothing in `scatter-core` or
+   any existing test changed), but it costs little to also run the full
+   `ctest` you'd normally run at session close, to confirm this unit's own
+   `CMakeLists.txt` changes didn't disturb anything else's configuration.
+4. **`./tools/close.sh` may need updating to pass `-DBLACKMAGIC_SDK_DIR`.**
+   I have not been shown `close.sh`'s own contents this session (rule 1:
+   never edit a file not shown in the current session), so I have not
+   touched it and cannot say whether it already passes CMake cache
+   variables through or would need a line added. If it does not build with
+   the SDK by default, either add `-DBLACKMAGIC_SDK_DIR=...` to it yourself,
+   or paste its contents into a future session's own context so that can be
+   done here instead.
+5. **If it does not build clean:** the most likely single point of failure,
+   flagged directly in `CMakeLists.txt`'s own comment and in ADR-031, is
+   whether a trailing `-w` on `DeckLinkAPIDispatch.cpp`'s own compile command
+   actually overrides the target-level `-Werror` set (ADR-017) the way this
+   session assumed — paste the actual compiler error back and this can be
+   fixed directly, whether that's the cause or something else entirely
+   (e.g. a header path difference between this SDK release and what this
+   session read, or a interface signature this session mis-transcribed).
 
 ## Next work unit
 
-`WORK-UNITS.md`'s strict ordering ("Units are ordered; do not skip") names
-WU-14 — DeckLink device enumeration and `ComPtr` — next, starting Phase 3
-(SDI output). Still `todo`, no **Files:**/**Accept:** filled in.
-
-WU-14 is a different kind of unit from every one since WU-06, in two
-ways worth flagging for whichever session starts it:
-
-- It is genuinely new ground, not a "re-read one architecture.md section
-  and fill in a parametrisation" gap the way WU-11/WU-12/WU-13 all were.
-  architecture.md 7 sketches the DeckLink SDK's shape (COM-style
-  `AddRef`/`Release`, `CreateDeckLinkIteratorInstance()`, a small
-  intrusive `ComPtr`) but real research into the actual SDK headers will
-  likely be needed before `WORK-UNITS.md`'s WU-14 **Files:**/**Accept:**
-  lines can be scoped honestly, not just a re-read of already-in-repo
-  material.
-- It cannot be built or tested in a Linux cloud sandbox at all — no
-  Blackmagic SDK there, and `src/io/com_ptr.hpp`/`decklink_*.cpp` are
-  exactly the files ADR-021 carved *out* of `scatter-core` for this
-  reason. Every session since WU-06 has implemented and run its full
-  verification matrix in a disposable cloud sandbox first, writing only
-  finished files to this machine afterward; WU-14 cannot follow that
-  shape; expect that session's own implementation and verification to
-  need to happen directly on the M1 Max instead.
-
-Also worth doing before WU-14 starts, and independent of it: the Desktop
-Video / UltraStudio 4K Mini smoke test flagged as outstanding since
-session 2 (see "Environment check still outstanding" below) — WU-14 is
-the first unit that actually needs the device to enumerate, so confirming
-it does now avoids finding out mid-unit.
+Once WU-14 is confirmed green (built, `test_decklink_device` passing,
+`WORK-UNITS.md` updated from `wip` to `green` and tagged `wu-14-green`),
+`WORK-UNITS.md`'s own ordering names WU-15 — scheduled playback, file source
+to SDI out — next. Its own accept criterion ("one hour on a broadcast
+monitor, no dropped frames") is exactly the kind of real capture/playback
+smoke test this session's own brief warned might not fit "one session, one
+unit" — worth scoping and, if needed, splitting (the same way WU-12 split)
+*before* writing any implementation code for it, not discovered mid-unit.
 
 ## Open questions
 
-Unchanged from session 13: Q1 (tile size), Q2 (4K Mini program outputs),
-Q3 (macOS/Desktop Video version) — all still open, none blocking. Q4
-(`core/lattice.cpp`'s `jacobian()` edge damping, C-008(a)) — still open,
-still not urgent; this session's own work adds no new evidence either
-way — `morphLattice()` blends control-vertex data only, it does not call
-`jacobian()` itself, and `test_morph.cpp`'s own Jacobian check exercises
-the same `jacobian()` code path C-008(a) already describes, at the same
-edges, with no new symptom.
+Unchanged from session 14: Q1 (tile size), Q2 (4K Mini program outputs), Q3
+(macOS/Desktop Video version), Q4 (lattice edge damping, C-008(a)) — all
+still open, none blocking, and nothing this session touched any of them.
 
-No new open question from this session beyond what ADR-030 already
-resolved — see "Design choices" above.
+New from this session, both flagged directly above rather than buried here:
+whether `DeckLinkAPIDispatch.cpp`'s own warnings are actually suppressed by
+the trailing `-w` this session's `CMakeLists.txt` change relies on
+(unverified — see "Delivery mechanics" above); and whether `close.sh` needs
+a `-DBLACKMAGIC_SDK_DIR` line added (unverified — `close.sh`'s own contents
+were not shown this session).
 
 ## Blocked / red
 
-Nothing. WU-13 closed green; Phase 2 as a whole done.
+Not red — `wip`, pending a build this session could not itself run. See
+"Delivery mechanics" above for exactly what to do next.
 
-## Environment check still outstanding
+## Environment check
 
-Unchanged from session 2 — Desktop Video / UltraStudio 4K Mini smoke test.
-No longer costs no session time to defer: WU-14 (next) is the first unit
-that actually needs the device to enumerate, so this is worth doing before
-that session starts rather than during it.
+Confirmed this session (by you, at the real terminal, before this session's
+own work started): the UltraStudio 4K Mini enumerates. WU-14's own accept
+criteria need exactly this and nothing more — `enumerateDeckLinkDevices()`,
+`GetModelName`/`GetDisplayName`, and `IDeckLinkProfileAttributes` capability
+queries, no stream opened anywhere. **Still not separately confirmed:**
+Desktop Video Setup showing both input and output active, or a
+capture/playback round trip in Media Express (architecture.md 10's own
+Phase 0 checklist). Not needed for WU-14 as scoped, but flagged here since
+WU-15 (scheduled playback) is next and will need it — worth confirming
+before that session starts, the same way this session's own confirmation
+was worth doing before WU-14 started.
 
 ## Append to DECISIONS.md
 
-Nothing this update — ADR-030 was appended in full earlier this session;
-see `DECISIONS.md`. Not reopened or amended now that the tag is confirmed.
+Nothing this update — ADR-031 was appended in full earlier this session; see
+`DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this update — see "Corrections this session" above; nothing to
-log, and the tag is confirmed clean, not reopened or amended now.
+Nothing this update — see "Corrections this session" above.

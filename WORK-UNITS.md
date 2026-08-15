@@ -274,7 +274,37 @@ modes, and keyframed/morphed lattices are all reproduced.
 
 ## Phase 3 — SDI output
 
-### WU-14 — DeckLink device enumeration and ComPtr `todo`
+### WU-14 — DeckLink device enumeration and ComPtr `wip`
+**Files:** `src/io/com_ptr.hpp`, `src/io/decklink_device.hpp`,
+`src/io/decklink_device.cpp` (all new), `tests/test_decklink_device.cpp`
+(new); plus `CMakeLists.txt` (new `scatter-decklink` target and
+`BLACKMAGIC_SDK_DIR` cache variable — CMakeLists.txt edits have never
+counted against the "3 source files" cap in any earlier unit either).
+**Accept:** `enumerateDeckLinkDevices()` returns at least one device on this
+machine (the UltraStudio 4K Mini, confirmed enumerating this session, per
+`HANDOFF.md`); every returned device has a non-empty model and display name;
+at least one enumerated device reports both `bmdDeviceSupportsCapture` and
+`bmdDeviceSupportsPlayback` via `IDeckLinkProfileAttributes::GetInt`
+(`BMDDeckLinkVideoIOSupport`) *and* a live `QueryInterface` for both
+`IID_IDeckLinkInput` and `IID_IDeckLinkOutput` succeeds against it —
+checking architecture.md 7's "one `IDeckLink` exposing both" claim two
+independent ways; `QueryInterface`'s COM identity guarantee (same interface,
+same object, same pointer) holds through `ComPtr`'s own converting
+constructor; repeated enumeration is stable (same device count both times).
+No stream is opened anywhere in this unit — no
+`EnableVideoInput()`/`EnableVideoOutput()`/`StartStreams()`/scheduled
+playback call in `decklink_device.cpp` or its test; that is WU-15 onward's
+own job. See `DECISIONS.md` ADR-031 for the full design.
+*Status this session:* implemented and written to disk via the device
+bridge; **not yet built or run**. This unit needs the real Blackmagic SDK
+and an AppleClang/Xcode toolchain, neither present in the Linux cloud
+sandbox this session's own implementation and verification work ran in —
+the same reason ADR-021 kept `file_source.cpp`/`file_sink.cpp` out of any
+SDK dependency, now the reason this unit's own code has never actually been
+compiled by this session at all, only reasoned through against the real SDK
+headers. Stays `wip` until built and `test_decklink_device` run at the real
+terminal; see `HANDOFF.md` for exactly what to run and what is and is not
+yet confirmed.
 ### WU-15 — Scheduled playback, file source to SDI out `todo`
 **Accept:** one hour on a broadcast monitor, no dropped frames.
 

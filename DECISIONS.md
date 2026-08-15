@@ -1097,3 +1097,217 @@ document, and this unit's own choices extend ADR-021/ADR-026's
 ADR-022's Catmull-Rom basis rather than revisiting either; ADR-028's own
 `t`-scoping note is completed, not amended, by the mechanism this entry
 freezes.
+
+**ADR-031 — DeckLink device enumeration and `ComPtr`: the real SDK's
+interface shape, `ComPtr`'s own design (modeled on the SDK's own sample,
+plus one deliberate addition), the enumeration API's home and capability-
+check design, and `BLACKMAGIC_SDK_DIR` as a CMake cache variable — frozen at
+WU-14, Phase 3's first unit.**
+`docs/architecture.md` 7 sketches the DeckLink SDK's shape (COM-style
+`AddRef`/`Release`, `CreateDeckLinkIteratorInstance()`, "write a small
+intrusive `ComPtr` and use it everywhere") without fixing any interface's
+actual member list, `ComPtr`'s own concrete shape, or where the enumeration
+code lives — `HANDOFF.md`'s own "Next work unit" note (going into this
+session) flagged this as genuinely new ground, not a "fill in a
+parametrisation architecture.md already named" gap the way WU-11 through
+WU-13 all were, and asked this session to read the real SDK headers under
+`~/src/Blackmagic DeckLink SDK 16.0` before scoping `WORK-UNITS.md`'s WU-14
+lines, rather than working from architecture.md's summary alone. This entry
+records what that reading found and the concrete choices it forces.
+
+- **What `IDeckLink` actually is, and where it actually lives.** Not in
+  `DeckLinkAPI.h` itself, despite that header defining nearly every other
+  DeckLink interface (`IDeckLinkIterator`, `IDeckLinkInput`,
+  `IDeckLinkOutput`, `IDeckLinkProfileAttributes`, and dozens more) — `class
+  IDeckLink` is defined in `DeckLinkAPIDiscovery.h` (included transitively
+  by `DeckLinkAPI.h`, so no separate `#include` is needed in practice, but
+  worth recording since architecture.md 7 does not say which header, and
+  guessing wrong would have looked plausible). Its own member list is
+  minimal — exactly two methods, `GetModelName(CFStringRef*)` and
+  `GetDisplayName(CFStringRef*)`, both macOS-specific (`CFStringRef`, not a
+  portable string type) — confirming architecture.md 7's "one `IDeckLink`
+  exposing both `IDeckLinkInput` and `IDeckLinkOutput`" is a claim about
+  what `QueryInterface` can produce *from* an `IDeckLink`, not about
+  `IDeckLink`'s own interface: `IDeckLinkInput`, `IDeckLinkOutput` and
+  `IDeckLinkProfileAttributes` are all obtained via `QueryInterface`
+  (`IID_IDeckLinkInput`, `IID_IDeckLinkOutput`,
+  `IID_IDeckLinkProfileAttributes`), never exposed directly on `IDeckLink`.
+  Verified against the SDK's own `Samples/DeviceList/main.cpp`, which does
+  exactly this (`deckLink->QueryInterface(IID_IDeckLinkProfileAttributes,
+  ...)`) rather than any direct accessor.
+- **The enumeration entry point's real ownership convention.**
+  `CreateDeckLinkIteratorInstance()` (declared `extern "C"` in
+  `DeckLinkAPI.h`, implemented in the SDK's own `DeckLinkAPIDispatch.cpp` by
+  CFBundle-loading `/Library/Frameworks/DeckLinkAPI.framework` at runtime
+  and forwarding to it — architecture.md 7's own "loads DeckLinkAPI.bundle
+  via CFPlugIn at runtime" description, confirmed directly rather than
+  taken on faith) returns `nullptr` if the driver/bundle is not present
+  (`Samples/DeviceList/platform.cpp`'s own `GetDeckLinkIterator()` wrapper
+  checks exactly this), or otherwise an already-owned `IDeckLinkIterator*` —
+  ordinary COM factory convention, the same as this SDK's every other
+  `Create*Instance()` function. `IDeckLinkIterator::Next(IDeckLink**)`
+  follows the same convention for each device it hands back, checked with
+  `== S_OK` (`Samples/DeviceList/main.cpp`'s own `while
+  (deckLinkIterator->Next(&deckLink) == S_OK)`), and returns something other
+  than `S_OK` once enumeration is exhausted. Both are therefore *owned*
+  results, not *borrowed* ones — a real distinction this project's own
+  `ComPtr` has to get right (below), unlike a callback parameter such as a
+  future `VideoInputFrameArrived(IDeckLinkVideoInputFrame*)` (architecture.md
+  7's Input section: "valid only for the duration of the call unless you
+  `AddRef` it"), which is borrowed and must be retained by the callee.
+- **`ComPtr`'s own shape: modeled on the SDK's own `Samples/*/com_ptr.h`,
+  not invented from scratch, plus one deliberate addition.** The SDK ships
+  a `com_ptr<T>` sample header, present near-verbatim in `CapturePreview`,
+  `DeviceStatus`, `FileCapture`, `FilePlayback`, `InputLoopThrough`,
+  `KeyerOutput`, `MetalOutput`, `MultiPreview`, `SignalGenerator` and
+  `SignalGenHDR` — copy/move constructors and assignment, a templated
+  `QueryInterface`-based converting constructor
+  (`com_ptr<T>(REFIID, com_ptr<U>)`), `get()`, `operator->`/`operator*`,
+  `explicit operator bool`, `releaseAndGetAddressOf()`. Read in full this
+  session (`Samples/CapturePreview/com_ptr.h`) rather than assumed from its
+  name. Chosen: this project's own `src/io/com_ptr.hpp` (architecture.md 8
+  already names this exact file) matches that shape closely, renamed to this
+  codebase's own `PascalCase` type convention (`Lattice`, `AccumCell`,
+  `EwaFootprint`, ... — `com_ptr` would be the only lowercase-leading type
+  name in the whole tree) — deliberately *not* a differently-shaped
+  hand-rolled version, since "write a small intrusive `ComPtr` and use it
+  everywhere" (architecture.md 7) already has an obvious, working,
+  battle-tested answer sitting in the same SDK, one every Blackmagic sample
+  and every piece of Blackmagic-adjacent documentation already speaks.
+  **One deliberate addition:** `adopt(T*)`. The sample's own raw-pointer
+  constructor and raw-pointer `operator=` always call `AddRef()` — correct
+  for a *borrowed* pointer, wrong for an *owned* one. Checked directly
+  against the SDK's own sample code rather than assumed: `Samples/FileCapture
+  /DeckLinkDeviceDiscovery.cpp` constructs `m_discovery` (a `com_ptr
+  <IDeckLinkDiscovery>`) directly from `CreateDeckLinkDiscoveryInstance()`'s
+  raw-pointer return via the AddRef'ing constructor, which — if
+  `CreateDeckLinkDiscoveryInstance()` follows the same already-owned
+  convention `CreateDeckLinkIteratorInstance()` does, which every other
+  `Create*Instance()` function in this SDK does — over-retains by exactly
+  one reference, never released, for the lifetime of that `com_ptr`. Harmless
+  in that sample (one long-lived singleton, in a short-lived process), but
+  not a pattern to copy uncritically into a real-time app that enumerates
+  and reopens devices repeatedly across a long-running process, against
+  architecture.md 12's own named risk ("Reference-count leaks lock the
+  device... never hold a raw interface pointer"). `ComPtr::adopt(T*)`
+  releases whatever the `ComPtr` currently holds and takes ownership of the
+  new pointer with no `AddRef` — used for `CreateDeckLinkIteratorInstance()`'s
+  direct return. `releaseAndGetAddressOf()` (already present in the SDK's
+  own sample, unchanged here) already has the right semantics for the
+  *out-parameter* case (`IDeckLinkIterator::Next()`) for free — release,
+  return `&m_ptr`, let the callee write an owned pointer straight in, no
+  `AddRef` on either side — so no second new method was needed for that
+  half of the enumeration loop, only for the direct-return factory call.
+- **The enumeration API: `DeviceInfo` plus `enumerateDeckLinkDevices()`, in
+  new `src/io/decklink_device.hpp`/`.cpp`.** This project's first `src/io/`
+  header — `file_source.cpp`/`file_sink.cpp` (WU-05) reused an existing
+  `video/raster.hpp` rather than creating one of their own (ADR-021), but
+  nothing existing in `src/io/` declares device-enumeration types, so a new
+  header is not a judgement call here the way it was for ADR-021/ADR-026/
+  ADR-030 — there is no existing `io/` header to extend. Declares `DeviceInfo
+  {modelName, displayName, supportsCapture, supportsPlayback,
+  ComPtr<IDeckLink> device}` and `std::vector<DeviceInfo>
+  enumerateDeckLinkDevices()`. `#include "DeckLinkAPI.h"` directly in the
+  header rather than forward-declaring `IDeckLink` — consistent with every
+  other header in this project, none of which use a forward-declare-only
+  pattern for their own dependencies; this makes `decklink_device.hpp`
+  unambiguously macOS-only (fine — it belongs to the new `scatter-decklink`
+  CMake target below, never `scatter-core`, the same boundary ADR-013
+  already draws). String fields converted to `std::string` immediately
+  inside `decklink_device.cpp` (`CFStringRef` released right after
+  conversion, matching the SDK's own `DlToStdString`/`DeleteString` sample
+  helpers folded into one step) rather than exposed as `CFStringRef` in the
+  public struct, keeping `DeviceInfo` itself CoreFoundation-string-free
+  beyond the `ComPtr<IDeckLink>` handle it necessarily still carries.
+- **Capability check design: what a minimal WU-14 test can assert without
+  opening a stream.** `IDeckLinkProfileAttributes::GetInt(
+  BMDDeckLinkVideoIOSupport, &value)` returns a bitfield
+  (`bmdDeviceSupportsCapture`, `bmdDeviceSupportsPlayback`) queryable with no
+  stream open at all (`Samples/DeviceList/main.cpp`'s own
+  `print_attributes()` does exactly this, never calling
+  `EnableVideoInput`/`EnableVideoOutput`). `enumerateDeckLinkDevices()`
+  reads both bits into `DeviceInfo`; `tests/test_decklink_device.cpp`
+  additionally confirms a live `QueryInterface` for both `IID_IDeckLinkInput`
+  and `IID_IDeckLinkOutput` succeeds on whichever device reports both bits —
+  checking architecture.md 7's "one `IDeckLink` exposing both" claim two
+  independently-failing ways rather than trusting the attribute alone. What
+  this unit's own test does *not* and cannot assert without contradicting
+  its own scope: anything downstream of `EnableVideoInput()`/
+  `EnableVideoOutput()`/`StartStreams()` (mode support, actual frame
+  delivery, dropped-frame behaviour) — that is WU-15's own job
+  (`WORK-UNITS.md`: "Scheduled playback, file source to SDI out"), not
+  this one's, and folding a stream-opening check into WU-14 would be
+  exactly the kind of unit `SESSION-PROTOCOL.md`'s own sizing note asks to
+  be split rather than crammed in — considered directly this session and
+  not needed, since WU-14's own scope (enumeration and `ComPtr` alone,
+  per `WORK-UNITS.md`'s own heading) never required a stream-opening check
+  to be a complete, independently useful unit in the first place.
+- **`BLACKMAGIC_SDK_DIR`: a CMake cache variable, not a hardcoded path.**
+  Considered directly rather than assumed, per this session's own brief.
+  Chosen: a `CACHE PATH` variable, default empty, following the exact
+  pattern `SCATTER_TILE_LOG2` (ADR, implicitly, via `CMakeLists.txt`'s own
+  comment) already establishes elsewhere in this same file — a documented
+  `-D` flag with the invocation shown inline. Reasons a hardcoded path was
+  rejected: the real path
+  (`~/src/Blackmagic DeckLink SDK 16.0`) lives under the developer's own
+  home directory, not this repository, with a version number baked into its
+  own folder name that will not survive the next SDK update unchanged; the
+  SDK ships its own `End User License Agreement.pdf` alongside its headers,
+  a further reason not to vendor or hardcode a path implying those headers
+  belong to this repository; and ADR-013/ADR-021's own "no unit leaves the
+  tree unbuildable" property requires the Linux cloud sandbox's existing
+  `scatter-core`/test matrix to keep configuring with zero SDK present,
+  which a hardcoded, unconditionally-`#include`d path would break outright
+  on any machine (including that sandbox) where it does not resolve. The new
+  `scatter-decklink` target and `test_decklink_device` are therefore built
+  only when `APPLE` is true *and* `BLACKMAGIC_SDK_DIR` resolves to a
+  directory actually containing `Mac/include/DeckLinkAPI.h`; otherwise
+  `CMakeLists.txt` emits a `STATUS` message and skips the block entirely,
+  the same fail-soft shape ADR-021 already established for keeping
+  `file_source.cpp`/`file_sink.cpp` buildable with no SDK present, applied
+  here to an entire new target rather than a file-target placement.
+- **Warnings on the SDK's own vendored `DeckLinkAPIDispatch.cpp`.** This
+  project's `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+  -Werror` set (ADR-017) is unverified against generated, third-party SDK
+  code — `set_source_files_properties(... COMPILE_OPTIONS "-w")` exempts
+  only that one vendored file, leaving every file this project actually
+  owns (`com_ptr.hpp`, `decklink_device.hpp`/`.cpp`,
+  `test_decklink_device.cpp`) under the full set unchanged. Flagged as
+  **unverified**, not confirmed working — this session has no AppleClang or
+  Xcode toolchain to check it against; if the trailing `-w` does not in fact
+  override the target-level `-Werror` the way this entry assumes, that is
+  this unit's own bug to fix at the real terminal, not architecture.md's or
+  ADR-017's to relax.
+- **This entire unit is unverified by this session — deliberately, not by
+  oversight.** Every ADR from ADR-020 through ADR-030 was written after its
+  own unit's code had already been implemented and run through the full
+  Linux-cloud-sandbox matrix (Clang 18, GCC 13, ASan/UBSan, both tile
+  sizes) and, in most cases, `close.sh` on the real M1 Max besides. WU-14
+  cannot follow that shape: no Blackmagic SDK and no AppleClang/Xcode
+  toolchain exist in the Linux cloud sandbox this session's own drafting
+  happened in, and the device bridge's own shell tool is a sandboxed Linux
+  VM with neither either — `HANDOFF.md`, going into this session, already
+  flagged this as expected, not a gap to route around. `com_ptr.hpp`,
+  `decklink_device.hpp`/`.cpp` and `tests/test_decklink_device.cpp` are
+  therefore reasoned through against the real SDK headers (this entry's own
+  citations above) rather than compiled and run by this session at all.
+  `WORK-UNITS.md`'s WU-14 line stays `wip`, not `green`, until built and run
+  at the real terminal.
+
+Not decided here, deliberately: `decklink_input.cpp`/`decklink_output.cpp`
+and anything past enumeration (architecture.md 8's own module-layout sketch
+names both; WU-20 and WU-15 respectively are where they arrive, not this
+unit); and whether the Desktop Video / UltraStudio 4K Mini's own input and
+output are separately confirmed working in Media Express — `HANDOFF.md`'s
+own "Environment check still outstanding" only ever asked this session to
+confirm the device *enumerates*, which this unit's own accept criteria
+match exactly (`GetModelName`/`GetDisplayName`/`QueryInterface`/attribute
+queries, no stream), not to confirm a capture/playback round trip, which
+remains outstanding for whichever unit first needs it (WU-15, most likely).
+
+Does not reopen `docs/architecture.md`, ADR-013, ADR-017 or ADR-021 — same
+relationship every ADR since ADR-020 has to the document; ADR-013's
+single-machine, SDK-free `scatter-core` boundary is extended to a second
+target (`scatter-decklink`) rather than crossed, and ADR-017's warning set
+is applied unchanged to every file this project owns, with only the one
+vendored SDK file exempted, not the set itself relaxed.
