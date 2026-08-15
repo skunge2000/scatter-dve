@@ -450,6 +450,16 @@ his monitor's own 4:3-on-16:9 handling). Still needed before this line goes
 `green`: the full suite and `./tools/close.sh 15a` at the real terminal, on
 the now-reverted (clean, cylinder-only) build.
 
+**Clean rebuild + full suite, on the reverted build:** run and confirmed
+good by Steve. `Accept:`'s every clause is now satisfied: the mechanics
+(zero dropped/late frames, clean stop — the original real-hardware run,
+unaffected by this investigation, still stands as that evidence) and the
+by-eye warp confirmation (this investigation, closed via ADR-036) are both
+done. `./tools/close.sh 15a` and tagging `wu-15a-green` are Steve's own
+next action, not run this session — per this project's own "the assistant
+does not run `close.sh`" rule, this line stays `wip` until he reports that
+back.
+
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
 criterion ("stable for an hour"). Not new implementation — WU-15a's own
