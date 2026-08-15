@@ -417,7 +417,16 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_live_output PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_live_output COMMAND test_decklink_live_output)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer and test_decklink_live_output configured")
+    # WU-21e — test_decklink_live_sphere.cpp: identical shape to
+    # test_decklink_live_output.cpp above, one line different (a sphere
+    # lattice, core/shapes/shapes.hpp, instead of an identity one). Same
+    # dual-link reason. See DECISIONS.md ADR-051.
+    add_executable(test_decklink_live_sphere tests/test_decklink_live_sphere.cpp)
+    target_link_libraries(test_decklink_live_sphere PRIVATE scatter-decklink scatter-core)
+    target_include_directories(test_decklink_live_sphere PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME test_decklink_live_sphere COMMAND test_decklink_live_sphere)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_live_output and test_decklink_live_sphere configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()

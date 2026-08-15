@@ -471,3 +471,46 @@ returns 1 everywhere (det J < 1, no subdivision) — a future unit reusing
 this pattern under magnification needs a genuinely sub-sample-unique key
 (e.g. also encoding `sx`/`sy`) or a different verification approach
 entirely.
+
+**C-017 — `DECISIONS.md` ADR-052 (WU-21f) claimed a rigid rotation of
+`buildSphereLattice()`'s own control points could produce negative depth
+(`z < 0`), and used that claim to justify a conservative rotation
+amplitude, without checking the claim against the sphere invariant
+`shapes.hpp` itself already documents.**
+*Claimed:* "a large enough rotation can produce negative depth ... this
+project's own binner/splat/resolve path has never been exercised against
+negative depth before" — presented as a real, unresolved risk, and used to
+justify bounding `kYawAmplitude`/`kPitchAmplitude` well short of a full
+rotation.
+*Correct:* every point `buildSphereLattice()` produces, for any
+`angleSpanH`/`angleSpanV` including values far beyond a single small demo
+patch, satisfies `(x-centerX)^2 + (y-centerY)^2 + (z-radius)^2 ==
+radius^2` exactly — `shapes.hpp`'s own documented invariant (ADR-027),
+unconditional on the angular range used to build it. `rotateLattice()`
+(WU-21f's own test-file helper) rotates every point rigidly about
+`(centerX, centerY, radius)` — the sphere's own true centre, the exact
+same point the invariant above is centred on — and a rigid rotation about
+a sphere's own centre preserves distance from that centre by definition.
+So every rotated point is *still* exactly `radius` from `(centerX,
+centerY, radius)`, for any rotation angle whatsoever, which alone forces
+`(z - radius)^2 <= radius^2`, i.e. `z` in `[0, 2*radius]` — always, with
+no dependence on rotation amplitude at all. Negative depth from this
+specific rotation (about the sphere's own true centre) is not possible;
+the earlier claim was an informal, unverified worry ("the patch sits
+mostly in front of the pivot, rotating it might push part of it past
+zero") that did not get checked against the actual invariant already
+sitting in the codebase. Caught this session, while scoping WU-21g's own
+request for a continuous (unbounded) rotation axis, when re-deriving the
+bound properly turned out to remove the concern entirely rather than
+requiring a larger bound. Does not affect WU-21f's own delivered code
+(`CaptureConsumer::setLattice()`, the mutex design) — only the amplitude
+reasoning in its own `DECISIONS.md`/`WORK-UNITS.md` prose was wrong, not
+anything built. `DECISIONS.md` ADR-053 (WU-21g) carries the corrected
+reasoning forward and removes the amplitude conservatism this mistake had
+caused. **General lesson for future units:** when a geometric worry can be
+checked against an invariant the codebase already states and proves
+(`shapes.hpp`'s own documented sphere equation, `test_shapes.cpp`'s own
+check of it), check it before writing the worry into a design record as
+an open risk — an unverified "this might be unsafe" is not free to state
+even when phrased honestly as unresolved, if five minutes of algebra
+against already-available documentation would have settled it.

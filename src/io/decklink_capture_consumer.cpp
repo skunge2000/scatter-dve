@@ -46,6 +46,11 @@ bool CaptureConsumer::copyLatestFrame(std::vector<std::uint8_t>& out) const {
     return true;
 }
 
+void CaptureConsumer::setLattice(Lattice lattice) {
+    std::lock_guard<std::mutex> lock(m_latticeMutex);
+    m_lattice = std::move(lattice);
+}
+
 void CaptureConsumer::run() {
     while (!m_stopping.load()) {
         auto item = m_ring.tryPop();
@@ -80,6 +85,20 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     const auto srcRowBytes = std::ptrdiff_t(frame->GetRowBytes());
     if (srcWidth <= 0 || srcHeight <= 0 || srcRowBytes <= 0) return false;
 
+    // WU-21f: a local copy of the current lattice, taken before touching the
+    // capture frame's own buffer at all -- keeps the StartAccess/EndAccess
+    // bracket below exactly as tight as it was before setLattice() existed,
+    // not held open any longer while a few hundred KB of control vertices
+    // get copied under a separate lock. A caller's own setLattice() call
+    // that lands between this copy and the next frame's own simply takes
+    // effect starting next frame, never retroactively (this file's own
+    // header comment on setLattice()).
+    Lattice latticeSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_latticeMutex);
+        latticeSnapshot = m_lattice;
+    }
+
     // Same interface, same QueryInterface, as io/decklink_output.cpp's own
     // fillFrameBuffer() -- read direction instead of write (ADR-032's own
     // finding, confirmed unchanged for input by ADR-046/047/048's own
@@ -100,7 +119,7 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     // after, and not against a copy taken out of the bracket first. See this
     // file's own header comment for why no pool buffer is used instead.
     std::vector<std::uint8_t> dst(m_dstRowBytes * std::size_t(m_params.destHeight));
-    scatter::runFrameBytes(m_lattice, static_cast<const std::uint8_t*>(mem), srcRowBytes,
+    scatter::runFrameBytes(latticeSnapshot, static_cast<const std::uint8_t*>(mem), srcRowBytes,
                             srcWidth, srcHeight, m_params, dst.data(),
                             std::ptrdiff_t(m_dstRowBytes));
 

@@ -1217,6 +1217,193 @@ timestamp-alignment refinement if not — both already named in ADR-050 as
 a/b/c discipline this project already uses when a unit's scope grows past
 the 3-file/400-line cap) is that session's own call, not decided here.
 
+### WU-21e — First live-warped-video demo: a real sphere lattice
+(`core/shapes/sphere.cpp`, WU-11/ADR-027) through the live pipeline WU-21c
+already verified, instead of that unit's own identity lattice `wip`
+Combines two already-independently-verified pieces; adds no new algorithmic
+capability. `buildSphereLattice()` has its own geometric proof and passing
+test (`test_shapes.cpp`, ADR-027 — every control vertex lands exactly on the
+configured sphere, for any `angleSpanH`/`angleSpanV`). `CaptureSource`
+(WU-20b), `CaptureConsumer` (WU-21b) and `LiveFramePlayback` (WU-21c) are
+all already lattice-agnostic — `CaptureConsumer`'s own constructor takes a
+`Lattice` by value, not a hardcoded identity map; `LiveFramePlayback` never
+inspects what produced the bytes it schedules. WU-21c's own real-hardware
+run already proved the mechanics (pool refill/reschedule, no dropped/late
+frames) end to end; this unit's own job is solely swapping which lattice
+`CaptureConsumer` is built with, to put a real warp on the wire for the
+first time, and giving Steve a working artifact to look at.
+**Files:** `tests/test_decklink_live_sphere.cpp` (new — duplicated from
+WU-21c's own `test_decklink_live_output.cpp` per `SESSION-PROTOCOL.md` rule
+2, one line materially different: `CaptureConsumer` built from
+`scatter::shapes::buildSphereLattice()` instead of an identity lattice);
+plus `CMakeLists.txt` (new `test_decklink_live_sphere` executable,
+registered identically to `test_decklink_live_output`, same dual-link
+reason — `CMakeLists.txt` edits have never counted against the "3 source
+files" cap in any earlier unit either). No `src/` files touched — nothing
+about `LiveFramePlayback`/`CaptureConsumer`/`CaptureSource` themselves
+changes; this unit is entirely a demo-harness recombination of already-
+shipped code.
+**Accept:** identical mechanical criteria to WU-21c's own (`stats().completed
+> 0`, `stats().displayedLate == 0`, `stats().dropped == 0`; the
+`CaptureConsumer`/`CaptureSource` accounting invariants), over a bounded
+10-second run (longer than WU-21c's own 5, to give a real by-eye look more
+time) — swapping the lattice changes nothing about what these particular
+checks measure, since they were never about warp correctness to begin with.
+The genuinely new criterion this unit adds is not automatable: with a live
+source patched into the Recorder 3G's own SDI input, the Monitor 3G's own
+output (SDI, mirrored to HDMI — confirmed this project's own UltraStudio
+Monitor 3G does this by design) should visibly show that source mapped onto
+a sphere, not a flat picture. Steve's own by-eye job, the same division of
+labour every "does this look right" criterion in this project has used
+since WU-15b/WU-19b.
+*Status:* **superseded by WU-21f before ever being built, run, committed or
+tagged.** Steve found this unit's own first-cut sphere geometry (radius
+220, `angleSpanH` 1.2, `angleSpanV` 1.0) cropped vertically and did not look
+fully wrapped, and separately asked for a keypress-driven run length and
+two-axis rotation — enough new scope, per this project's own a/b/c/.../f
+splitting discipline, to become its own unit rather than a quiet in-place
+edit. `tests/test_decklink_live_sphere.cpp`'s own content is now WU-21f's,
+not this text's — see below. Nothing from this entry was ever run for
+real, so nothing here needed a correction; see `DECISIONS.md` ADR-052.
+
+### WU-21f — Rotating live sphere demo: fixes WU-21e's own geometry (equal,
+larger `angleSpanH`/`angleSpanV`), runs until a keypress instead of a fixed
+duration, and rotates the sphere in two axes at once via a new
+`CaptureConsumer::setLattice()` `wip`
+See `DECISIONS.md` ADR-052 for the full design: why WU-21e's own unequal,
+modest angular spans produced unequal on-screen extents by construction (not
+a pipeline bug), the fix (`angleSpanH == angleSpanV == 2.0` rad, comfortably
+inside the `+/-pi/2` half-angle fold threshold `test_shapes.cpp`'s own
+comment documents); the rotation design (a rigid yaw-then-pitch rotation of
+the already-built lattice's own control points around the sphere's true
+centre `(centerX, centerY, radius)`, implemented entirely in this test file,
+not in `core/shapes/sphere.cpp` — `buildSphereLattice()` itself stays
+untouched and still exactly as `test_shapes.cpp` proved it); the one real,
+unverified risk this approach carries (a large enough rotation can produce
+negative depth, `z < 0`, which no shape in this project has ever produced
+before — bounded rotation amplitude sidesteps it here, not resolves it); and
+the keypress-until-stop design (a dedicated thread blocking on a single raw
+terminal keypress via `termios`, falling back to a bounded 60-second run if
+stdin is not a real TTY).
+**Files:** `src/io/decklink_capture_consumer.hpp`/`.cpp` (edited — new
+`CaptureConsumer::setLattice(Lattice)`, thread-safe via a new dedicated
+`m_latticeMutex` separate from the existing `m_mutex` that guards
+`m_latestFrame`; `processOne()` now takes a snapshot copy of the current
+lattice under that lock before touching the capture frame's own buffer,
+using the snapshot for `runFrameBytes()` instead of `m_lattice` directly);
+`tests/test_decklink_live_sphere.cpp` (rewritten in place — WU-21e's own
+content superseded, see above). No `CMakeLists.txt` change needed: the
+`test_decklink_live_sphere` target WU-21e already registered points at the
+same filename, whose content this unit replaces.
+**Accept:** the same mechanical criteria WU-21c's/WU-21e's own tests already
+use (`stats().completed > 0`, `stats().displayedLate == 0`, `stats().dropped
+== 0`; the `CaptureConsumer`/`CaptureSource` accounting invariants) — a
+changing, rotating lattice does not change what these checks measure, same
+reasoning WU-21e's own `Accept:` already gave for a static sphere lattice.
+Unautomatable, Steve's own by-eye job, same as WU-21e: with a live source
+patched into the Recorder 3G's own SDI input, the Monitor 3G's own output
+should show the source wrapped fully onto a sphere (not vertically cropped)
+that visibly tumbles in two axes at once, not a static or single-axis
+motion; pressing a key should stop the run promptly. Does not claim negative-
+depth rotation amplitudes are safe — deliberately not attempted here (see
+above).
+*Status:* **built, run, and given real feedback at Steve's own real
+terminal this session — the tumble was visible ("interesting"), but the
+wrap read as roughly 120-180 degrees of the sphere with the video stopping
+short of the poles, and Steve asked for one continuous rotation axis
+instead of two oscillating ones.** Not a defect in anything this unit
+built (`CaptureConsumer::setLattice()` worked; the mechanical `Accept:`
+criteria were never reported as failing) — the angular-span parameters
+were this unit's own demo choice, not a pipeline limit. Its own
+`tests/test_decklink_live_sphere.cpp` content is now superseded by WU-21g,
+the same "superseded before being tagged" treatment WU-21e received one
+unit earlier — `CaptureConsumer::setLattice()`/`m_latticeMutex` themselves
+are unaffected and carry forward unchanged. See `DECISIONS.md` ADR-052's
+own addendum and `CORRECTIONS.md` C-017 (this unit's own rotation-
+amplitude reasoning did not hold up to the sphere's own documented
+invariant — corrected there, not anything built).
+
+### WU-21g — Full sphere wrap (pole to pole, seamless 360 degrees
+azimuthally), one continuous rotation axis, one oscillating axis `wip`
+See `DECISIONS.md` ADR-053 for the full design: why `angleSpanV == pi`
+reaches the poles exactly without crossing into the folding regime (`sin`
+is monotonic on the closed interval up to and including its own endpoint);
+why `angleSpanH == 2*pi` gives a mathematically seamless full wrap (source
+left/right edges meet exactly at the sphere's own back seam) at the cost
+of deliberately entering `tests/test_shapes.cpp`'s own documented folding
+regime for most of the lattice (front/back hemispheres both exist and can
+visibly overlap on screen with no occlusion sorting, `WU-28`'s k-buffer not
+built yet — named, not solved, Steve's own next by-eye report); and the
+corrected rotation-safety reasoning (`CORRECTIONS.md` C-017): rotation
+about the sphere's own true centre can never produce negative depth, for
+any amplitude, so yaw is now a continuous, unbounded spin (one revolution
+every 8 seconds) while pitch keeps oscillating, back-and-forth, at a
+larger amplitude than WU-21f's own (1.0 rad, was 0.35) now that the
+conservatism C-017 corrects no longer applies.
+**Files:** `tests/test_decklink_live_sphere.cpp` only (rewritten in place
+— WU-21f's own content superseded, see above). No `src/` or
+`CMakeLists.txt` change — `CaptureConsumer::setLattice()` (WU-21f) already
+supports an arbitrarily-changing lattice; the executable target already
+exists and points at this same filename.
+**Accept:** the same mechanical criteria every live-pipeline test since
+WU-21c has used, unchanged (a changing lattice and rotation schedule does
+not change what pool-refill/reschedule mechanics they measure).
+Unautomatable, Steve's own by-eye job: the video should now visibly wrap
+all the way to the poles (with the expected pinch there) and seamlessly at
+the back; yaw should spin continuously in one direction, pitch should rock
+back and forth; and — genuinely not predicted here — how the un-occluded
+front/back overlap during a full wrap actually reads on screen.
+*Status:* **built, run, and given real feedback at Steve's own real
+terminal this session — "hugely better."** The pole-to-pole/360-degree wrap
+geometry is confirmed good and carries forward unchanged into WU-21h.
+Front/back overlap where the wrap folds is visible, as this unit's own
+`Accept:` above expected without predicting how it would look — recorded
+as a backlog item on WU-28's own entry above, not a defect in this unit.
+Steve asked for manual keyboard control in place of the automatic
+rotation schedule; this unit's own `tests/test_decklink_live_sphere.cpp`
+content is superseded by WU-21h, the same "superseded before being tagged"
+treatment WU-21e and WU-21f each received one unit earlier — nothing in
+this entry's own geometry fix was wrong, only its own animation mechanism
+is being replaced.
+
+### WU-21h — Rudimentary interactive UI: cursor keys rotate (manual yaw/
+pitch), shift+cursor keys reposition, I/O resize, Q quits — replaces
+WU-21g's own automatic rotation schedule `wip`
+See `DECISIONS.md` ADR-054 for the full design: the xterm escape-sequence
+parsing this needs for cursor and shift+cursor keys (`readKey()`, honestly
+flagged as terminal-dependent and unverified in this session); why input
+handling moved from WU-21g's own separate keypress-wait thread plus 80ms
+polling timer to a single event-driven blocking-read loop on the main
+thread, now that there is no idle animation to keep advancing between
+keypresses; why `makeSphereLattice()`/`rotateLattice()` both now take
+radius/centre as parameters instead of file-level constants, rebuilt fresh
+on every state-changing keypress (cheap enough per this project's own
+"once per frame" cost reasoning, `shapes.hpp`'s own header comment); and
+the non-interactive fallback (a short static bounded run, not a hang) that
+keeps an unattended `ctest` run from blocking forever on a keypress that
+can never arrive. The full pole-to-pole/360-degree wrap geometry itself
+(`angleSpanH == 2*pi`, `angleSpanV == pi`) is unchanged from WU-21g.
+**Files:** `tests/test_decklink_live_sphere.cpp` only (rewritten in place
+— WU-21g's own content superseded, see above). No `src/` or
+`CMakeLists.txt` change — `CaptureConsumer::setLattice()` (WU-21f) already
+supports an arbitrarily-changing lattice on an arbitrary schedule,
+including one driven by keypresses instead of a timer; the executable
+target already exists and points at this same filename.
+**Accept:** the same mechanical criteria every live-pipeline test since
+WU-21c has used, unchanged. Unautomatable, Steve's own by-eye/by-hand job:
+each cursor key visibly rotates the sphere on the expected axis, each
+shift+cursor key visibly moves it, I/O visibly shrink/grow it, Q exits
+cleanly; and, honestly not guaranteed here, whether shift+cursor is
+correctly distinguished from plain cursor on Steve's own actual terminal
+emulator — worth reporting either way.
+*Status:* delivered as reasoned-through-only, drafted and written via the
+device bridge to the real repository, re-read back from there to confirm
+each write landed correctly (`SESSION-PROTOCOL.md` anti-drift rule 8) — not
+yet built or run at Steve's own real terminal. No Blackmagic SDK and no
+AppleClang/Xcode toolchain exist in the Linux cloud sandbox this session
+drafted this in, the same gap every DeckLink-touching unit before it has
+named.
+
 ### WU-22 — Diagnostic coverage view `todo`
 
 ---
@@ -1242,6 +1429,22 @@ needs turn out to be by then, same discipline as every other unit.
 ### WU-26 — Normals from lattice `todo`
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
 ### WU-28 — k-buffer `todo`
+Recorded ahead of this unit's own real scoping session, the same "Steve's
+own stated preference, noted here for whoever scopes this unit" convention
+WU-23's own entry above already uses — not a decision made now. WU-21g/
+WU-21h's own full-360-degree sphere wrap (`DECISIONS.md` ADR-053) gave this
+project its first concrete, on-screen case of what this unit exists to
+fix: with the sphere's own front and back hemispheres both present in the
+same lattice and no depth-based occlusion or sorting yet, they visibly
+overlap on screen wherever their projected positions coincide, simply
+accumulating (`architecture.md` 4.7 phase 1's own documented behaviour,
+`tests/test_shapes.cpp`'s own folding-regime check) rather than the front
+properly hiding the back. Steve asked that this unit's own eventual scope
+explicitly cover two related but distinct questions, not just one: proper
+front/back switching (opaque occlusion — the k-buffer's own core job) and
+transparency (genuine alpha blending, a different and additional concern
+from occlusion, worth deciding on its own terms whenever this unit is
+actually scoped, not assumed to fall out of a k-buffer for free).
 ### WU-29 — Environment map `todo`
 
 ---

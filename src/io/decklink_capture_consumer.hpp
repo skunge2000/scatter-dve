@@ -106,7 +106,9 @@ public:
     // this consumer's own consumer thread reads them on every popped frame,
     // for as long as it runs, and this unit does not assume a caller's own
     // lattice storage outlives that thread. params.destWidth/destHeight fix
-    // this consumer's own destination geometry for its whole lifetime.
+    // this consumer's own destination geometry for its whole lifetime --
+    // unlike the lattice (see setLattice() below, WU-21f), destination
+    // geometry has no update path and was never asked for one.
     CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params);
     ~CaptureConsumer();
 
@@ -132,12 +134,29 @@ public:
     // against the consumer thread's own concurrent write by m_mutex.
     bool copyLatestFrame(std::vector<std::uint8_t>& out) const;
 
+    // WU-21f: replaces the lattice used for every frame processed after this
+    // call returns -- an animated caller (e.g. a rotating-shape demo) calls
+    // this on its own thread as often as it likes; the consumer thread picks
+    // up the new lattice at the start of its own next processOne(), never
+    // mid-frame. Guarded by m_latticeMutex, a dedicated mutex separate from
+    // m_mutex (which guards m_latestFrame instead) -- the same "each piece of
+    // cross-thread state gets its own lock, not one shared lock for
+    // everything" shape this class already used for m_latestFrame, extended
+    // here rather than reused, so a caller polling copyLatestFrame() and a
+    // caller animating setLattice() never contend with each other. Safe to
+    // call from any thread, including before start(). Takes effect for
+    // frames processed after this call, not retroactively.
+    void setLattice(Lattice lattice);
+
 private:
     void run();  // consumer thread body
     bool processOne(ComPtr<IDeckLinkVideoInputFrame> frame);
 
     CaptureFrameRing& m_ring;
-    const Lattice m_lattice;
+
+    mutable std::mutex m_latticeMutex;
+    Lattice m_lattice;  // guarded by m_latticeMutex; see setLattice() (WU-21f)
+
     const PipelineParams m_params;
     const std::size_t m_dstRowBytes;
 
