@@ -378,6 +378,21 @@ Monitor 3G** until the 4K Mini's status is resolved; no code change follows
 Mini specifically and is not yet re-confirmed on the Monitor 3G — first job
 of the next real-terminal run.
 
+**Monitor 3G run, this session, after the pivot:** full suite run against
+the Monitor 3G — 15 of 16 passing. `test_decklink_output` passed both
+checks again (`ctest -R test_decklink_output`, 5.13s), confirming
+`bmdModePAL` + `bmdFormat10BitYUV` also works on the Monitor 3G, not just
+the 4K Mini. The one failure, `test_decklink_device`'s
+`test_at_least_one_device_is_full_duplex`, is expected and does not block
+this line — the Monitor 3G is playback-only by design, so that check
+correctly reports no duplex device found; see `DECISIONS.md` ADR-035, which
+also records that this does not reopen WU-14 (`wu-14-green` stands). Steve
+reported seeing "a circular zone plate" on the monitor — **not yet
+confirmed whether the cylinder curvature itself was visible**, as distinct
+from the zone plate pattern's own inherent concentric-ring shape, which is
+what `Accept:` above actually requires; asked directly, not assumed either
+way.
+
 ### WU-15b — Scheduled playback endurance: one hour, no dropped frames `todo`
 The literal, still-unmet half of architecture.md 10 Phase 3's own accept
 criterion ("stable for an hour"). Not new implementation — WU-15a's own

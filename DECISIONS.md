@@ -1651,3 +1651,46 @@ hardware-availability-driven substitution, not a redesign of what either
 device is for. If the 4K Mini does not recover, a future session would need
 its own ADR to actually change the project's primary-hardware decision;
 this entry does not make that call.
+
+**ADR-035 — `test_decklink_device`'s full-duplex check is expected to fail
+while the UltraStudio Monitor 3G is the only attached device. Does not
+block WU-15a's own close; does not reopen WU-14.**
+
+The first full-suite run against the Monitor 3G (ADR-034's pivot) reported
+15 of 16 passing: `test_decklink_output` passed both its checks (5.13s),
+and every one of `test_smoke` through `test_testpat` (unaffected by any
+hardware) passed as always. `test_decklink_device` failed one check —
+`test_at_least_one_device_is_full_duplex`, `foundDuplexDevice` staying
+false (`test_decklink_device.cpp:53`).
+
+Not a defect. That check exists to confirm architecture.md 7's own claim,
+"The UltraStudio 4K Mini is full duplex: one `IDeckLink` exposing both
+`IDeckLinkInput` and `IDeckLinkOutput`" — a fact about the 4K Mini, never
+claimed to hold for every device this project might ever enumerate. The
+Monitor 3G is playback-only by design (no capture input at all — already
+noted in ADR-034 and, before that, in architecture.md's own description of
+it as a diagnostic-coverage-view target, ADR-011); `QueryInterface` for
+`IDeckLinkInput` on it correctly fails, so `foundDuplexDevice` correctly
+stays false. The test is doing its job — this is the real, current state
+of the attached hardware, accurately reported, not a bug in
+`decklink_device.cpp`, `ComPtr`, or the test itself.
+
+**WU-14 is not reopened.** `wu-14-green` recorded a real, passing run
+against the 4K Mini at the time; nothing about swapping which device is
+physically attached now makes that historical result untrue, the same
+principle already applied to ADR-032/033 by ADR-034 (a later hardware
+change doesn't retroactively unmake an earlier verified result).
+
+**Decision:** WU-15a's own close does not require
+`test_decklink_device`'s full-duplex check to pass while the Monitor 3G is
+the only device attached — that check was never part of WU-15a's own
+`Accept:` criteria, which is playback-only. `./tools/close.sh 15a`'s
+full-suite run is expected to show this one specific, understood exception
+(15/16, not 16/16) for as long as the 4K Mini remains unavailable; this is
+not a blanket "ignore failures" policy — any *other* unexplained failure in
+that run still blocks the close exactly as it always would. If the 4K Mini
+recovers, the full suite should return to 16/16 and this exception no
+longer applies — worth re-checking then, not assumed permanent. No code
+change follows: weakening `test_decklink_device.cpp`'s own duplex check to
+tolerate a non-duplex device would erase real regression coverage for the
+4K Mini (this project's actual target hardware) for no benefit.
