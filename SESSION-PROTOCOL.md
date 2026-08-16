@@ -54,8 +54,24 @@ The assistant ends every session by emitting, as a single block:
 4. Lines to append to `CORRECTIONS.md`, if anything earlier was wrong.
 5. A replacement `HANDOFF.md`.
 
-Then: commit, run the tests, tag `wu-NN-green` if green. If red, `HANDOFF.md`
-records the failing test verbatim and the next session starts there.
+Then: commit, run the tests, tag `wu-NN-green` if green, and push the
+commit and tag to the `origin` GitHub remote (`skunge2000/scatter-dve`,
+configured Session 31 — see `HANDOFF.md`'s own session-31 entry for the
+`gh repo create` steps, if the remote is ever missing and needs
+recreating). `./tools/close.sh` already runs `git push origin HEAD --tags`
+automatically whenever it succeeds in tagging — nothing extra needed
+there. But the manual `git tag -a wu-NN-green ...` fallback (used whenever
+a unit hits the already-accepted `test_decklink_device`/ADR-035
+duplex-check exception, which `close.sh` has no knowledge of and refuses
+to tag past — this has been most DeckLink-adjacent units since ADR-035)
+does NOT push. Every session's own final command block to Steve must
+follow a manual tag with an explicit push, spelled out, not left implied:
+```
+git push origin main
+git push origin --tags
+```
+If red, `HANDOFF.md` records the failing test verbatim and the next
+session starts there.
 
 ## Work unit sizing
 

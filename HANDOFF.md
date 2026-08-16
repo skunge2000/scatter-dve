@@ -202,6 +202,39 @@ Metal/Cocoa dependency IS now confirmed against Steve's real Mac
 hardware/GPU/OS version — `coverage_view_demo` built and ran cleanly,
 first attempt, no toolchain or driver issues encountered.
 
+**New this session, after WU-22b's own close-out: the repository now has a
+GitHub remote, `origin` -> `https://github.com/skunge2000/scatter-dve.git`
+(previously every ADR/`HANDOFF.md` entry back to WU-00 correctly noted "no
+origin configured, local-only").** Steve installed `gh` via Homebrew
+(neither `gh` nor `brew` exist in the device-bridge's own Linux VM
+`device_bash` runs in — that VM is not Steve's real Mac shell, a
+distinction this session's own assistant got wrong once before correcting
+it) and ran, at his own real terminal:
+```
+brew install gh
+gh auth login
+cd ~/src/scatter-dve
+gh repo create scatter-dve --private --source=. --remote=origin --push
+git push origin --tags
+```
+All 29 tags (`wu-00-green` through `wu-22b-green`) and `main` are now on
+GitHub, confirmed via `git status -sb` reading `## main...origin/main`
+(no `[ahead]`/`[behind]` marker — fully in sync) after this session's own
+later doc commits. **`SESSION-PROTOCOL.md`'s own "Session close" section
+was updated this session, per Steve's own explicit instruction, to require
+every future work unit's own final command block to include the push
+step** (`close.sh` already pushes automatically on a successful auto-tag;
+the manual-tag fallback used for the recurring ADR-035 duplex-check
+exception does not, and needs `git push origin main` / `git push origin
+--tags` spelled out explicitly from now on — see `SESSION-PROTOCOL.md`
+itself for the exact wording). If `origin` is ever missing (a fresh clone,
+a lost remote) the four commands above recreate it — `gh repo create`
+will need `--source=.` pointed at wherever the local clone actually is,
+and will fail harmlessly with "name already taken" if `scatter-dve`
+already exists on Steve's GitHub account, in which case use
+`git remote add origin https://github.com/skunge2000/scatter-dve.git`
+directly instead.
+
 ## Append to DECISIONS.md
 
 ADR-057 (WU-22b design: the full scoping conversation and every design
