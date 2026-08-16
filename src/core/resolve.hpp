@@ -295,6 +295,46 @@ struct PipelineParams {
     // only one in-flight runOnAll() dispatch at a time, not concurrent
     // ones.
     ThreadPool* pool = nullptr;
+
+    // WU-22a (Phase 5, DECISIONS.md ADR-056): an optional, caller-owned
+    // full-frame weight-capture buffer -- the diagnostic coverage view's
+    // (WU-22b, src/diag/, a Mac-only Metal window, not built this
+    // session) own data source. Default nullptr: every existing caller
+    // (WU-10 through WU-21i, none of which this unit touches) keeps
+    // compiling and behaving exactly as before, byte for byte -- the same
+    // "non-owning pointer, default nullptr, zero cost and zero behaviour
+    // change when absent" shape PipelineParams::pool (WU-19a, ADR-044)
+    // already established for a different optional extra, applied here to
+    // an optional extra *output* instead of an optional extra input.
+    //
+    // When non-null, weightOut must point to at least
+    // destWidth * destHeight WeightAccum values, tight-packed, row-major
+    // (dy * destWidth + dx) -- video::Raster444's own "tight-packed unless
+    // there is a real reason otherwise" convention, simpler than Plane's
+    // arbitrary-stride support since nothing here needs to match a
+    // DeckLink-supplied row stride the way v210 output does; this buffer
+    // never leaves the process as a video signal.
+    //
+    // Written with each destination cell's raw AccumCell::w -- the exact
+    // architecture.md 4.5/4.8 coverage-weight accumulator composite()'s
+    // own alpha (cell.w clamped to [0, kWeightUnity]) is computed from,
+    // captured *before* that clamp, so a caller can see how far above
+    // unity a heavily-overlapped cell's real coverage reached, not merely
+    // whether it saturated -- see architecture.md 4.4's own "order 1000
+    // fragments" note on what heavy compression does to a single cell's
+    // weight. A cell this unit's own composite() would treat as
+    // uncovered (cell.w <= 0) captures its literal AccumCell::w
+    // unchanged, not a sentinel -- 0 for the ordinary case, and the
+    // defensive cell.w < 0 case core/resolve.hpp's own normaliseCell()
+    // comment already names, should it ever occur.
+    //
+    // Never read internally by this unit's own composite()/normaliseCell()
+    // path, which is completely unchanged by this field's presence or
+    // absence -- this is a pure side-channel capture, not a second input,
+    // and tests/test_coverage_capture.cpp's own
+    // test_capture_is_side_effect_free() checks exactly that: identical
+    // composited dest output whether weightOut is null or supplied.
+    WeightAccum* weightOut = nullptr;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

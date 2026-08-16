@@ -1431,7 +1431,47 @@ AppleClang/Xcode toolchain exist in the Linux cloud sandbox this session
 drafted this in, the same gap every DeckLink-touching unit before it has
 named.
 
-### WU-22 — Diagnostic coverage view `todo`
+### WU-22a — Diagnostic coverage view: opt-in full-frame weight-capture
+plumbing (`PipelineParams::weightOut`) `wip`
+See `DECISIONS.md` ADR-056 for the full design: the weight-only (det J
+deferred)/portable-plumbing-vs-Mac-only-display splits — this unit is the
+first (WU-22b, not started, covers the second); why `PipelineParams::
+weightOut` is a non-owning, caller-owned, opt-in pointer field mirroring
+`PipelineParams::pool` (WU-19a/ADR-044) rather than a second output raster
+threaded through every `runFrame()`/`runFrameBytes()`/`runFrameFile()`
+signature; and the `CORRECTIONS.md` C-008(a) edge-derivative-damping
+finding hit while writing this unit's own tests — an already-documented
+codebase property (ADR-022's edge-replication clamp), not a new bug, so no
+new `CORRECTIONS.md` entry was logged.
+**Files:** `src/core/resolve.hpp` (`PipelineParams::weightOut` field
+added, default `nullptr`), `src/core/pipeline.cpp` (`resolveOneTile()`
+write site, one `if (params.weightOut != nullptr)` block immediately
+after the existing `dest.Y/Cb/Cr` writes), `tests/test_coverage_capture.cpp`
+(new, four tests), `CMakeLists.txt` (`scatter_test(test_coverage_capture)`
+registration).
+**Accept:** `test_coverage_capture` passes across the project's full
+matrix (Clang 18 / GCC 13 x Release/Debug x tile 2^4/2^5, plus GCC
+ASan/UBSan) with zero behaviour change to any existing caller
+(side-effect-freedom checked directly), a bit-for-bit cross-check against
+an independent recomputation via the public `generateFragments()`/
+`splatTile()`/`sumBanks()` path, and I6 thread-count invariance.
+*Status:* built, tested, and verified across the full 8-config +
+ASan/UBSan matrix in the Linux cloud sandbox this session (all green);
+delivered to the real repository via the device bridge and confirmed
+written correctly (sha256 match — `device_stage_files` itself was blocked
+this session by a stale device sign-in, see `HANDOFF.md`). **Not yet
+built, tested, or `close.sh`'d at Steve's own real terminal.**
+
+### WU-22b — Diagnostic coverage view: Metal window display on the Mac's
+own display `todo`
+Not scoped or started this session. Steve's own decision (this session):
+weight only to begin with (no det J yet), rendered live in a window on
+the Mac itself — not the spare UltraStudio Monitor 3G output. Reads
+`PipelineParams::weightOut` (WU-22a) once that unit is built and tagged
+at Steve's own terminal. Introduces this project's first Metal/Cocoa
+dependency, which cannot be reasoned through or verified in the Linux
+cloud sandbox at all — needs its own real scoping session at Steve's own
+real terminal.
 
 ---
 

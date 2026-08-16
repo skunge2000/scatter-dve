@@ -221,6 +221,11 @@ scatter_test(test_ring_buffer)
 # test_zoneplate/test_threading/test_persistent_pool already do.
 scatter_test(test_pipeline_bytes)
 target_include_directories(test_pipeline_bytes PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+# WU-22a -- opt-in weight-capture plumbing, PipelineParams::weightOut
+# (DECISIONS.md ADR-056). Portable, zero DeckLink dependency -- builds its
+# own small patterns and lattices directly (no tools/testpat.hpp include
+# needed, unlike test_pipeline_bytes above).
+scatter_test(test_coverage_capture)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

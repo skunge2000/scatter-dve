@@ -67,6 +67,16 @@
 // to the lifecycle change alone, not to any throughput measurement (which
 // this project's Linux cloud sandbox cannot meaningfully produce for the
 // real target, the M1 Max).
+//
+// WU-22a (Phase 5, DECISIONS.md ADR-056) adds PipelineParams::weightOut
+// (core/resolve.hpp): an optional, caller-owned full-frame buffer that
+// resolveOneTile() below writes each destination cell's raw AccumCell::w
+// into, alongside its existing composite() call -- the diagnostic coverage
+// view's (WU-22b, src/diag/, not built this session) own data source.
+// Default nullptr, checked once per destination cell inside the existing
+// per-tile loop; every branch above (threads<=1, params.pool != nullptr,
+// the per-call ThreadPool) already funnels through this one
+// resolveOneTile() function, so nothing else in this file changes.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -233,6 +243,24 @@ void resolveOneTile(std::span<const TileBins* const> sources,
             dest.Y[idx] = out.Y;
             dest.Cb[idx] = out.Cb;
             dest.Cr[idx] = out.Cr;
+
+            // WU-22a (DECISIONS.md ADR-056): opt-in side-channel capture of
+            // the same cell's raw AccumCell::w that composite() above just
+            // read to build `out` -- see PipelineParams::weightOut's own
+            // doc comment (core/resolve.hpp) for why this is a pointer
+            // field on params rather than a second output raster threaded
+            // through every runFrame()/runFrameBytes()/runFrameFile()
+            // signature. Indexed by params.destWidth, not dest.width --
+            // the two are always equal by runFrame()'s own precondition
+            // (core/resolve.hpp's runFrame() doc comment: "the caller
+            // sizes [dest] to params.destWidth x params.destHeight"), but
+            // weightOut's own buffer is sized and documented in terms of
+            // params.destWidth specifically, so this reads that field
+            // rather than relying on the equality holding silently.
+            if (params.weightOut != nullptr) {
+                params.weightOut[std::size_t(dy) * std::size_t(params.destWidth) +
+                                  std::size_t(dx)] = cell.w;
+            }
         }
     }
 }

@@ -5204,3 +5204,210 @@ terminal. Does not reopen ADR-011, ADR-027, ADR-028, ADR-048, ADR-049,
 ADR-050, ADR-051, ADR-052, ADR-053 or ADR-054's own plain-cursor-rotation
 design (confirmed working, untouched) -- only ADR-054's own shift-detection
 mechanism is replaced, corrected via C-018, not extended.
+
+**ADR-056 — WU-22a: weight-capture plumbing, `PipelineParams::weightOut`
+(architecture.md section 8's `src/diag/coverage_view.cpp`, Phase 5's own
+"done when" line's "diagnostic coverage view on the Mac display"; session
+30's own scoping work).** Session opened by asking Steve directly which
+work unit was next per `HANDOFF.md`'s own list of named candidates; he
+picked WU-22, which `WORK-UNITS.md` had only ever carried as a bare
+`### WU-22 — Diagnostic coverage view` line with no `Files:`/`Accept:` of
+its own — this session's own first job, per this project's established
+practice for any unit reaching real work with no real scope yet (the same
+discipline ADR-040/044/046/048 already used for WU-16/19/20/21), was
+therefore real scoping before any code: reading `docs/architecture.md` in
+full for what "coverage view" and "det J" actually name in this codebase
+(section 4.2's Jacobian, section 8's module layout, section 7's own
+"Send the diagnostic coverage view to a Metal window on the Mac's own
+display, or to the spare UltraStudio Monitor 3G" correction), then two
+direct questions to Steve: where should it display (Metal window on the
+Mac vs. the spare Monitor 3G vs. deciding after scoping the data half),
+and whether a first cut should capture weight alone or weight and det J
+together. Steve picked a Metal window on the Mac's own display, and
+weight alone.
+
+**Why weight alone is close to free and det J is not, and why that alone
+justifies a first cut without det J at all.** `AccumCell::w`
+(`core/types.hpp`, architecture.md 4.5/4.8) is a per-*destination-pixel*
+quantity already computed by every `runFrame()` call, in
+`core/pipeline.cpp`'s `resolveOneTile()`, immediately before `composite()`
+reads it to derive alpha and then the function discards it — capturing it
+needs no new arithmetic, only a second write alongside the existing three
+(`dest.Y`/`Cb`/`Cr`). `det J` (`core/jacobian.hpp`) is a per-*source*-pixel
+quantity evaluated once during PASS 1 (`core/binner.cpp`'s
+`generateFragmentsRowRange()`), consumed immediately by
+`densityCompensation()`/`chooseSupersample()`, and never retained past that
+one use — there is no existing destination-pixel (or even
+source-pixel-indexed) slot anywhere in this codebase for a caller to read
+it back out of; capturing it would mean either a new PASS-1 accumulation
+path or a wholly separate, coarser lattice-resolution evaluation, real
+design work this session did not do. Explained to Steve in these terms
+before he chose; the choice narrows this unit's own scope to "expose an
+already-computed value" rather than "compute and expose a new one".
+
+**Split, per this project's own portable-piece-now/platform-piece-next
+discipline (ADR-046/048's own precedent for WU-20/WU-21).** WU-22a below:
+the weight-capture plumbing itself, `core/resolve.hpp`/`core/pipeline.cpp`,
+genuinely portable (no DeckLink, no Cocoa/Metal, nothing this session's own
+Linux cloud sandbox cannot build and run for real) and built, tested and
+verified for real this session, the same "reasoned-through-only" gap this
+project's every Apple-only or DeckLink-only unit has had closed *before*
+being handed to Steve. WU-22b, `src/diag/coverage_view.cpp`, is not built
+this session — a real, first-of-its-kind new dependency for this project
+(Metal, windowing; `src/diag/` and `src/app/` do not exist anywhere in the
+tree yet, confirmed directly this session via the device bridge before any
+of this ADR was written) that deserves its own real scoping session rather
+than being rushed in alongside WU-22a's own already-substantial design and
+verification work.
+
+**Design: `PipelineParams::weightOut`, a non-owning pointer, default
+`nullptr` — the same shape `PipelineParams::pool` (WU-19a, ADR-044) already
+established for an optional extra, applied here to an optional extra
+*output* rather than an optional extra input.** Considered and rejected: a
+second output raster threaded through `runFrame()`'s/`runFrameBytes()`'s/
+`runFrameFile()`'s own signatures directly — this project's own precedent
+(`PipelineParams::pool`, `PipelineParams::threads`) already establishes
+that an optional per-call extra belongs on the params struct, not
+propagated through three call signatures at once, and every existing
+caller (WU-10 through WU-21i) keeps compiling and behaving exactly as
+before, byte for byte, with `weightOut` left at its default. Tight-packed,
+row-major (`dy * destWidth + dx`), `video::Raster444`'s own convention —
+simpler than `video/raster.hpp`'s `Plane`'s arbitrary-stride support, since
+nothing about this buffer needs to match a DeckLink-supplied row stride the
+way v210 output genuinely does; it never leaves the process as a video
+signal. Captures `AccumCell::w` itself, *before* `composite()`'s own
+`[0, kWeightUnity]` clamp — a caller can see how far above unity a heavily
+overlapped cell's real coverage reached (architecture.md 4.4's own "order
+1000 fragments under 32:1 compression"), not merely whether it saturated;
+WU-22b's own colour-mapping choice for what to do with a value well above
+unity is exactly the kind of visualisation decision this unit should not
+make on WU-22b's behalf.
+
+**One write site: `core/pipeline.cpp`'s `resolveOneTile()`, guarded by a
+single null check, alongside its existing `dest.Y`/`Cb`/`Cr` writes.**
+Every threading branch `runFrame()` has (the `threads<=1` oracle loop,
+`params.pool != nullptr`, the per-call `ThreadPool`) already funnels
+through this one function, so nothing else in `core/pipeline.cpp` needed
+to change — the same "one shared function, cannot silently diverge across
+paths" property WU-16a's own file comment already relied on for `dest`
+itself, extended here to a second output for free rather than by design
+effort. Indexed by `params.destWidth`, not `dest.width` — the two are
+always equal by `runFrame()`'s own precondition, but `weightOut`'s own
+buffer is documented and sized in terms of `params.destWidth` specifically
+(`core/resolve.hpp`'s own doc comment), so the write reads that field
+rather than relying on the equality holding silently.
+
+**Files:** `src/core/resolve.hpp` (new `PipelineParams::weightOut` field),
+`src/core/pipeline.cpp` (`resolveOneTile()`'s one new write, guarded by a
+null check), `tests/test_coverage_capture.cpp` (new); plus `CMakeLists.txt`
+(`test_coverage_capture` registered via the existing `scatter_test()`
+function — CMakeLists.txt edits have never counted against the "3 source
+files" cap in any earlier unit either).
+
+**Accept, and what this unit deliberately does not claim.** Four
+properties, each checked directly rather than reasoned through: (1)
+capture has zero effect on the pipeline's own existing, already-verified
+composited output — `weightOut` is a pure side channel, never a second
+input, checked by running the identical construction twice (`weightOut`
+null vs. supplied) and diffing `dest` byte for byte; (2) the captured
+buffer is exactly zero at destination cells no fragment's footprint can
+reach and exactly `kWeightUnity` at cells built from two adjacent,
+non-edge source samples under an unscaled placement — see this entry's
+own "genuine finding" paragraph below for why "exactly", not
+"approximately"; (3) the captured value at every destination cell is
+bit-for-bit the same `AccumCell::w` `resolveOneTile()` itself accumulated
+— proven by an independent recomputation through the same public PASS-1/
+PASS-2 primitives (`generateFragments()`, `splatTile()`, `sumBanks()`)
+this test's own file, never touching `core/pipeline.cpp`'s
+`resolveOneTile()` or `PipelineParams::weightOut` at all — a plumbing
+check (did the right value reach the right index), not a fresh proof that
+`splatTile()`/`sumBanks()`'s own arithmetic is correct, which WU-08/09/10
+already established; (4) capture is unaffected by
+`PipelineParams::threads` — I6's own guarantee (`tests/test_threading.cpp`)
+extended to this unit's second output, checked directly at threads 1, 2
+and 8 against a magnifying, non-tile-aligned construction. Does not
+include, and does not claim, anything about `det J` capture (see above),
+`runFrameBytes()`/`runFrameFile()` also exposing `weightOut` (both already
+route through `runFrame()` internally and therefore already support it via
+`PipelineParams`, but neither is exercised by this unit's own test — a
+caller reaching `runFrame()` through either wrapper gets exactly this
+unit's own guarantees, untested by name), or anything about `src/diag/` or
+a Metal window — WU-22b's own job, not built this session.
+
+**A genuine finding this session's own test-writing surfaced, caught
+before being written into this ADR as a claim rather than after.** The
+first draft of accept criterion (2) above asserted "near `kWeightUnity`"
+(a tolerance of `kWeightUnity/128`) across the *entire* interior of the
+same offset-placement construction `tests/test_zoneplate.cpp`'s own
+`test_pipeline_partial_coverage_no_fringe()` already uses (a 64x64 flat
+source placed at a 0.5-pixel offset within a 128x64 destination) — and
+failed, at 14221 of 14471 checks passing, one specific check. Diagnosed
+directly against `core/jacobian.hpp`'s own `densityCompensation()` (not
+guessed at): for this exact construction, the *destination row* that
+corresponds to source row `py = 0` (this placement's `offsetY = 0`, so
+source row and destination row coincide exactly) has `dydv` computed at
+exactly `0.5` instead of the true `1.0` — `CORRECTIONS.md` C-008(a)'s own
+already-documented edge-derivative damping, measured directly for this
+construction rather than assumed: `K = 1/|detJ|` doubles to `2.0` at that
+one row, and every destination cell in it inherits double the intended
+coverage weight. `test_zoneplate.cpp`'s own analogous check routes around
+the identical effect on *colour* with a rounding margin, because colour
+normalises the weight distortion away (`out = Σ(w·colour)/Σw`); weight
+itself has nothing to normalise against, so a tolerance band cannot paper
+over a genuine 2x deviation the way it papers over a few codes of
+fixed-point rounding. Fixed within this unit's own test file, not by
+loosening the tolerance: the check now uses only destination rows and
+columns one full step inside the raster's own edge (rows `[1, destH-1)`,
+columns `[34, 95)` instead of `[0, destH)`/`[33, 96)`), where the true,
+undamped Jacobian applies and the captured weight is `kWeightUnity`
+*exactly*, checked with `==`, not a tolerance — a tighter, more honest
+check than the one first attempted, not a weaker one. Not a defect in
+`core/pipeline.cpp`'s new write site or in anything WU-22a delivers — the
+weight this unit captures is genuinely, faithfully, whatever
+`AccumCell::w` already was; C-008(a) is a already-frozen, already-corrected
+property of `core/lattice.cpp`'s edge handling this unit's own capture is
+right to reproduce faithfully rather than paper over. Not logged as a new
+`CORRECTIONS.md` entry — C-008(a) already documents this exact mechanism
+and its own "up to 50%" figure in full; this is this session's own
+application of an already-known correction to a new test's construction,
+the same "routine iteration, not a new lesson" category WU-21a's own
+`makeRamp`-instead-of-`makeZonePlate` slip (C-006, already documented) was
+left unlogged for, per ADR-048.
+
+**Verified for real, this session, in this project's own Linux cloud
+sandbox — genuinely built and run, not reasoned through.** Clang 18.1.3
+and GCC 13.3.0, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5 (eight
+configurations, all twenty tests green — the nineteen carried over from
+before this unit plus `test_coverage_capture`, 14221 checks, zero warnings
+under the project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set), plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes: clean, no ASan or UBSan
+report. This unit touches no Apple-only or DeckLink-only surface at all —
+unlike every WU-14/15a/17/18/20b/21b/21c/... unit before it, there is no
+piece of it this sandbox could not already fully verify; UNVERIFIED only
+in the sense every unit is until Steve's own real terminal confirms
+`cmake --build`/`ctest` clean there too and runs `./tools/close.sh 22a`.
+Drafted and written via the device bridge to the real repository, then
+re-confirmed landed correctly via `sha256sum` on both sides (identical
+hashes, all four files) rather than a full re-stage — this session's own
+device-bridge file-staging path (`device_stage_files`) began failing with
+`untrusted_device` (a stale/expired desktop sign-in, per the error's own
+message) partway through this unit's own close-out, after the writes
+themselves had already succeeded via `device_commit_files`, which kept
+working; `device_bash` also kept working throughout, which is what the
+`sha256sum` cross-check used instead. See `HANDOFF.md` for what this means
+for Steve's own next session.
+
+**A stale `.git/index.lock` was also found, this session, via
+`device_bash`, and could not be cleared from here — the same
+"`device_bash` cannot delete files" limitation this environment already
+documents.** Flagged for Steve's own real terminal, not fixed here; see
+`HANDOFF.md`'s own "Before doing anything else" section.
+
+Does not reopen `docs/architecture.md`, ADR-010, ADR-013, ADR-015, ADR-017,
+ADR-021, ADR-024, ADR-025, ADR-026, ADR-040, ADR-044 or C-008 — the
+Jacobian edge-derivative damping C-008(a) already documents is applied
+here exactly as already frozen, not revisited; `PipelineParams::pool`'s
+own shape (ADR-044) is reused for a second optional field, not modified;
+`core/pipeline.cpp`'s own threading branches (ADR-040/041/044) are
+unchanged, only `resolveOneTile()`'s own body gains one new guarded write.
