@@ -1475,7 +1475,7 @@ no `origin` remote configured; the tag and commit are local-only, the same
 as `close.sh` itself would have silently accepted.
 
 ### WU-22b — Diagnostic coverage view: Metal window display on the Mac's
-own display `wip`
+own display `green` (`wu-22b-green`)
 See `DECISIONS.md` ADR-057 for the full design: the scoping conversation
 (launch mechanism, offline-vs-live-wired split, colour mapping, window
 sizing/resizability, refresh-rate, and `PipelineParams::weightOut`'s own
@@ -1511,23 +1511,26 @@ right"); acceptance is Steve, at his own real terminal, confirming
 showing a visibly non-uniform grayscale sphere-coverage image, and that
 `Q` or closing the window cleanly exits it.
 *Status:* fully scoped and drafted reasoned-through-only, then confirmed
-working at Steve's own real terminal the same session (the docs above were
-written before that confirmation and are otherwise unchanged — see this
-entry's own accept criterion, now met in full): `cmake --build build`
-clean, zero warnings; `./build/coverage_view_demo` opened a 512x512 window
-showing a visibly non-uniform grayscale dome shape, edges brighter than
-centre, matching `CORRECTIONS.md` C-011's own prediction exactly; both
-quit paths (`Q` with the window focused, and the window's own close
+working at Steve's own real terminal the same session: `cmake --build
+build` clean, zero warnings; `./build/coverage_view_demo` opened a 512x512
+window showing a visibly non-uniform grayscale dome shape, edges brighter
+than centre, matching `CORRECTIONS.md` C-011's own prediction exactly;
+both quit paths (`Q` with the window focused, and the window's own close
 control) close the window and return the shell promptly, no hang. None of
 `DECISIONS.md` ADR-057's own five flagged known risk points turned out to
 be real defects — see that ADR's own verification addendum for the detail
-on each. Left `wip`, not `green`, in this file specifically because no
-commit or tag exists yet for it — `green`/`wu-22b-green` becomes accurate
-the moment Steve commits and tags it himself, which is now purely
-mechanical (`./tools/close.sh 22b`, or the manual `git tag -a
-wu-22b-green` fallback if `close.sh` refuses on the same already-accepted
-`test_decklink_device`/ADR-035 duplex-check failure `wu-22a-green` also
-hit) — not a decision this file should get ahead of.
+on each. Committed (`4db0517`); `./tools/close.sh 22b` refused to
+auto-tag on the same already-accepted `test_decklink_device`/ADR-035
+duplex-check failure `wu-22a-green` also hit (27/28, unrelated to this
+unit), so the manual `git tag -a wu-22b-green ...` fallback was used
+instead — confirmed directly against the real repository: `git show
+wu-22b-green --stat` lists exactly the seven files this unit's own commit
+touched (`CMakeLists.txt`, `DECISIONS.md`, `HANDOFF.md`, `WORK-UNITS.md`,
+`src/diag/coverage_view.hpp`, `src/diag/coverage_view.mm`,
+`tools/coverage_view_demo.cpp`), `git status --short` clean, no stale
+`.git/index.lock`. `git log` shows no `origin` remote push attempted (none
+configured, same as every earlier unit) — the commit and tag are
+local-only. **WU-22b is genuinely `green`.**
 
 ### WU-22c — Diagnostic coverage view: wire `CoverageWindow` into the live
 capture/output pipeline `todo`
