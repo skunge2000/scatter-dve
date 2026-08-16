@@ -1475,15 +1475,78 @@ no `origin` remote configured; the tag and commit are local-only, the same
 as `close.sh` itself would have silently accepted.
 
 ### WU-22b — Diagnostic coverage view: Metal window display on the Mac's
-own display `todo`
-Not scoped or started this session. Steve's own decision (this session):
-weight only to begin with (no det J yet), rendered live in a window on
-the Mac itself — not the spare UltraStudio Monitor 3G output. Reads
-`PipelineParams::weightOut`, now `green` as of `wu-22a-green`. Introduces
-this project's first Metal/Cocoa
-dependency, which cannot be reasoned through or verified in the Linux
-cloud sandbox at all — needs its own real scoping session at Steve's own
-real terminal.
+own display `wip`
+See `DECISIONS.md` ADR-057 for the full design: the scoping conversation
+(launch mechanism, offline-vs-live-wired split, colour mapping, window
+sizing/resizability, refresh-rate, and `PipelineParams::weightOut`'s own
+threading needs); why Steve's own "lowest overhead in processing terms"
+criterion picked in-process (a future flag on the live-sphere demo, not
+built this unit) over any IPC-based launch design, and how that is
+reconciled with this unit's own offline/static-data-driven first cut (an
+already-established portable-piece-now/platform-piece-next split,
+ADR-046/048/056, not a contradiction); the black-at-0/white-at-
+`kWeightUnity`/clipped-above grayscale colour mapping; the fixed-size,
+non-resizable, redraw-on-new-data window design; the double-buffer/
+`dispatch_async`-to-main-thread threading design recorded as intent for
+WU-22c below, not implemented here; and the five known risk points flagged
+for whoever builds this first (shader UV/vertical-flip convention, ARC
+correctness, inline runtime shader compilation, the `[NSApp stop:]`-plus-
+dummy-event quit mechanism, and the hand-mirrored `kWeightUnityLocal`
+constant).
+**Files:** `src/diag/coverage_view.hpp` (new — platform-independent public
+interface, `CoverageWindowConfig`/`CoverageWindow`, pimpl'd, no Apple
+framework `#include`), `src/diag/coverage_view.mm` (new — this project's
+first Objective-C++ translation unit: `NSWindow`, `MTKView`/
+`MTKViewDelegate`, Metal device/texture/pipeline state, an inline MSL
+shader compiled at runtime), `tools/coverage_view_demo.cpp` (new — a
+hand-run tool, not a test, the same `add_executable`-only shape
+`tools/make_testpat.cpp` established at WU-03; builds one sphere-warped
+frame with `weightOut` capture enabled and opens a `CoverageWindow` on
+it), plus `CMakeLists.txt` (`if(APPLE)` block: `enable_language(OBJCXX)`,
+the `scatter-diag` static library, the `coverage_view_demo` executable).
+**Accept:** no programmatic accept criterion (see above and ADR-057 —
+there is no automatable pass/fail test for "does a GUI window look
+right"); acceptance is Steve, at his own real terminal, confirming
+`cmake --build` succeeds, `./build/coverage_view_demo` opens a window
+showing a visibly non-uniform grayscale sphere-coverage image, and that
+`Q` or closing the window cleanly exits it.
+*Status:* fully scoped and drafted reasoned-through-only, then confirmed
+working at Steve's own real terminal the same session (the docs above were
+written before that confirmation and are otherwise unchanged — see this
+entry's own accept criterion, now met in full): `cmake --build build`
+clean, zero warnings; `./build/coverage_view_demo` opened a 512x512 window
+showing a visibly non-uniform grayscale dome shape, edges brighter than
+centre, matching `CORRECTIONS.md` C-011's own prediction exactly; both
+quit paths (`Q` with the window focused, and the window's own close
+control) close the window and return the shell promptly, no hang. None of
+`DECISIONS.md` ADR-057's own five flagged known risk points turned out to
+be real defects — see that ADR's own verification addendum for the detail
+on each. Left `wip`, not `green`, in this file specifically because no
+commit or tag exists yet for it — `green`/`wu-22b-green` becomes accurate
+the moment Steve commits and tags it himself, which is now purely
+mechanical (`./tools/close.sh 22b`, or the manual `git tag -a
+wu-22b-green` fallback if `close.sh` refuses on the same already-accepted
+`test_decklink_device`/ADR-035 duplex-check failure `wu-22a-green` also
+hit) — not a decision this file should get ahead of.
+
+### WU-22c — Diagnostic coverage view: wire `CoverageWindow` into the live
+capture/output pipeline `todo`
+Not scoped beyond ADR-057's own design-intent notes (see ADR-057's own
+"WU-22c" paragraph): wiring `CoverageWindow` (WU-22b, once confirmed
+`green`) to `tests/test_decklink_live_sphere.cpp`'s own live capture/
+output pipeline, behind a new flag (working name `--show-coverage`), using
+the double-buffer/`dispatch_async(dispatch_get_main_queue(), ...)`
+mechanism ADR-057 records as this unit's own intended threading answer —
+a background thread producing live frames fills a fresh weight buffer and
+hands ownership across in one dispatch block, so `CoverageWindow` itself
+only ever observes one buffer at a time, on the main thread. Needs its
+own real scoping session before any code, per this project's own
+established practice (ADR-040/044/046/048/056/057) for a unit whose
+dependency (a confirmed-working `CoverageWindow`) does not exist yet —
+and, like WU-22b, needs Steve's own real terminal throughout: this
+sandbox cannot reason through or verify anything touching Metal or Cocoa,
+and WU-22c additionally touches the DeckLink-only live capture/output path
+WU-21's own units already established this sandbox cannot touch either.
 
 ---
 

@@ -435,3 +435,45 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()
+
+# ---------------------------------------------------------------------------
+# WU-22b — diagnostic coverage view: scatter-diag (src/diag/coverage_view.mm)
+# and coverage_view_demo, this project's first Objective-C++/Cocoa/Metal
+# dependency of any kind. See DECISIONS.md ADR-057.
+#
+# UNVERIFIED at time of writing: this block was authored and reasoned
+# through in a Linux sandbox with no Cocoa, Metal, or AppleClang/Xcode
+# toolchain at all, so it has never actually been configured or built
+# anywhere. Confirm it configures and builds cleanly on a real Mac before
+# trusting it.
+#
+# coverage_view_demo is a hand-run tool, not a test — the same
+# add_executable-only shape make_testpat above uses (WU-03's own "first
+# executable that is not a test" precedent): there is no automatable
+# pass/fail criterion for "does a GUI window look right", and registering
+# this as a ctest would hang any headless/unattended `ctest` run waiting on
+# a keypress (Q) that could never arrive.
+# ---------------------------------------------------------------------------
+if(APPLE)
+    enable_language(OBJCXX)
+
+    add_library(scatter-diag STATIC src/diag/coverage_view.mm)
+    target_include_directories(scatter-diag PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(scatter-diag PUBLIC cxx_std_20)
+    target_compile_options(scatter-diag PRIVATE -fobjc-arc)
+    target_link_libraries(scatter-diag PUBLIC
+        "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(scatter-diag PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    endif()
+
+    add_executable(coverage_view_demo tools/coverage_view_demo.cpp)
+    target_link_libraries(coverage_view_demo PRIVATE scatter-diag scatter-core)
+    target_include_directories(coverage_view_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
+    message(STATUS "scatter-dve: APPLE -- scatter-diag, coverage_view_demo configured (WU-22b, UNVERIFIED)")
+else()
+    message(STATUS "scatter-dve: not Apple -- skipping scatter-diag, coverage_view_demo (WU-22b needs Cocoa/Metal)")
+endif()

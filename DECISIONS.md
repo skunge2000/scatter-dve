@@ -5411,3 +5411,261 @@ here exactly as already frozen, not revisited; `PipelineParams::pool`'s
 own shape (ADR-044) is reused for a second optional field, not modified;
 `core/pipeline.cpp`'s own threading branches (ADR-040/041/044) are
 unchanged, only `resolveOneTile()`'s own body gains one new guarded write.
+
+**ADR-057 — WU-22b: diagnostic coverage view, the Metal/Cocoa window itself
+(`src/diag/coverage_view.hpp`/`.mm`, `tools/coverage_view_demo.cpp`;
+architecture.md section 8's `src/diag/coverage_view.cpp`, Phase 5's own
+"done when" line; ADR-056's own WU-22a/WU-22b split).** Session opened,
+per Steve's own explicit instruction, by first requesting device-bridge
+access to `~/src/scatter-dve` and the Blackmagic DeckLink SDK folder, then
+reading `SESSION-PROTOCOL.md`, `HANDOFF.md`, `WORK-UNITS.md`, this file,
+`CORRECTIONS.md` and `INVARIANTS.md` in full, then verifying `HANDOFF.md`'s
+own account of the real repository's tag/commit state directly against the
+real repository via the device bridge (`git tag`, `git log --oneline -10`,
+`git status --short`, `git show wu-22a-green --stat`) rather than trusting
+the file's own prose — `wu-22a-green` confirmed present, and its own
+`--stat` confirmed the exact seven files `HANDOFF.md` claimed:
+`CMakeLists.txt`, `DECISIONS.md`, `HANDOFF.md`, `WORK-UNITS.md`,
+`src/core/pipeline.cpp`, `src/core/resolve.hpp`,
+`tests/test_coverage_capture.cpp`. Only then, per Steve's own explicit
+instruction not to assume a design, was WU-22b actually scoped, over two
+rounds of direct questions (the first round re-asked in clearer,
+self-contained form at Steve's own request) covering: launch mechanism (a
+new standalone target vs. a flag on the existing live-sphere demo
+executable), whether it needs to run concurrently with live capture/output
+or can start offline/file-driven, target refresh rate, the weight-to-colour
+mapping (and where 1.0x coverage sits in it), window size/resizability, and
+`PipelineParams::weightOut`'s own buffer lifetime/threading needs across a
+display-window thread and a live-pipeline thread, should one ever exist.
+
+**Steve's own explicit selection criterion, this session — "lowest
+overhead in processing terms" — is what decided the launch mechanism and
+the offline/online split, not a default this session picked on its own.**
+In-process (a flag on the existing live-sphere demo executable, sharing one
+process and address space with the capture/output pipeline) beats any
+IPC-based design (a second process reading frames over a socket, shared
+memory segment, or similar) on that exact criterion — no serialisation, no
+inter-process copy, no socket/pipe syscall overhead per frame, only a
+pointer hand-off within one process — so in-process is this unit's own
+frozen design intent for how a future live-wired coverage window reaches
+the pipeline's data. That, in turn, is what makes an *offline*, file/
+synthetic-data-driven first cut the right split for *this* session rather
+than a contradiction of the in-process choice: this project's own
+established portable-piece-now/platform-piece-next discipline
+(ADR-046/048/056) already establishes that a new platform dependency gets
+built and reasoned through on its own before being wired to a second,
+independently complex subsystem (here, the live DeckLink capture/output
+pipeline) in the same unit — and Steve's own selection, when asked
+directly whether WU-22b should start offline or wired live, confirmed
+exactly that ordering ("Yes, offline first"). WU-22b below is therefore
+`CoverageWindow` (the reusable class) plus `coverage_view_demo` (a
+standalone, hand-run tool that feeds it one static, synthetically warped
+frame) — proving the Metal/Cocoa window itself works, in isolation, before
+a second unit (WU-22c, below, not built this session) pays the real cost of
+wiring it to a second thread's worth of live, concurrently-produced data.
+
+**Colour mapping: grayscale, black at weight 0, white at exactly
+`kWeightUnity` (1.0x coverage), clipped to white above — Steve's own
+choice, offered against a heatmap alternative and a "leave it open" option,
+and picked for being the simplest thing that answers the one question this
+diagnostic view exists to answer (architecture.md 7's own correction
+naming it "diagnostic"): is a given destination cell under-, at-, or
+over-covered, at a glance, with no colour-scale legend required to read
+it.** Clipping above unity (rather than continuing to brighten, or wrapping,
+or saturating some other channel) was chosen because this unit has no
+principled second axis to spend on "how far above unity" without turning a
+diagnostic view into a second design problem WU-22a's own `weightOut`
+capture (captured pre-clamp specifically so a future view *could* show
+this) deliberately left open rather than answering itself (ADR-056); a
+future unit that wants to distinguish "1.0x" from "40x" can add a second
+mapping mode without changing `CoverageWindow`'s own public shape, since
+`updateWeights()` takes the raw, unclamped values, not a pre-mapped image —
+the black/white clip is applied inside `coverage_view.mm`'s own
+`weightToGray()`, not upstream of it.
+
+**Window: fixed size, matching `PipelineParams::destWidth`/`destHeight`
+exactly, not resizable — Steve's own choice, for the same "simplest thing
+that answers the one question" reason, and because a fixed size needs no
+scaling pass between the captured buffer and the window's own pixels,
+which is both simpler to get right on this project's first Metal unit and
+strictly cheaper per frame than a resizable window's scaling would be.**
+Redraw-on-new-data, not timer-driven: `MTKView`'s own
+`enableSetNeedsDisplay = YES` / `paused = YES` combination (Apple's own
+documented mechanism for "draw only when told to"), so
+`CoverageWindow::updateWeights()` is the only thing that ever schedules a
+frame — for this session's own static, single-frame demo this makes no
+visible difference, but it is the right choice for WU-22c's own eventual
+live-refresh case too: a genuinely free-running display timer would
+redraw stale data between live frames for no benefit, where
+redraw-on-new-data instead tracks the pipeline's own actual frame rate
+exactly, whatever it turns out to be, with no separate rate to keep in
+sync.
+
+**Threading: `updateWeights()`/`run()` must be called from the main thread
+only — a hard Cocoa/AppKit requirement this unit's own design cannot
+relax, not a choice among alternatives — documented in `coverage_view.hpp`
+itself, in the same place a caller would look to use the class, rather
+than only here.** WU-22b's own `coverage_view_demo` satisfies this
+trivially (`main()` itself is the main thread, and there is no second
+thread in this tool at all). The double-buffer/atomic-swap design Steve
+confirmed as the right shape for a *future* live-wired caller — a
+background thread producing frames fills a fresh weight buffer and hands
+ownership of it across in one `dispatch_async(dispatch_get_main_queue(),
+...)` block, so `CoverageWindow` itself only ever observes one buffer at a
+time, on the main thread, with no locking of its own — is recorded as
+design intent in `coverage_view.hpp`'s own doc comment on `updateWeights()`
+for WU-22c to pick up, not implemented here: there is no second thread
+anywhere in this unit's own deliverable to exercise it against, and
+building unexercised threading code into a unit this sandbox cannot run at
+all would be exactly the kind of unverified-and-unverifiable risk
+`SESSION-PROTOCOL.md`'s own discipline exists to keep out of a single work
+unit.
+
+**WU-22c, added to `WORK-UNITS.md` this session as `todo`, unscoped beyond
+what is recorded here: wiring `CoverageWindow` to
+`tests/test_decklink_live_sphere.cpp`'s own live capture/output pipeline,
+behind a new flag (working name `--show-coverage`), using exactly the
+double-buffer/`dispatch_async` mechanism above.** Not scoped further than
+that in this ADR — per this project's own practice (ADR-040/044/046/048/
+056), a future unit gets real `Files:`/`Accept:` scoping in its own
+session, against the real, by-then-verified `CoverageWindow` rather than
+against this session's own untested design intent for it.
+
+**Files:** `src/diag/coverage_view.hpp` (new — the platform-independent
+public interface: `CoverageWindowConfig`, `CoverageWindow`, pimpl'd, no
+Objective-C type or Apple framework `#include` anywhere in this file, the
+same "keep the platform dependency behind the .cpp/.mm boundary" shape
+`com_ptr.hpp`/`decklink_device.hpp` already use for the Blackmagic SDK,
+ADR-031, applied here to a different platform surface); `src/diag/
+coverage_view.mm` (new — this project's first Objective-C++ translation
+unit: `NSWindow`, `MTKView`/`MTKViewDelegate`, `id<MTLDevice>`/
+`id<MTLTexture>`/`id<MTLRenderPipelineState>`, an inline MSL shader
+compiled at runtime via `newLibraryWithSource:options:error:`, and the
+keypress-quit/window-close handling ADR-054/055 already established for a
+terminal, applied here to a Cocoa window instead); `tools/
+coverage_view_demo.cpp` (new — a hand-run tool, not a test, the same
+`add_executable`-only shape `tools/make_testpat.cpp` established at WU-03
+for exactly the same reason: no automatable pass/fail criterion exists for
+"does a GUI window look right", and registering this as a `ctest` would
+hang any headless/unattended `ctest` run on a keypress that could never
+arrive; builds one sphere-warped frame with `PipelineParams::weightOut`
+capture enabled, choosing a sphere specifically because CORRECTIONS.md
+C-011 already establishes that its front-facing point is usually the
+*sparsest*-covered point rather than the densest, making the displayed
+image a livelier check that this is reading real, non-uniform capture data
+rather than a hand-rolled gradient); plus `CMakeLists.txt` (a new
+`if(APPLE) ... endif()` block: `enable_language(OBJCXX)`, a
+`scatter-diag` static library linking `Cocoa`/`Metal`/`MetalKit`/
+`QuartzCore`, and the `coverage_view_demo` executable — CMakeLists.txt
+edits have never counted against the "3 source files" cap in any earlier
+unit either).
+
+**Known risk points, flagged here for whoever builds this first, rather
+than discovered silently.** (1) The fragment shader's UV convention —
+`coverage_view.mm`'s own `kShaderSource` derives `uv.y` as `(1 - ndc.y)/2`
+on the stated assumption that Metal's texture origin is top-left and NDC y
+grows upward, intended to land row 0 of the weight buffer (this project's
+own `dy * destWidth + dx` row-major convention, top row first) at the top
+of the window; if the displayed image is vertically flipped, that sign is
+the one place to fix it, flagged in three places in the source itself (the
+file header, the shader comment, and nowhere else, deliberately, so there
+is exactly one place to look). (2) ARC correctness and the `-fobjc-arc`
+compile flag actually taking effect — this project's first Objective-C++
+translation unit at all, so there is no earlier unit's own build log to
+compare against. (3) Whether `newLibraryWithSource:options:error:`
+actually compiles `kShaderSource` cleanly at runtime on Steve's own
+Metal/OS version — inline runtime shader compilation has never been
+exercised anywhere in this codebase before. (4) The `[NSApp stop:nil]`-
+plus-dummy-`NSEventTypeApplicationDefined`-event quit mechanism
+(`requestQuit`, `coverage_view.mm`) — a documented but easy-to-get-subtly-
+wrong Cocoa idiom; if `Q`/window-close does not actually return control
+from `-[NSApp run]`, this is the first place to look. (5) `kWeightUnityLocal`
+in `coverage_view.mm` is a hand-mirrored copy of `scatter::kWeightUnity`
+(`core/types.hpp`), kept out of this translation unit deliberately (see
+above) — nothing enforces the two stay in sync; a future change to
+`core/types.hpp`'s own constant must be mirrored here by hand, and nothing
+in this codebase will fail to compile or fail a test if it drifts, since
+`core/types.hpp` is never included here at all.
+
+**Accept — and what this unit, honestly, does not and cannot claim.** No
+programmatic accept criterion exists for this unit at all, by design (see
+`coverage_view_demo`'s own reason for being a tool, not a test, above):
+acceptance is Steve, at his own real terminal, confirming `cmake --build`
+succeeds, `./build/coverage_view_demo` opens a window showing a visibly
+non-uniform grayscale sphere-coverage image (not a blank, solid, or
+crashed window), and that `Q` or closing the window cleanly exits it. This
+unit does NOT claim: that it compiles (never attempted anywhere this
+session could run a compiler against Cocoa/Metal/AppleClang at all); that
+any of the five known risk points above are actually correct rather than
+merely reasoned-through against Apple's own documentation; that
+`WU-22c`'s own live-wiring will work once attempted, only that its
+threading shape is recorded as intent; or anything about a det-J second
+channel, a heatmap colour mode, or the spare UltraStudio Monitor 3G output
+architecture.md 7 also names — all explicitly out of this unit's own scope,
+per Steve's own scoping answers above.
+
+**UNVERIFIED IN FULL — reasoned through only, never built or run anywhere,
+by explicit, stronger-than-usual constraint this session.** Steve's own
+instruction this session was stronger than this project's ordinary
+Apple-only-unit caveat: this sandbox cannot compile or run anything
+touching Metal or Cocoa at all, not merely DeckLink — no Xcode/AppleClang
+toolchain exists here of any kind, so unlike WU-14/15a/17/18/20b/21b/21c/
+.../22a, where this sandbox could at least build and test the portable
+majority of the unit and leave only a DeckLink-specific residue
+unverified, WU-22b's entire deliverable is unverified, end to end. All
+four files (`coverage_view.hpp`, `coverage_view.mm`,
+`coverage_view_demo.cpp`, the `CMakeLists.txt` block) were written locally,
+pushed to the real repository via the device bridge's `device_bash`
+(heredocs run directly against the mounted real repository at
+`~/src/scatter-dve`, this session's own device-bridge folder-access grant —
+`device_stage_files` returned `HTTP 403 untrusted_device` for every call
+attempted this session, so the write-then-re-stage-and-`Read`-back
+confirmation this project's own `SESSION-PROTOCOL.md` rule 8 asks for used
+`device_bash`'s own `grep`/`wc -l`/`sha256sum` against the mounted files
+directly instead — the same fallback ADR-056 already used once before),
+then confirmed present with the expected content and byte counts via
+`device_bash`, not compiled or run. `git status --short`, run this session
+via `device_bash`, again found the same stale `.git/index.lock`
+ADR-056 already flagged, still unremovable from here for the same reason;
+still flagged for Steve's own real terminal, not fixed here.
+
+Does not reopen `docs/architecture.md`, ADR-031, ADR-040, ADR-044,
+ADR-054, ADR-055 or ADR-056 — `com_ptr.hpp`/`decklink_device.hpp`'s own
+platform-boundary shape (ADR-031) is reused, not modified; `ThreadPool`'s
+own non-copyable/non-movable resource-class shape (ADR-040) is reused for
+`CoverageWindow`, not modified; `PipelineParams::pool`/`weightOut`'s own
+non-owning-pointer convention (ADR-044/056) is reused, not modified; the
+keypress-quit convention (ADR-054/055) is reused for a window instead of a
+terminal, not modified; `PipelineParams::weightOut`'s own capture-side
+plumbing and guarantees (ADR-056) are consumed exactly as already frozen,
+not revisited.
+
+**Verified at Steve's own real terminal, same session, before this entry's
+own first commit — the "UNVERIFIED IN FULL" paragraph above describes
+this ADR's own state at the moment it was drafted, not its final state.**
+`cmake --build build` succeeded cleanly, zero warnings (Objective-C++
+`-fobjc-arc`/Metal/Cocoa framework linking all worked on the first attempt
+— none of the five known risk points above turned out to be build-time
+failures). `./build/coverage_view_demo` opened a 512x512 window showing a
+visibly non-uniform grayscale image — a partial dome/cap shape (this
+demo's own `SphereParams::angleSpanH`/`angleSpanV` of 1.2 radians each,
+not a full wrap), edges visibly brighter than the centre, matching
+`CORRECTIONS.md` C-011's own prediction (the sphere's front-facing point
+is the sparsest-covered, not the densest) rather than merely "some
+non-uniform pattern" — a specific, falsifiable check, not a vague one, and
+it passed. Known risk point (1), the shader's UV/vertical-flip
+convention, resolved cleanly with no fix needed: the image displayed
+right-side up on the first attempt. Both quit paths confirmed clean:
+pressing `Q` with the window focused, and closing the window via its own
+close control, each close the window AND return control to the calling
+shell promptly, with no hang — known risk point (4), the `[NSApp
+stop:nil]`-plus-dummy-event mechanism, works as designed. Known risk
+points (2) and (3) (ARC correctness, inline runtime shader compilation)
+are subsumed by "it built and ran with zero warnings and rendered
+correctly" — nothing further to say about either individually. Known risk
+point (5) (`kWeightUnityLocal` hand-mirrored from `core::kWeightUnity`)
+remains a standing, not-yet-triggered risk — nothing this session's own
+testing could exercise a drift between the two constants, since
+`core/types.hpp` has not changed. WU-22b is genuinely `green` in
+substance; the formal tag (`wu-22b-green`) and its own commit are Steve's
+own next action, not recorded by this session.
