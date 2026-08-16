@@ -325,6 +325,62 @@ message(STATUS "scatter-dve: ${CMAKE_BUILD_TYPE}, tile 2^${SCATTER_TILE_LOG2}")
 set(BLACKMAGIC_SDK_DIR "" CACHE PATH
     "Root of the Blackmagic DeckLink SDK (the directory containing Mac/, Win/, Linux/). Empty skips all DeckLink-dependent targets.")
 
+# ---------------------------------------------------------------------------
+# WU-22b — diagnostic coverage view: scatter-diag (src/diag/coverage_view.mm)
+# and coverage_view_demo, this project's first Objective-C++/Cocoa/Metal
+# dependency of any kind. See DECISIONS.md ADR-057.
+#
+# WU-22c (ADR-058) moved this block to appear before the scatter-decklink
+# block below, from its own original position after it: WU-22c's own
+# test_decklink_live_sphere (built inside the scatter-decklink block) now
+# links scatter-diag too (CoverageWindow, --show-coverage), and CMake
+# requires add_library(scatter-diag ...) to have already been seen before
+# any target_link_libraries(... scatter-diag) call can reference it. This
+# block's own guard (bare `if(APPLE)`) is a strict superset of the
+# scatter-decklink block's own guard (`if(APPLE AND BLACKMAGIC_SDK_DIR AND
+# EXISTS ...)`), so whenever scatter-decklink is configured, APPLE is
+# already known true and scatter-diag has already been defined by the time
+# this file reaches that block — no behavioral change versus the old
+# ordering for any configuration this project actually builds, only a
+# reordering of which block CMake evaluates first.
+#
+# UNVERIFIED at time of writing: this block was authored and reasoned
+# through in a Linux sandbox with no Cocoa, Metal, or AppleClang/Xcode
+# toolchain at all, so it has never actually been configured or built
+# anywhere. Confirm it configures and builds cleanly on a real Mac before
+# trusting it.
+#
+# coverage_view_demo is a hand-run tool, not a test — the same
+# add_executable-only shape make_testpat above uses (WU-03's own "first
+# executable that is not a test" precedent): there is no automatable
+# pass/fail criterion for "does a GUI window look right", and registering
+# this as a ctest would hang any headless/unattended `ctest` run waiting on
+# a keypress (Q) that could never arrive.
+# ---------------------------------------------------------------------------
+if(APPLE)
+    enable_language(OBJCXX)
+
+    add_library(scatter-diag STATIC src/diag/coverage_view.mm)
+    target_include_directories(scatter-diag PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(scatter-diag PUBLIC cxx_std_20)
+    target_compile_options(scatter-diag PRIVATE -fobjc-arc)
+    target_link_libraries(scatter-diag PUBLIC
+        "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(scatter-diag PRIVATE
+            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
+    endif()
+
+    add_executable(coverage_view_demo tools/coverage_view_demo.cpp)
+    target_link_libraries(coverage_view_demo PRIVATE scatter-diag scatter-core)
+    target_include_directories(coverage_view_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
+    message(STATUS "scatter-dve: APPLE -- scatter-diag, coverage_view_demo configured (WU-22b, UNVERIFIED)")
+else()
+    message(STATUS "scatter-dve: not Apple -- skipping scatter-diag, coverage_view_demo (WU-22b needs Cocoa/Metal)")
+endif()
+
 if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPI.h")
     add_library(scatter-decklink STATIC
         src/io/decklink_device.cpp
@@ -426,54 +482,20 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     # test_decklink_live_output.cpp above, one line different (a sphere
     # lattice, core/shapes/shapes.hpp, instead of an identity one). Same
     # dual-link reason. See DECISIONS.md ADR-051.
+    #
+    # WU-22c (ADR-058) added scatter-diag to this one target's own link
+    # line — this test alone, not test_decklink_live_output or any other
+    # DeckLink test — because it alone now includes diag/coverage_view.hpp
+    # and constructs a CoverageWindow behind its own new --show-coverage
+    # flag. scatter-diag is guaranteed already defined by this point (see
+    # this file's own comment on the scatter-diag block above, moved ahead
+    # of this one for exactly this reason).
     add_executable(test_decklink_live_sphere tests/test_decklink_live_sphere.cpp)
-    target_link_libraries(test_decklink_live_sphere PRIVATE scatter-decklink scatter-core)
+    target_link_libraries(test_decklink_live_sphere PRIVATE scatter-decklink scatter-core scatter-diag)
     target_include_directories(test_decklink_live_sphere PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_live_sphere COMMAND test_decklink_live_sphere)
 
     message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_live_output and test_decklink_live_sphere configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
-endif()
-
-# ---------------------------------------------------------------------------
-# WU-22b — diagnostic coverage view: scatter-diag (src/diag/coverage_view.mm)
-# and coverage_view_demo, this project's first Objective-C++/Cocoa/Metal
-# dependency of any kind. See DECISIONS.md ADR-057.
-#
-# UNVERIFIED at time of writing: this block was authored and reasoned
-# through in a Linux sandbox with no Cocoa, Metal, or AppleClang/Xcode
-# toolchain at all, so it has never actually been configured or built
-# anywhere. Confirm it configures and builds cleanly on a real Mac before
-# trusting it.
-#
-# coverage_view_demo is a hand-run tool, not a test — the same
-# add_executable-only shape make_testpat above uses (WU-03's own "first
-# executable that is not a test" precedent): there is no automatable
-# pass/fail criterion for "does a GUI window look right", and registering
-# this as a ctest would hang any headless/unattended `ctest` run waiting on
-# a keypress (Q) that could never arrive.
-# ---------------------------------------------------------------------------
-if(APPLE)
-    enable_language(OBJCXX)
-
-    add_library(scatter-diag STATIC src/diag/coverage_view.mm)
-    target_include_directories(scatter-diag PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_features(scatter-diag PUBLIC cxx_std_20)
-    target_compile_options(scatter-diag PRIVATE -fobjc-arc)
-    target_link_libraries(scatter-diag PUBLIC
-        "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
-
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        target_compile_options(scatter-diag PRIVATE
-            -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror)
-    endif()
-
-    add_executable(coverage_view_demo tools/coverage_view_demo.cpp)
-    target_link_libraries(coverage_view_demo PRIVATE scatter-diag scatter-core)
-    target_include_directories(coverage_view_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
-
-    message(STATUS "scatter-dve: APPLE -- scatter-diag, coverage_view_demo configured (WU-22b, UNVERIFIED)")
-else()
-    message(STATUS "scatter-dve: not Apple -- skipping scatter-diag, coverage_view_demo (WU-22b needs Cocoa/Metal)")
 endif()

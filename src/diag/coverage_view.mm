@@ -2,7 +2,9 @@
 // itself (architecture.md section 8's src/diag/coverage_view.cpp; Phase 5's
 // own "done when" line, "diagnostic coverage view on the Mac display").
 // DECISIONS.md ADR-057 has the full design and the reasoning behind every
-// choice below -- read that before changing anything here.
+// choice below -- read that before changing anything here. WU-22c (ADR-058)
+// adds CoverageWindow::requestQuit() at the bottom of this file -- a thin
+// forward to the -requestQuit ObjC method already defined below, unchanged.
 //
 // UNVERIFIED: this cannot be compiled or run anywhere in this project's own
 // Linux cloud sandbox (no Cocoa, no Metal, no AppleClang/Xcode toolchain at
@@ -101,17 +103,37 @@ fragment float4 fs_main(VertexOut in [[stage_in]],
 // ---------------------------------------------------------------------------
 // ScatterCoverageMTKView -- handles keypress-quit (Q) and window-close, both
 // funnelled through one requestQuit method (ADR-054/055's own keypress-quit
-// convention, applied to a Cocoa window instead of a terminal).
+// convention, applied to a Cocoa window instead of a terminal). WU-22c
+// (ADR-058) adds a third caller of this same method: CoverageWindow's own
+// public requestQuit(), reached from the stdin dispatch source's own quit
+// path in tests/test_decklink_live_sphere.cpp, so a Q typed at the terminal
+// also ends this window's run() call.
+//
+// WU-22c's own same-session follow-up (ADR-058's own addendum): every
+// non-Q keydown this view receives is also forwarded to an optional
+// std::function set via -setCoverageKeyHandler:, so a caller can drive its
+// own application logic from this window's own keyboard focus, not only
+// from a separate terminal channel -- see coverage_view.hpp's own doc
+// comment on CoverageWindow::setKeyHandler() for why this class still
+// carries no sphere-specific (or any other application-specific)
+// vocabulary of its own.
 // ---------------------------------------------------------------------------
 
 @interface ScatterCoverageMTKView : MTKView <NSWindowDelegate>
 - (void)requestQuit;
+- (void)setCoverageKeyHandler:(scatter::diag::CoverageWindow::KeyHandler)handler;
 @end
 
-@implementation ScatterCoverageMTKView
+@implementation ScatterCoverageMTKView {
+    scatter::diag::CoverageWindow::KeyHandler _keyHandler;
+}
 
 - (BOOL)acceptsFirstResponder {
     return YES;
+}
+
+- (void)setCoverageKeyHandler:(scatter::diag::CoverageWindow::KeyHandler)handler {
+    _keyHandler = std::move(handler);
 }
 
 - (void)keyDown:(NSEvent*)event {
@@ -120,6 +142,29 @@ fragment float4 fs_main(VertexOut in [[stage_in]],
         unichar c = [chars characterAtIndex:0];
         if (c == 'q' || c == 'Q') {
             [self requestQuit];
+            return;
+        }
+        if (_keyHandler) {
+            // NSUpArrowFunctionKey/NSDownArrowFunctionKey/
+            // NSLeftArrowFunctionKey/NSRightArrowFunctionKey are the
+            // documented private-use-area Unicode values
+            // -charactersIgnoringModifiers reports for the four arrow
+            // keys (Apple's own standard mechanism for detecting them in
+            // -keyDown:, distinct from any ASCII character) -- checked
+            // before falling through to the plain-character case below.
+            scatter::diag::SpecialKey special = scatter::diag::SpecialKey::None;
+            switch (c) {
+                case NSUpArrowFunctionKey:    special = scatter::diag::SpecialKey::ArrowUp; break;
+                case NSDownArrowFunctionKey:  special = scatter::diag::SpecialKey::ArrowDown; break;
+                case NSLeftArrowFunctionKey:  special = scatter::diag::SpecialKey::ArrowLeft; break;
+                case NSRightArrowFunctionKey: special = scatter::diag::SpecialKey::ArrowRight; break;
+                default: break;
+            }
+            if (special != scatter::diag::SpecialKey::None) {
+                _keyHandler('\0', special);
+            } else {
+                _keyHandler(char(c), scatter::diag::SpecialKey::None);
+            }
             return;
         }
     }
@@ -331,6 +376,24 @@ void CoverageWindow::run() {
     [impl_->window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     [NSApp run];
+}
+
+// WU-22c (ADR-058): forwards directly to the same -requestQuit ObjC method
+// -keyDown: and -windowWillClose: above already call. No new synchronisation
+// of its own -- [NSApp stop:] and [NSApp postEvent:atStart:] are both
+// documented safe to call from any thread, which is the only reason this
+// method itself is safe to call from any thread (see coverage_view.hpp's own
+// doc comment on this method for the caller this exists for).
+void CoverageWindow::requestQuit() {
+    [impl_->view requestQuit];
+}
+
+// WU-22c's own same-session follow-up: forwards directly to
+// -setCoverageKeyHandler:, which stores the handler as an ivar on the view
+// itself -- see -keyDown: above for where it is actually invoked, and
+// coverage_view.hpp's own doc comment on this method for the full contract.
+void CoverageWindow::setKeyHandler(KeyHandler handler) {
+    [impl_->view setCoverageKeyHandler:std::move(handler)];
 }
 
 }  // namespace scatter::diag

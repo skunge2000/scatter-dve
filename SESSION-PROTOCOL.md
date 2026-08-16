@@ -108,6 +108,18 @@ Binding on the assistant:
    been written back into the real repository via the device bridge and
    re-read from there to confirm — not merely edited in the sandbox and
    assumed to have gone somewhere useful.
+9. **Anything Steve needs to run at his own real terminal goes as exact,
+   copy-pasteable command lines in a fenced code block — never narrated
+   prose.** "Just re-run `cmake --build build` first, then try the controls
+   with the window focused" is not an instruction Steve can act on directly
+   — it makes him reconstruct the actual commands and their order himself,
+   which is exactly the job this rule exists to remove. This applies every
+   time a real-terminal action is described, not only at a full session
+   close-out: a one-line follow-up after a bug-fix delivery needs the same
+   explicit command block a close-out would give, even if the commands
+   themselves are unchanged from an earlier message and only the reason to
+   re-run them is new. (Added Session 32, after violating it mid-session —
+   see `HANDOFF.md`'s own Session-32 entry.)
 
 ## Build configuration
 

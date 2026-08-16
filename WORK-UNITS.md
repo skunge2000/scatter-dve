@@ -1533,23 +1533,84 @@ configured, same as every earlier unit) — the commit and tag are
 local-only. **WU-22b is genuinely `green`.**
 
 ### WU-22c — Diagnostic coverage view: wire `CoverageWindow` into the live
-capture/output pipeline `todo`
-Not scoped beyond ADR-057's own design-intent notes (see ADR-057's own
-"WU-22c" paragraph): wiring `CoverageWindow` (WU-22b, once confirmed
-`green`) to `tests/test_decklink_live_sphere.cpp`'s own live capture/
-output pipeline, behind a new flag (working name `--show-coverage`), using
-the double-buffer/`dispatch_async(dispatch_get_main_queue(), ...)`
-mechanism ADR-057 records as this unit's own intended threading answer —
-a background thread producing live frames fills a fresh weight buffer and
-hands ownership across in one dispatch block, so `CoverageWindow` itself
-only ever observes one buffer at a time, on the main thread. Needs its
-own real scoping session before any code, per this project's own
-established practice (ADR-040/044/046/048/056/057) for a unit whose
-dependency (a confirmed-working `CoverageWindow`) does not exist yet —
-and, like WU-22b, needs Steve's own real terminal throughout: this
-sandbox cannot reason through or verify anything touching Metal or Cocoa,
-and WU-22c additionally touches the DeckLink-only live capture/output path
-WU-21's own units already established this sandbox cannot touch either.
+capture/output pipeline `wip`
+See `DECISIONS.md` ADR-058 for the full design: the scoping conversation
+(flag name/behavior, how the terminal keypress loop and Cocoa's own
+main-thread run loop coexist, which thread produces frames and whether
+ADR-057's own double-buffer/`dispatch_async` sketch survived contact with
+the real threading structure, what `Q` in the coverage window should quit,
+redraw cadence); the `--show-coverage` flag (Steve's own choice to keep
+ADR-057's own working name); the unified-main-thread-loop design (a
+`DISPATCH_SOURCE_TYPE_READ` dispatch source on `STDIN_FILENO`, queued onto
+`dispatch_get_main_queue()`, alongside `CoverageWindow::run()`'s own
+`[NSApp run]`, both using GCD's function-pointer APIs only — no
+Objective-C Blocks — so this stays a plain `.cpp` file); `IncrementalKeyParser`,
+a new non-blocking per-byte state machine replacing `readKey()` for the
+flag-on path only (`readKey()` and the flag-off loop are untouched);
+`CaptureConsumer`'s new opt-in `CoverageCallback` hook (default `nullptr`,
+zero cost when absent, mirroring `PipelineParams::pool`/`weightOut`'s own
+convention); the per-frame heap-allocated `dispatch_async_f` hand-off that
+implements ADR-057's own "double-buffer" design intent (a fresh buffer per
+frame via `std::vector` move semantics, not a literal reusable pair — see
+ADR-058 for why); the new `CoverageWindow::requestQuit()` method (one
+additive, non-breaking forward into WU-22b's own already-`green` internals)
+that lets a terminal `Q` also end the coverage window's own run loop, so
+one `Q`, from either channel, quits the whole session; and why the coverage
+window never opens in a non-interactive run (no quit signal would ever
+reach it, hanging an unattended `ctest` run).
+**Files:** `tests/test_decklink_live_sphere.cpp` (rewritten — `argc`/`argv`
+parsing, `coverageActive` gate, `IncrementalKeyParser`,
+`CoverageInputContext`/`handleCoverageStdinReadable()`,
+`CoverageDispatchContext`/`applyCoverageOnMainThread()`, the flag-on unified
+main-thread loop alongside the untouched flag-off blocking loop, and —
+same-session follow-up, see below — `mapCoverageWindowKey()` plus a
+`coverageWindow->setKeyHandler()` wire-up), `src/diag/coverage_view.hpp`/
+`.mm` (additive — new public `CoverageWindow::requestQuit()`, and — same
+follow-up — `SpecialKey`/`setKeyHandler()`; WU-22b's own existing surface
+otherwise unchanged), `src/io/decklink_capture_consumer.hpp`/`.cpp`
+(additive — new optional `CoverageCallback` constructor parameter and its
+wiring inside `processOne()`, WU-21b's own existing behavior unchanged
+when absent), and `CMakeLists.txt` (the `scatter-diag` block moved ahead of
+the `scatter-decklink` block so `add_library(scatter-diag ...)` is seen
+before `test_decklink_live_sphere`'s own `target_link_libraries`
+references it; `test_decklink_live_sphere` gains `scatter-diag` on that
+one line).
+**Same-session follow-up, after Steve's first real build/run:** the
+coverage window did not respond to any control key but `Q` — macOS
+keyboard focus is per-window, so the stdin channel above only ever sees a
+keystroke typed while the *terminal* has focus; `ScatterCoverageMTKView`'s
+own `-keyDown:` (WU-22b) never recognized anything but `Q`. Asked directly,
+Steve chose to make the coverage window itself fully interactive too
+(rather than leave it display-plus-quit-only) — see `DECISIONS.md`
+ADR-058's own addendum for the fix (`CoverageWindow::setKeyHandler()`,
+`SpecialKey`, `mapCoverageWindowKey()`), folded into this same entry since
+nothing had been committed yet.
+**Accept:** no programmatic accept criterion for the coverage window itself
+(same reason as WU-22b — no automatable pass/fail test for "does a GUI
+window look right"); acceptance is Steve, at his own real terminal,
+confirming (a) `cmake --build build` succeeds with `test_decklink_live_sphere`
+now also linking `scatter-diag`, (b) running the test **without**
+`--show-coverage` behaves exactly as it already did (WU-21i, unchanged),
+(c) running it **with** `--show-coverage` opens a coverage window
+alongside live SDI playback, updating roughly once per live frame, and
+that all ten controls (six letters, four arrows) move the sphere and are
+reflected in the coverage window from **either** the terminal or the
+coverage window itself having focus, and (d) `Q`, pressed either at the
+terminal or in the coverage window, cleanly ends both the window and the
+whole test run (capture/consumer/playback all stop, stats print, process
+exits) with no hang.
+*Status:* fully scoped and drafted reasoned-through-only this session —
+**UNVERIFIED IN FULL**, per this project's own established convention for
+every DeckLink-and/or-Metal/Cocoa-touching unit: this sandbox has no
+Blackmagic SDK, no Cocoa, no Metal, no AppleClang/Xcode toolchain, so none
+of this was built or run by the session that wrote it — this includes the
+same-session `setKeyHandler()` follow-up above, which came from Steve's own
+real-terminal report of the *first* build but has not itself been rebuilt
+and reverified yet. See `DECISIONS.md` ADR-058's own closing paragraph and
+its own addendum for the two most likely first problems to check. Needs
+`cmake --build build`, `ctest` (or a direct interactive run both with and
+without the new flag), and real-hardware verification at Steve's own real
+terminal before this unit can be called `green`.
 
 ---
 

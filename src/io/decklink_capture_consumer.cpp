@@ -1,7 +1,9 @@
 // scatter-dve — WU-21b: DeckLink capture-side pixel read.
 //
 // See io/decklink_capture_consumer.hpp and DECISIONS.md ADR-048 for the
-// design.
+// design. WU-22c (ADR-058) adds the coverageCallback plumbing below -- see
+// decklink_capture_consumer.hpp's own doc comment on CoverageCallback for
+// the design; this file only wires it into the constructor and processOne().
 
 #include "io/decklink_capture_consumer.hpp"
 #include "core/resolve.hpp"
@@ -17,11 +19,13 @@
 
 namespace scatter::io {
 
-CaptureConsumer::CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params)
+CaptureConsumer::CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
+                                  CoverageCallback coverageCallback)
     : m_ring(ring),
       m_lattice(std::move(lattice)),
       m_params(params),
-      m_dstRowBytes(scatter::v210::rowBytesMin(m_params.destWidth)) {}
+      m_dstRowBytes(scatter::v210::rowBytesMin(m_params.destWidth)),
+      m_coverageCallback(std::move(coverageCallback)) {}
 
 CaptureConsumer::~CaptureConsumer() { stop(); }
 
@@ -114,13 +118,30 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
         return false;
     }
 
+    // WU-22c (ADR-058): a per-call copy of m_params, only ever diverging from
+    // it in the one field a coverage-observing caller needs --
+    // callParams.weightOut -- and only when m_coverageCallback is actually
+    // set. m_params itself is never mutated (it stays const, as it always
+    // was); this local copy is cheap (PipelineParams is a small
+    // trivially-copyable-shaped struct, ADR-044) and needed because
+    // weightOut must point at a buffer sized and owned by *this* call, not
+    // shared across frames the way the rest of m_params is -- runFrameBytes()
+    // itself has no notion of "this call wants weightOut, that one doesn't"
+    // beyond whatever pointer it is handed each time.
+    PipelineParams callParams = m_params;
+    std::vector<WeightAccum> coverageBuf;
+    if (m_coverageCallback) {
+        coverageBuf.assign(std::size_t(m_params.destWidth) * std::size_t(m_params.destHeight), WeightAccum(0));
+        callParams.weightOut = coverageBuf.data();
+    }
+
     // The mapped buffer is only guaranteed valid between StartAccess and
     // EndAccess, so this call happens here, before EndAccess below -- not
     // after, and not against a copy taken out of the bracket first. See this
     // file's own header comment for why no pool buffer is used instead.
     std::vector<std::uint8_t> dst(m_dstRowBytes * std::size_t(m_params.destHeight));
     scatter::runFrameBytes(latticeSnapshot, static_cast<const std::uint8_t*>(mem), srcRowBytes,
-                            srcWidth, srcHeight, m_params, dst.data(),
+                            srcWidth, srcHeight, callParams, dst.data(),
                             std::ptrdiff_t(m_dstRowBytes));
 
     if (buffer->EndAccess(bmdBufferAccessRead) != S_OK) return false;
@@ -129,6 +150,17 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_latestFrame = std::move(dst);
     }
+
+    // WU-22c (ADR-058): fired only after the frame is fully processed and
+    // published above -- coverageBuf was filled by the same runFrameBytes()
+    // call that produced m_latestFrame, so a callback observing this
+    // coverage buffer is always looking at coverage for the same frame
+    // copyLatestFrame() would hand back if called right now. Moved, not
+    // copied -- see decklink_capture_consumer.hpp's own doc comment on
+    // CoverageCallback for why ownership transfer, not a borrowed pointer,
+    // is this hook's own shape.
+    if (m_coverageCallback) m_coverageCallback(std::move(coverageBuf));
+
     return true;
 }
 

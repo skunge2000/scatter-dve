@@ -5669,3 +5669,291 @@ testing could exercise a drift between the two constants, since
 `core/types.hpp` has not changed. WU-22b is genuinely `green` in
 substance; the formal tag (`wu-22b-green`) and its own commit are Steve's
 own next action, not recorded by this session.
+
+**ADR-058 — WU-22c: wiring `CoverageWindow` into the live capture/output
+pipeline (`tests/test_decklink_live_sphere.cpp`, `src/diag/coverage_view.hpp`/
+`.mm`, `src/io/decklink_capture_consumer.hpp`/`.cpp`, `CMakeLists.txt`;
+architecture.md section 8's own "done when" line; ADR-057's own WU-22c
+paragraph, picked up here).** Session opened, per Steve's own explicit
+instruction, by first requesting device-bridge access to `~/src/scatter-dve`
+and the Blackmagic DeckLink SDK folder, then reading `SESSION-PROTOCOL.md`
+(including its own "Session close" section, updated Session 31 to require an
+explicit `git push` in every future close-out — noted here since it changes
+this session's own final command block to Steve, not because it changed
+anything about this unit's own design), `HANDOFF.md`, `WORK-UNITS.md`, this
+file, `CORRECTIONS.md` and `INVARIANTS.md` in full, then verifying
+`HANDOFF.md`'s own account of the real repository's tag/commit state
+directly against the real repository via the device bridge (`git tag`,
+`git log --oneline -10`, `git status --short`) rather than trusting the
+file's own prose — `wu-22b-green` confirmed present, and `git show
+wu-22b-green --stat` confirmed the exact seven files `HANDOFF.md` claimed:
+`CMakeLists.txt`, `DECISIONS.md`, `HANDOFF.md`, `WORK-UNITS.md`,
+`src/diag/coverage_view.hpp`, `src/diag/coverage_view.mm`,
+`tools/coverage_view_demo.cpp`. `origin` confirmed configured
+(`https://github.com/skunge2000/scatter-dve.git`) and `main` confirmed in
+sync with `origin/main` (`git status -sb`). Only then, per Steve's own
+explicit instruction not to assume a design beyond ADR-057's own WU-22c
+paragraph, was WU-22c actually scoped, via direct questions covering: the
+flag's own name and behavior, how the terminal keypress loop and Cocoa's
+own required main-thread run loop coexist, which thread produces frames and
+whether ADR-057's own double-buffer/`dispatch_async` sketch still fits once
+that thread structure was actually read (`decklink_capture_consumer.hpp`/
+`.cpp`, `decklink_live_output.hpp`/`.cpp`, `decklink_input.hpp` all read in
+full before answering this one), what pressing Q in the coverage window
+should quit, and redraw cadence.
+
+**Flag: `--show-coverage`, Steve's own choice to keep ADR-057's own working
+name rather than change it.** Parsed from `argv` in `main()`; any other
+argument is silently ignored, matching every other test executable in this
+project (none of which parse `argv` today), since `ctest` may invoke this
+binary with its own arguments this unit has no reason to reject. With the
+flag absent, `showCoverage` is `false` throughout, `coverageActive` (see
+below) is therefore always `false`, no `CoverageWindow` is constructed, and
+`CaptureConsumer`'s own new `coverageCallback` parameter stays at its
+default `nullptr` — `decklink_capture_consumer.cpp`'s own `processOne()`
+allocates and fills nothing extra when it is null, so this file's own
+pre-WU-22c behavior is unchanged in both source (the flag-off branch's own
+code is untouched, not refactored, per SESSION-PROTOCOL.md's own anti-drift
+rule) and cost.
+
+**The threading question Steve named "a real, unresolved architecture
+question, not a detail to assume" — how `test_decklink_live_sphere.cpp`'s
+own blocking terminal keypress loop coexists with Cocoa's own
+main-thread-only run loop `CoverageWindow` needs — is answered by unifying
+onto one main-thread loop via GCD dispatch sources, Steve's own selection
+among the options this session offered.** Concretely: a
+`DISPATCH_SOURCE_TYPE_READ` dispatch source on `STDIN_FILENO`, queued onto
+`dispatch_get_main_queue()`, runs alongside `CoverageWindow::run()`'s own
+`[NSApp run]` call on that same (and only, at that point in the process) main
+thread — GCD's own main queue is drained as part of `NSApp run`'s own event
+processing, the documented mechanism every Cocoa app already uses to
+interleave dispatch-queued work with UI events, not something this project
+invented. This is why the flag-on path cannot reuse the existing blocking
+`readKey()`: a blocking `std::getchar()` call inside a dispatch source's own
+event handler would freeze the Cocoa run loop itself on a stray ESC
+keypress (an already-accepted, narrower rough edge in the flag-off path,
+per WU-21h/i and `CORRECTIONS.md` C-018 — freezing only terminal input),
+not just terminal input — so `IncrementalKeyParser`
+(`tests/test_decklink_live_sphere.cpp`) is a new, non-blocking, per-byte
+state machine (`kIdle`/`kSawEsc`/`kSawEscBracket`) that reifies the same
+ESC/`[`/letter parsing `readKey()` already does inline, one byte at a time
+as `handleCoverageStdinReadable()` reads them non-blockingly (`STDIN_FILENO`
+set `O_NONBLOCK` for the duration of the flag-on interactive loop only,
+restored after). Both GCD entry points used
+(`dispatch_source_set_event_handler_f`, `dispatch_async_f`, see below) are
+the function-pointer variants, not the Objective-C Blocks-based ones —
+`tests/test_decklink_live_sphere.cpp` stays a plain `.cpp` file, not a
+`.mm`, the same platform boundary `com_ptr.hpp`/`decklink_device.hpp`
+already keep for the Blackmagic SDK and `coverage_view.hpp`/`.mm` now keep
+for Cocoa/Metal (ADR-031/057).
+
+**Which thread produces frames, and whether ADR-057's own double-buffer/
+`dispatch_async` sketch survived contact with the real threading structure:
+yes, in spirit, but the actual implementation hands off a fresh
+heap-allocated buffer per frame rather than a literal reusable pair of
+buffers.** `CaptureConsumer` (WU-21b) already runs its own dedicated
+consumer thread (`run()`/`processOne()`, spawned in `start()`) — neither the
+DeckLink driver's own capture-completion thread (`CaptureSource`, WU-20b)
+nor `LiveFramePlayback`'s own scheduled-completion thread
+(`ScheduledFrameCompleted()`, driver-owned, WU-21c) touch pixel bytes or
+weights directly; `CaptureConsumer`'s own consumer thread is the one and
+only place a coverage buffer could originate. `decklink_capture_consumer.hpp`
+gains an opt-in `CoverageCallback` (`std::function<void(std::vector<
+WeightAccum>)>`, default `nullptr`) — the same "non-owning/default-absent,
+zero cost when not opted into" shape `PipelineParams::pool`/`weightOut`
+already established (ADR-044/056), extended here from a raw pointer to a
+`std::function` because what this hook hands across is ownership of a
+freshly filled buffer, not a pointer into memory the consumer thread is
+about to reuse next frame. `processOne()` allocates a local
+`std::vector<WeightAccum>` sized to `destWidth * destHeight` only when the
+callback is set, points a per-call copy of `PipelineParams` at it
+(`callParams.weightOut`, `m_params` itself never mutated), passes that copy
+to the same `runFrameBytes()` call that already produces `m_latestFrame`
+(so the coverage buffer and the frame it describes are always the same
+frame — no separate second render pass), and invokes the callback,
+`std::move`-ing the buffer out, only after `m_latestFrame` is published.
+The callback given to `CaptureConsumer` in `test_decklink_live_sphere.cpp`
+allocates one `CoverageDispatchContext` (window pointer, the moved-in
+`std::vector<WeightAccum>`, width, height) on the heap and hands it to
+`dispatch_async_f(dispatch_get_main_queue(), ctx, &applyCoverageOnMainThread)`;
+`applyCoverageOnMainThread()`, running on the main thread, reclaims the
+context via `std::unique_ptr` and calls `CoverageWindow::updateWeights()`.
+This achieves the same property ADR-057's own literal double-buffer sketch
+was after — `CoverageWindow` only ever observes one buffer at a time, on
+the main thread, with no locking of its own — at the cost of one small
+heap allocation/free per displayed frame instead of a fixed pair of buffers
+reused forever; picked over a literal double-buffer because `std::vector`'s
+own move semantics already give a full, safe ownership transfer per call
+with no additional bookkeeping (an atomic pointer swap, two named buffers,
+whose-turn-is-it logic) that a real double-buffer would need to add on top,
+and because this pipeline's own frame rate (PAL, WU-22's own target) makes
+one small allocation per frame a cost this project's own conventions
+elsewhere already accept without comment (e.g. `Lattice` itself, copied by
+value throughout).
+
+**Q, from either channel, quits the whole session — Steve's own choice
+against "coverage window only."** `CoverageWindow` already turns a `Q`
+keypress or a window-close into a call to its own internal `-requestQuit`
+ObjC method, which makes `run()` return (WU-22b, `coverage_view.mm`). This
+unit adds `CoverageWindow::requestQuit()`, a new public method
+(`coverage_view.hpp`) that is a one-line forward to that same existing
+`-requestQuit`, callable from any thread (both `[NSApp stop:]` and `[NSApp
+postEvent:atStart:]`, which `-requestQuit` already calls, are documented
+by Apple as thread-safe) — additive only, does not touch WU-22b's own
+frozen internals, and is exactly the size SESSION-PROTOCOL.md's own work-unit
+discipline allows without reopening ADR-057. `handleCoverageStdinReadable()`
+calls this same method on recognizing `Key::Quit` from the terminal (or on
+EOF/a read error, the same "treat as quit, not a spin" convention
+`readKey()` already uses for EOF). Either channel firing makes `run()`
+return; this function's own existing post-loop cleanup
+(`playback->stop(); consumer.stop(); capture->stop();` plus stats) then
+runs exactly as it already did before this unit, unchanged — "quits
+everything" falls out of that existing structure, not new shutdown code.
+
+**The coverage window never opens in a non-interactive run — a decision
+this session made and is recording here rather than one Steve was asked
+about directly, since WU-21i's own non-interactive fallback (stdin not a
+real terminal, e.g. an unattended `ctest` run: no interactive control, a
+static ten-second bounded run) already establishes the invariant this
+follows from.** A Cocoa window's `run()` has no quit signal available to it
+in that fallback — nothing will ever type Q, and nothing in the fallback's
+own bounded-sleep design currently calls `requestQuit()` on a timer — so
+opening one there would hang `ctest` forever instead of completing after
+ten seconds. `coverageActive` (`showCoverage && interactive`) is therefore
+computed once, up front, and downgrades `--show-coverage` to a no-op
+whenever `tcgetattr(STDIN_FILENO, ...)` fails, with a `NOTE` printed to
+`stderr` so this is visible, not silently silent. Determining `interactive`
+this early — moved from its own original position (inside the `if
+(playback)` block, just before the interactive/non-interactive branch) to
+before `CaptureConsumer` is even constructed — is a pure reordering, not a
+behavior change: `tcgetattr()` is a read-only query with no effect on the
+terminal, so moving the call earlier changes nothing observable about the
+flag-off path, only how soon in this function's own source order the answer
+is known, which `coverageActive`'s own value needs before deciding whether
+to construct `CoverageWindow` ahead of `CaptureConsumer` (see next
+paragraph).
+
+**Redraw cadence: every processed live frame, no throttling — Steve's own
+choice against a throttled alternative.** Matches `CoverageWindow`'s own
+`MTKView` `enableSetNeedsDisplay = YES` / `paused = YES` mode (ADR-057): the
+window only redraws when told to, and `CaptureConsumer`'s own
+`coverageCallback` fires once per successfully processed frame, with no
+frame-skipping logic added by this unit — the same "every frame, not
+sampled" cadence the rest of this live pipeline (capture, warp, output)
+already uses end to end.
+
+**Construction order: `CoverageWindow` is constructed before
+`CaptureConsumer`, when `coverageActive` is true.** Not a Cocoa requirement
+by itself (nothing about `CoverageWindow`'s own constructor cares what
+already exists) but a plumbing requirement of this unit's own design: the
+`coverageCallback` lambda passed into `CaptureConsumer`'s constructor
+captures the `CoverageWindow*` it will later hand to
+`dispatch_async_f`/`applyCoverageOnMainThread()`, so that pointer must
+already exist. Both constructions happen before any thread this test itself
+spawns starts (`CaptureConsumer::start()` is the first), so `CoverageWindow`'s
+own construction — which does real Cocoa/Metal setup, `NSApplication
+sharedApplication`, `MTLCreateSystemDefaultDevice()`, window/view creation —
+still runs on the process's actual main thread, honouring the same hard
+requirement `coverage_view.hpp`'s own doc comment on `updateWeights()`
+already states.
+
+**Does not reopen `docs/architecture.md`, ADR-031, ADR-040, ADR-044,
+ADR-046, ADR-047, ADR-048, ADR-049, ADR-050, ADR-053, ADR-054, ADR-055,
+ADR-056 or ADR-057** — `com_ptr.hpp`/`decklink_device.hpp`'s own
+platform-boundary shape (ADR-031) is extended to a second platform surface,
+not modified; `CaptureConsumer`/`LiveFramePlayback`'s own independent-
+lifecycle, thread-per-object shape (ADR-040/046/047/048/049/050) is
+observed and built on, not restructured — no new thread is spawned by this
+unit, the existing consumer thread and the process's own main thread are
+the only two involved; `PipelineParams::pool`/`weightOut`'s own
+non-owning-pointer, opt-in convention (ADR-044/056) is the direct precedent
+`CoverageCallback` extends, not modified; WU-21g/h/i's own sphere geometry,
+rotation mathematics and letter-key control scheme (ADR-053/054/055) are
+unchanged — `applyKey()` duplicates, rather than shares, the flag-off
+loop's own inline switch specifically so that loop's own code stays
+untouched; ADR-057's own frozen `CoverageWindow` design (colour mapping,
+fixed window size, redraw-on-demand `MTKView` mode) is consumed exactly as
+built, with exactly one additive public method
+(`requestQuit()`) that ADR-057's own text already named as this unit's own
+job to add.
+
+**UNVERIFIED IN FULL: this entire unit was authored, reasoned through and
+delivered via the device bridge with no Blackmagic SDK, no Cocoa, no Metal,
+and no AppleClang/Xcode toolchain available to check any of it against —
+the Linux cloud sandbox this session ran in has none of the four. Every
+claim above about GCD's own main-queue/run-loop interleaving, dispatch
+source non-blocking-read behavior, `dispatch_async_f`/
+`dispatch_source_set_event_handler_f`'s own C-linkage-compatible plain
+function-pointer usage from a `.cpp` translation unit, and the specific
+sequencing this design depends on (main-queue draining actually happening
+during `[NSApp run]`, a `DISPATCH_SOURCE_TYPE_READ` source firing exactly
+when `read()` can return without blocking) is reasoned from Apple's own
+published documentation, not confirmed by building or running any of it.**
+Needs `cmake --build build` and a real interactive run — both with and
+without `--show-coverage` — at Steve's own real terminal before this unit
+can be called `green`. The single most likely first problem, if one exists:
+GCD's own main-queue draining during `[NSApp run]` failing to interleave
+promptly with Cocoa's own event processing in some way this design did not
+anticipate (visible as sluggish or dropped keypresses in the coverage-window
+build specifically, not the flag-off build) — nothing in this session's own
+reading of Apple's documentation suggested this, but it is the one
+mechanism in this design without a directly analogous, already-verified
+precedent elsewhere in this codebase.
+
+**Addendum, same session, before this ADR's own first commit — real-terminal feedback, and the fix it prompted.** Steve built and ran
+`--show-coverage` at his own real terminal and reported back precisely
+(not a vague "it doesn't work"): the coverage window opened and updated,
+but none of the sphere controls worked while it had keyboard focus — only
+the terminal drove them. Correct behavior, and the underlying cause is
+simple and was not an open question this ADR's own scoping conversation
+asked about: **keyboard focus in macOS is per-window.** The stdin dispatch
+source this ADR describes only ever sees a keystroke typed while the
+*terminal* itself has focus; `ScatterCoverageMTKView`'s own `-keyDown:`
+(WU-22b, unchanged by this unit until now) only ever recognized `Q`, never
+any of the six sphere-control letters or the four arrow keys. Two working
+input channels existed, but only one of them understood the sphere's own
+vocabulary. Asked directly whether the coverage window should also drive
+the full control scheme, or stay a display-plus-quit surface with the
+terminal as the sole control channel, Steve chose the former.
+
+**Fix: `CoverageWindow` gains a second, generic opt-in hook —
+`SpecialKey` and `setKeyHandler()` (`coverage_view.hpp`) — parallel to,
+and following the same non-owning/default-absent shape as, `requestQuit()`
+above.** `ScatterCoverageMTKView`'s own `-keyDown:` (`coverage_view.mm`)
+still checks for `Q` first, unchanged; for every other key, if a handler is
+set, it now classifies the four arrow keys by name (Cocoa's own documented
+`NSUpArrowFunctionKey`-style private-use-area Unicode constants, the
+standard mechanism for detecting them in `-keyDown:` — no state machine
+needed, unlike the terminal's own ESC-sequence encoding, since Cocoa has
+already fully decoded the key by the time `-keyDown:` runs) and forwards
+either the arrow identity or the raw character to the handler. `CoverageWindow`
+itself still carries no sphere-specific vocabulary — `SpecialKey` names
+only the four arrows, generically; deciding what `'X'`/`'x'`/`'Y'`/`'y'`/
+`'Z'`/`'z'` (or any other key) *means* stays entirely the caller's own job,
+the same "this class has no application-level vocabulary of its own"
+property `updateWeights()`'s own opaque `weightOut` buffer already has.
+`tests/test_decklink_live_sphere.cpp` adds `mapCoverageWindowKey()` (a
+third small duplicate of the same letter/arrow mapping, alongside `readKey()`
+and `IncrementalKeyParser::mapLetter` — three different-shaped call sites,
+the same reasoning already given above for why the first two stay separate
+applies to a third) and wires `coverageWindow->setKeyHandler()` to run the
+same `applyKey()`/`consumer.setLattice()` logic the stdin channel already
+uses, before `run()` starts. Both the stdin dispatch source's own handler
+and this new Cocoa `-keyDown:` handler execute on the main thread only
+(GCD's main queue and Cocoa's own event dispatch are the same thread), so
+both writing to the same `yaw`/`pitch`/`centerX`/`centerY`/`radius`
+variables needs no new synchronisation — sequential access on one thread,
+exactly as the stdin-only design already had.
+
+Does not reopen anything from this ADR's own "does not reopen" paragraph
+above, or `docs/architecture.md`; `requestQuit()`'s own already-drafted
+design (this same ADR, above) is unchanged, not modified, by adding a
+second, parallel hook alongside it. **Still `UNVERIFIED IN FULL` for this
+specific fix** — delivered via the device bridge the same way the rest of
+this unit was, reasoned through against Apple's own documented
+`NSUpArrowFunctionKey`/`-charactersIgnoringModifiers` behavior, not built
+or run by the session that wrote it. Needs the same real-terminal
+`cmake --build build` plus an interactive `--show-coverage` run, this time
+specifically clicking into the coverage window and confirming all ten
+controls (six letters, four arrows) move the sphere from there too, before
+this unit can be called `green`.

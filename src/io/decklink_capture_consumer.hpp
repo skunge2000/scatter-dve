@@ -68,6 +68,17 @@
 // from LoopedFramePlayback's own "loop one static frame forever" design.
 // This unit stops at making the most recently produced destination frame's
 // own bytes available to whatever caller asks for them (copyLatestFrame()).
+//
+// WU-22c (ADR-058) adds the optional CoverageCallback below: an opt-in hook
+// into the same per-frame processOne() this unit already runs, so a caller
+// that wants a live coverage view (src/diag/coverage_view.hpp, WU-22b) does
+// not need its own separate capture path or a second runFrame() call against
+// the same frame. Mirrors PipelineParams::pool/weightOut's own established
+// "non-owning, default nullptr/empty, exactly zero added cost or behaviour
+// change when the caller does not opt in" shape (ADR-044/056) -- extended
+// here from a raw pointer to a std::function, since what WU-22c needs handed
+// across is ownership of a freshly filled buffer, not a pointer into memory
+// this consumer thread is about to reuse next frame.
 
 #pragma once
 
@@ -81,6 +92,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -100,6 +112,22 @@ struct CaptureConsumerStats {
 
 class CaptureConsumer {
 public:
+    // WU-22c (ADR-058): invoked once per successfully processed frame (i.e.
+    // exactly when framesProcessed is incremented, never on a failed frame),
+    // from CaptureConsumer's own dedicated consumer thread (the same thread
+    // run()/processOne() already execute on -- NOT the DeckLink driver's own
+    // callback thread, and NOT any Cocoa/main thread). Handed ownership of a
+    // freshly filled std::vector<WeightAccum> of exactly
+    // params.destWidth * params.destHeight elements, row-major, matching
+    // PipelineParams::weightOut's own documented layout (ADR-056) --
+    // moved-from, not borrowed, so a callback that itself hands the buffer
+    // off again (e.g. into a dispatch_async block bound for Cocoa's main
+    // thread, WU-22c's own use) never has to copy it first. Must not throw:
+    // the same "fn must not throw" precondition this project already places
+    // on every callback it invokes from inside a tight per-frame loop
+    // (ThreadPool::runOnAll(), core/pipeline.hpp).
+    using CoverageCallback = std::function<void(std::vector<WeightAccum>)>;
+
     // ring is caller-owned and must outlive this object -- the same
     // convention CaptureSource::create() already documents for its own ring
     // parameter (WU-20b). lattice and params are copied in, not referenced:
@@ -109,7 +137,16 @@ public:
     // this consumer's own destination geometry for its whole lifetime --
     // unlike the lattice (see setLattice() below, WU-21f), destination
     // geometry has no update path and was never asked for one.
-    CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params);
+    //
+    // coverageCallback defaults to nullptr (WU-22c, ADR-058): the opt-in
+    // hook described above this class. When null, processOne() does not
+    // allocate or fill a coverage buffer at all -- params.weightOut stays
+    // exactly whatever the caller's own params.weightOut already was
+    // (normally left at its own nullptr default, per ADR-056), so a caller
+    // that does not pass this parameter sees zero cost and zero behaviour
+    // change versus this unit's own pre-WU-22c shape.
+    CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
+                     CoverageCallback coverageCallback = nullptr);
     ~CaptureConsumer();
 
     CaptureConsumer(const CaptureConsumer&) = delete;
@@ -159,6 +196,7 @@ private:
 
     const PipelineParams m_params;
     const std::size_t m_dstRowBytes;
+    const CoverageCallback m_coverageCallback;  // WU-22c; null unless caller opts in
 
     std::thread m_thread;
     std::atomic<bool> m_stopping{false};
