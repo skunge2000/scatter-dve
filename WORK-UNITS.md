@@ -1432,7 +1432,7 @@ drafted this in, the same gap every DeckLink-touching unit before it has
 named.
 
 ### WU-22a — Diagnostic coverage view: opt-in full-frame weight-capture
-plumbing (`PipelineParams::weightOut`) `wip`
+plumbing (`PipelineParams::weightOut`) `green` (`wu-22a-green`)
 See `DECISIONS.md` ADR-056 for the full design: the weight-only (det J
 deferred)/portable-plumbing-vs-Mac-only-display splits — this unit is the
 first (WU-22b, not started, covers the second); why `PipelineParams::
@@ -1459,16 +1459,28 @@ an independent recomputation via the public `generateFragments()`/
 ASan/UBSan matrix in the Linux cloud sandbox this session (all green);
 delivered to the real repository via the device bridge and confirmed
 written correctly (sha256 match — `device_stage_files` itself was blocked
-this session by a stale device sign-in, see `HANDOFF.md`). **Not yet
-built, tested, or `close.sh`'d at Steve's own real terminal.**
+this session by a stale device sign-in, see `HANDOFF.md`). Confirmed at
+Steve's own real terminal: `cmake --build build` clean (`ninja: no work
+to do` — already configured), `ctest --test-dir build --output-on-failure`
+27 of 28 passing, `test_coverage_capture` itself green, the sole failure
+`test_decklink_device`'s `foundDuplexDevice` check — ADR-035's own
+already-accepted exception (Monitor 3G only, not full duplex), unrelated
+to this unit. `./tools/close.sh 22a` itself correctly refused to tag,
+having no knowledge of ADR-035; the manual `git tag -a wu-22a-green ...`
+step every DeckLink-touching unit since ADR-035 has used was run instead.
+Confirmed `green`, tagged `wu-22a-green` (verified directly against the
+real repository's own `git show wu-22a-green --stat`: exactly the seven
+files above — see `HANDOFF.md`). `git push origin HEAD --tags` reported
+no `origin` remote configured; the tag and commit are local-only, the same
+as `close.sh` itself would have silently accepted.
 
 ### WU-22b — Diagnostic coverage view: Metal window display on the Mac's
 own display `todo`
 Not scoped or started this session. Steve's own decision (this session):
 weight only to begin with (no det J yet), rendered live in a window on
 the Mac itself — not the spare UltraStudio Monitor 3G output. Reads
-`PipelineParams::weightOut` (WU-22a) once that unit is built and tagged
-at Steve's own terminal. Introduces this project's first Metal/Cocoa
+`PipelineParams::weightOut`, now `green` as of `wu-22a-green`. Introduces
+this project's first Metal/Cocoa
 dependency, which cannot be reasoned through or verified in the Linux
 cloud sandbox at all — needs its own real scoping session at Steve's own
 real terminal.

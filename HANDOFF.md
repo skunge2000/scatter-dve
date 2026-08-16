@@ -4,13 +4,23 @@ Overwritten at the end of every session. This is the first thing to read.
 ---
 
 **Session:** 30 (WU-22a only — WU-22b explicitly not started, see below)
-**Tag:** `wu-21i-green` confirmed to exist and to contain all four files
-(`git show wu-21i-green --stat`: `CORRECTIONS.md`, `DECISIONS.md`,
-`WORK-UNITS.md`, `tests/test_decklink_live_sphere.cpp`) — the commit-gap
-fix Session 29's own `HANDOFF.md` flagged was checked directly against the
-real repository at the start of this session and found already resolved.
-No new tag exists yet this session — WU-22a is delivered but **not yet
-built, tested, or `close.sh`'d at Steve's own real terminal.**
+**Tag:** `wu-22a-green` — confirmed at Steve's own real terminal this
+session. `cmake --build build` clean, `ctest --test-dir build
+--output-on-failure` 27/28 (the sole failure `test_decklink_device`'s
+`foundDuplexDevice` check, ADR-035's own already-accepted exception,
+unrelated to this unit), `test_coverage_capture` itself green.
+`./tools/close.sh 22a` correctly refused to auto-tag (it has no knowledge
+of ADR-035); the manual `git tag -a wu-22a-green ...` step every
+DeckLink-touching unit since ADR-035 has used was run instead, and
+verified directly against the real repository: `git show wu-22a-green
+--stat` lists exactly the seven files this unit's own commit touched
+(`CMakeLists.txt`, `DECISIONS.md`, `HANDOFF.md`, `WORK-UNITS.md`,
+`src/core/pipeline.cpp`, `src/core/resolve.hpp`,
+`tests/test_coverage_capture.cpp`). `git push origin HEAD --tags` reported
+no `origin` remote configured — the commit and tag are local-only, same as
+`close.sh` itself would have silently accepted. Also re-confirmed
+`wu-21i-green` still exists and still contains all four of its own files
+— Session 29's own flagged commit gap remains genuinely resolved.
 
 **Before doing anything else in the next session:** run `git tag`, `git
 log --oneline -10` and `git status --short` directly against
@@ -42,20 +52,13 @@ the Claude desktop app on this device** — a sign-in banner should already
 be showing there — so the next session's file staging works normally
 again.
 
-**3. A stale `.git/index.lock` exists in `~/src/scatter-dve`.** It showed
-up after two consecutive `git status --short` calls via the device bridge
-this session; `git status` itself still returns correct output despite it
-(`M CMakeLists.txt`, `M src/core/pipeline.cpp`, `M src/core/resolve.hpp`,
-`?? tests/test_coverage_capture.cpp`, plus whatever this session's
-`DECISIONS.md`/`WORK-UNITS.md`/`HANDOFF.md` writes add), so it is not
-currently blocking reads — but `device_bash` cannot delete files on a
-mounted folder (a fixed limitation of this environment, not something to
-retry), so it is still sitting there. **Run this before any `git add` /
-`git commit` / `close.sh`:**
-
-```
-rm -f ~/src/scatter-dve/.git/index.lock
-```
+**3. (Resolved this session.)** A stale `.git/index.lock` appeared in
+`~/src/scatter-dve` after two consecutive `git status --short` calls via
+the device bridge; `device_bash` cannot delete files on a mounted folder,
+so it needed Steve's own `rm -f ~/src/scatter-dve/.git/index.lock` at his
+real terminal, which he ran before committing — confirmed gone afterward.
+No action needed; noted here only so a lock file reappearing next session
+reads as a new occurrence, not a repeat of this one.
 
 ## This session in full
 
@@ -110,8 +113,21 @@ no regressions elsewhere. Delivered to the real repository (`src/core/
 resolve.hpp`, `src/core/pipeline.cpp`, `tests/test_coverage_capture.cpp`,
 `CMakeLists.txt`) via the device bridge and confirmed written correctly
 by sha256 comparison (see Flagged item 2 above for why sha256 rather than
-the normal re-stage-and-diff). `DECISIONS.md` ADR-056, the `WORK-UNITS.md`
-WU-22a/WU-22b entries, and this file are delivered the same way.
+the normal re-stage-and-diff). `DECISIONS.md` ADR-056 and the
+`WORK-UNITS.md` WU-22a/WU-22b entries were delivered the same way.
+
+Steve then built and tested it himself at his real terminal: `cmake
+--build build` (`ninja: no work to do` — already configured from Session
+29), `ctest --test-dir build --output-on-failure` 27/28, the sole failure
+`test_decklink_device`'s `foundDuplexDevice` check (ADR-035's own
+already-accepted exception), `test_coverage_capture` itself green.
+Committed (`d58641a`), then `./tools/close.sh 22a` correctly refused to
+auto-tag (no knowledge of ADR-035), so the manual `git tag -a
+wu-22a-green ...` step every DeckLink-touching unit since ADR-035 has
+used was run instead — confirmed via `git show wu-22a-green --stat`
+listing exactly the seven files this unit's own commit touched. No
+`origin` remote configured, so the tag is local-only. **WU-22a is
+genuinely `green`.**
 
 **WU-22b (the Metal window itself) was deliberately not started.** It is
 this project's first Metal/Cocoa dependency of any kind — nothing else in
@@ -122,25 +138,24 @@ cannot compile, let alone run, anything Metal-related.
 ## Where we are
 
 Phase 5 (Live capture) is otherwise unchanged from Session 29's own
-account. Phase 6 (Scale up) now has its first real entry: WU-22a `wip`
-(delivered, not yet built/tested/tagged at Steve's own terminal), WU-22b
-`todo` (unscoped). `DECISIONS.md` runs through ADR-056. `CORRECTIONS.md`
-is unchanged this session (still through C-018) — see above for why the
-C-008(a) finding did not get a new entry.
+account. Phase 6 (Scale up) now has its first real entry: WU-22a `green`
+(`wu-22a-green`), WU-22b `todo` (unscoped, not started). `DECISIONS.md`
+runs through ADR-056. `CORRECTIONS.md` is unchanged this session (still
+through C-018) — see above for why the C-008(a) finding did not get a new
+entry.
 
 ## Next work unit
 
-**Build, test, and `close.sh` WU-22a first**, at Steve's own real
-terminal — exact commands below. It cannot go green until that happens;
-nothing else should be treated as "next" until it does. After that,
-WU-22b (the Metal window) is the natural continuation if Steve wants to
-see the weight capture actually rendered — but it needs a real scoping
-conversation first (target frame rate for the display refresh, whether it
-shares the Mac's main event loop with anything else, a colour ramp for
-the weight visualisation, window size/resizability), not an assumed
-design. WU-21d (cold-start black-fill fix) and starting to scope WU-28
-(k-buffer) remain open candidates too, exactly as Session 29 left them,
-if Steve would rather pick up one of those instead.
+Not decided here, deliberately — Steve's own call at the start of the
+next session. WU-22b (the Metal window) is the natural continuation if
+Steve wants to see the weight capture actually rendered — but it needs a
+real scoping conversation first (target frame rate for the display
+refresh, whether it shares the Mac's main event loop with anything else,
+a colour ramp for the weight visualisation, window size/resizability),
+not an assumed design, since it is this project's first Metal/Cocoa
+dependency of any kind. WU-21d (cold-start black-fill fix) and starting
+to scope WU-28 (k-buffer) remain open candidates too, exactly as Session
+29 left them, if Steve would rather pick up one of those instead.
 
 ## Open questions
 
@@ -153,10 +168,8 @@ just theorised about) by WU-22a's own test 2, see above.
 
 ## Blocked / red
 
-Nothing red. WU-22a is fully green in the cloud sandbox; it simply has
-not yet been run at Steve's own real terminal, which is the only place
-that can happen for a final "genuinely done" verdict per this project's
-own rules.
+Nothing red. WU-22a is genuinely `green`, confirmed at Steve's own real
+terminal.
 
 ## Environment check
 
@@ -179,47 +192,9 @@ the stale `.git/index.lock`) — appended in full this session; see
 None this session — see "This session in full" above for why the
 C-008(a) finding during WU-22a test-writing did not warrant a new entry.
 
-## Exact commands for Steve's own real terminal
+## Closed out this session
 
-Run these in order. Do not skip the lock-file removal or the `git status`
-check — both matter given what this session found.
-
-```
-rm -f ~/src/scatter-dve/.git/index.lock
-cd ~/src/scatter-dve
-git status --short
-```
-
-Expect to see modified `CMakeLists.txt`, `src/core/pipeline.cpp`,
-`src/core/resolve.hpp`, `DECISIONS.md`, `WORK-UNITS.md`, `HANDOFF.md`, and
-a new untracked `tests/test_coverage_capture.cpp`. If anything else shows
-up, stop and check it before continuing — it means something this
-session's account does not cover.
-
-```
-git add CMakeLists.txt src/core/pipeline.cpp src/core/resolve.hpp tests/test_coverage_capture.cpp DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-22a: opt-in weight-capture plumbing (PipelineParams::weightOut)"
-```
-
-Then build and test it yourself before trusting the sandbox's own "all
-green" claim:
-
-```
-cd ~/src/scatter-dve
-cmake -B build -G Ninja -DBLACKMAGIC_SDK_DIR="/Users/stephenneal/src/Blackmagic DeckLink SDK 16.0"
-cmake --build build
-ctest --test-dir build --output-on-failure -R coverage_capture
-```
-
-If that passes, run the full suite and close the unit (this tags
-`wu-22a-green` and pushes if `origin` is configured — `close.sh` refuses
-on a dirty tree or an existing tag, so the commit above must land first):
-
-```
-./tools/close.sh 22a
-git show wu-22a-green --stat
-```
-
-Confirm `git show wu-22a-green --stat` lists all seven files above before
-treating WU-22a as genuinely closed — the same check Session 29's own
-flagged gap should have caught earlier for WU-21i.
+WU-22a's full loop — sandbox build/verify, delivery via the device
+bridge, Steve's own real-terminal build/test, manual tag per the ADR-035
+exception pattern, and `git show wu-22a-green --stat` confirmation — all
+completed within this same session. Nothing outstanding for WU-22a.
