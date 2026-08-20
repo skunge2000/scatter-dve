@@ -5957,3 +5957,161 @@ or run by the session that wrote it. Needs the same real-terminal
 specifically clicking into the coverage window and confirming all ten
 controls (six letters, four arrows) move the sphere from there too, before
 this unit can be called `green`.
+
+**ADR-059 — WU-28 scoping: tag-keyed bounded k-buffer (k=4), depth-sort-at-
+resolve-only, split into WU-28a/WU-28b (`src/core/types.hpp`,
+`src/core/splat.hpp`/`.cpp`, `src/core/resolve.hpp`/`.cpp`,
+`src/core/pipeline.cpp`; `WORK-UNITS.md`'s own `WU-28` entry, replaced by
+this ADR's own split below).** Session opened per Steve's own explicit
+instruction: this session's job was to scope WU-28 (the front/back
+occlusion/transparency problem WU-21g/h's own full-360-degree sphere wrap
+first made concretely visible on screen, ADR-053, and `WU-28`'s own backlog
+entry deferred), not to build it. Repository state verified directly
+against the real repository via the device bridge before anything else
+(`git tag`, `git log --oneline -5`, `git status --short`): clean working
+tree, `HEAD` at `a40e403` (WU-22c), matching `HANDOFF.md`'s own account
+exactly, no drift to report. (Separately, this same check found `wu-22c-green`
+now exists and `origin/main` is in sync — Steve's own WU-22c close-out
+completed between sessions; `WORK-UNITS.md`'s own WU-22c status line, still
+reading `wip`, was fixed directly — see that entry.)
+
+Then read `core/types.hpp`, `core/splat.hpp`/`.cpp`, `core/resolve.hpp`/`.cpp`
+and `core/pipeline.cpp` in full before asking Steve anything, per his own
+explicit instruction — grounding every scoping question in what the code
+actually does today (`Frag`'s already-present, currently-unused `z` field;
+`AccumCell`'s 32-byte layout with no depth tracking; `accumulateCorner()`
+as the one place fragment arithmetic is written; `compositeLayered()`'s
+existing two-caller-ordered-layer opacity mechanism, ADR-028/029;
+`resolveOneTile()` as the one shared per-tile function every threading path
+funnels through, which any new design must keep true of itself too) rather
+than a guess.
+
+Steve's first answer, in response to being asked how deep the fix should
+go (narrow nearest-only / small bounded-k / general unbounded k-buffer),
+was a request to first check how the real Quantel Mirage patent
+(US 4,563,703) handles this, before choosing — treated the same way this
+project already treats "read the real SDK before scoping" (ADR-031/032/046/
+047/048/049/050), extended here to the patent text itself. Findings, from
+the patent's own text (Google Patents, US4563703A): its "Z" parameter is
+the fractional/sub-pixel coverage-weight fraction allocated to a storage
+cell during the splat — the same role this project's own `rawWeight`
+(`splat.cpp`'s `accumulateCorner()`) already plays, not a depth value at
+all, and *not* what this project's own `Frag::z` field is for. The
+patent's only overlap-handling mechanism is the two-layer page-turn-flap
+case — transparent-by-default accumulation, or read-replace-write for a
+flap marked opaque via an "identification tag" — already fully built in
+this project as `compositeLayered()` (WU-12b, ADR-028/029). **The patent
+discloses no general mechanism for more than two overlapping surfaces, for
+a single surface folding over itself (a sphere's own front and back), or
+for arbitrary depth-priority ordering.** `docs/architecture.md` section
+4.7 phase 2's "nearest 8 depth-sorted layers" language is this project's
+own extrapolation of a conventional computer-graphics k-buffer, not
+anything drawn from the patent — this scoping session is genuinely
+inventing new design territory here, not porting one.
+
+Remaining scoping answers, each grounded in the code read above: occlusion
+and transparency are one unit's worth of underlying k-buffer structure but
+two separate, related resolve-time outcomes (Steve's original framing on
+`WU-28`'s own backlog entry, reconfirmed, not reopened); memory is
+explicitly not a constraint this design needs to economise around
+("correctness first"); this design stays entirely inside `scatter-core`
+(`core/types.hpp`, `core/splat.hpp`/`.cpp`, `core/resolve.hpp`/`.cpp`,
+`core/pipeline.cpp` — no Blackmagic SDK, no Metal/Cocoa anywhere in the
+touched set, confirmed against `CMakeLists.txt`'s own target split), so per
+Steve's own explicit answer, WU-28a and WU-28b below are buildable,
+runnable and testable directly in this project's cloud sandbox once someone
+actually writes them — unlike every DeckLink/Cocoa-touching unit before
+them, which could only ever be reasoned-through and handed off via the
+device bridge.
+
+The concrete design fork: Steve asked for headroom beyond the minimal case
+(one folding sphere's own front and back, which alone would only ever need
+k=2 — a convex surface's own self-fold crosses any line of sight at most
+twice), i.e. genuine support for more than two independently overlapping
+surfaces at a shared destination cell, without committing to a fully
+unbounded structure — landing on a **fixed per-cell ceiling of k=4**
+(matching `docs/architecture.md`'s own old "nearest 8" phase-2 language
+loosely, chosen smaller here as the more contained first design; nothing
+prevents a later unit from raising the constant).
+
+Working through k=4 concretely surfaced a real risk against I6 (the
+determinism oracle, `--threads 1` must be byte-identical to any
+multi-threaded run — this project's own documented single most valuable
+debugging property, never to be weakened): `Frag::z` is quantised to 16
+bits, so adjacent source samples of the *same* continuous surface landing
+in the same destination cell routinely produce exactly tied `z` values —
+not a rare case. A naive "insert fragment, evict the farthest of k slots
+when full" scheme, run incrementally during accumulation, is order-sensitive
+on exactly this kind of tie, which would silently weaken I6. Resolution,
+agreed with Steve: key each cell's (up to k) slots by `Frag::tag` (surface
+id) instead of raw `z`. Same-tag contributions accumulate into their one
+shared slot with exactly today's `accumulateCorner()` arithmetic — an
+unchanged, already order-independent mechanism (ordinary
+commutative/associative integer sum, I4/I6) — so ties within one surface
+never need breaking at all. `z` is used only once, at resolve time, to sort
+the small number of occupied slots front-to-back for the opaque/blend
+composite step below, after all accumulation for that cell is already
+finished — a sort over a fully-accumulated, order-independent input is
+itself trivially order-independent.
+
+The remaining fork was what happens when *more than k* distinct tags land
+in one cell — genuinely more than one folding surface's own front/back,
+Steve's own "headroom" case. Two options were put to Steve: (a) no hard cap
+during accumulation at all (every distinct tag occupying a cell gets its
+own transient slot, however many that is; truncate to the nearest k only
+at resolve, after accumulation is complete — fully order-independent in
+every case, no caveat needed, at the cost of `TileAccum`'s per-cell storage
+becoming a small dynamic/tag-keyed structure instead of a fixed-size
+array); or (b) a hard cap of k slots enforced during accumulation itself,
+evicting the farthest-so-far tag when a (k+1)th distinct tag arrives,
+keeping storage closer to today's fixed-array shape at the cost of that
+specific eviction's outcome not being provably order-independent across
+threading paths in this one edge case. **Steve chose (b)**, explicitly
+accepting this as a documented, honest limitation (in the same spirit
+`CORRECTIONS.md` already keeps this project honest about known caveats)
+rather than paying the bigger structural change for a case — more than four
+independently overlapping surfaces at one destination cell — expected to be
+rare relative to the two-surface fold case this unit exists to fix.
+WU-28a's own accept criteria test this eviction path for run-to-run
+self-consistency (same thread count -> same output, every time), not for
+correctness against an independent oracle, which is exactly what (b)'s
+caveat concedes it cannot promise for that one case.
+
+Resolve-side outcomes stay two, per Steve's own original `WU-28` framing:
+opaque occlusion (nearest tag's slot wins outright, the rest discarded —
+the same read-replace-write shape `compositeLayered()` already has,
+ADR-028/029, but now driven by depth order among up to k tag-slots instead
+of by caller-supplied layer order) and transparency (a user-controlled
+blend across the occupied slots sorted front-to-back by `z`). This ADR does
+not fix the exact blend formula or the exact new `PipelineParams` field
+names — those are WU-28b's own job to design against the real,
+already-accumulated slot data it will actually have, the same way `pool`
+(WU-19a) and `weightOut` (WU-22a) were each designed as opt-in, default-off,
+zero-cost-when-absent `PipelineParams` additions once their own unit
+actually built them, not invented wholesale at scoping time.
+
+Sizing: the full design — a new per-cell record type (`core/types.hpp`),
+tag-routed accumulation with the eviction policy above
+(`core/splat.hpp`/`.cpp`), a new depth-sort-and-composite resolve step plus
+`PipelineParams` additions (`core/resolve.hpp`/`.cpp`), and the
+`resolveOneTile()` wiring (`core/pipeline.cpp`) — does not fit
+`SESSION-PROTOCOL.md`'s own "3 source files plus test, ~400 lines" cap in
+one unit. Split into **WU-28a** (storage/accumulation: `core/types.hpp`,
+`core/splat.hpp`, `core/splat.cpp`, new test) and **WU-28b**
+(resolve/composite: `core/resolve.hpp`, `core/resolve.cpp`,
+`core/pipeline.cpp`, new test), the same seam `core/splat.cpp` and
+`core/resolve.cpp` already have between them from WU-09/WU-10 onward — see
+`WORK-UNITS.md`'s own replaced `WU-28` entry for each sub-unit's own
+`Files:`/`Accept:` lines. Both new entry points are additive, alongside
+today's `splatTile()`/`sumBanks()`/`composite()`/`compositeLayered()`, not
+a change to any of their existing contracts (`SESSION-PROTOCOL.md` rule
+2) — every existing shape, test and unit that has never needed
+multi-surface handling stays exactly as it is, untouched.
+
+**No code written this session** — scoping only, as explicitly instructed.
+Does not reopen `compositeLayered()`'s own existing two-layer design
+(ADR-028/029, ADR-009's "not a k-buffer" note stays true of that specific
+mechanism), `docs/architecture.md`, or any already-`green` unit. WU-28a is
+the natural next session's own first job; per Steve's own answer during
+this scoping conversation, that session can build, run and test it directly
+in this sandbox, since nothing it touches leaves `scatter-core`.

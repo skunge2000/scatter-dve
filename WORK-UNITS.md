@@ -1533,7 +1533,16 @@ configured, same as every earlier unit) — the commit and tag are
 local-only. **WU-22b is genuinely `green`.**
 
 ### WU-22c — Diagnostic coverage view: wire `CoverageWindow` into the live
-capture/output pipeline `wip`
+capture/output pipeline `green`
+**Confirmed `green` this session (Session 33), not built or tested by it:**
+`wu-22c-green` exists in the real repository and `git status -sb` reads
+`## main...origin/main` with no ahead/behind marker — Steve's own
+build/run/verify/commit/tag/push (`HANDOFF.md`'s own Session 32 "Steve's
+own next steps") completed between sessions. This entry's own status line
+was still `wip` until this fix — the same staleness `WU-21i`'s own entry
+carried for three sessions running (Session 31's `HANDOFF.md`, Flagged item
+1) — fixed directly per that same file's own standing instruction to fix a
+confirmed-stale status line on sight rather than carry it forward again.
 See `DECISIONS.md` ADR-058 for the full design: the scoping conversation
 (flag name/behavior, how the terminal keypress loop and Cocoa's own
 main-thread run loop coexist, which thread produces frames and whether
@@ -1634,23 +1643,95 @@ needs turn out to be by then, same discipline as every other unit.
 
 ### WU-26 — Normals from lattice `todo`
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
-### WU-28 — k-buffer `todo`
-Recorded ahead of this unit's own real scoping session, the same "Steve's
-own stated preference, noted here for whoever scopes this unit" convention
-WU-23's own entry above already uses — not a decision made now. WU-21g/
-WU-21h's own full-360-degree sphere wrap (`DECISIONS.md` ADR-053) gave this
-project its first concrete, on-screen case of what this unit exists to
-fix: with the sphere's own front and back hemispheres both present in the
-same lattice and no depth-based occlusion or sorting yet, they visibly
-overlap on screen wherever their projected positions coincide, simply
-accumulating (`architecture.md` 4.7 phase 1's own documented behaviour,
-`tests/test_shapes.cpp`'s own folding-regime check) rather than the front
-properly hiding the back. Steve asked that this unit's own eventual scope
-explicitly cover two related but distinct questions, not just one: proper
-front/back switching (opaque occlusion — the k-buffer's own core job) and
-transparency (genuine alpha blending, a different and additional concern
-from occlusion, worth deciding on its own terms whenever this unit is
-actually scoped, not assumed to fall out of a k-buffer for free).
+### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `todo`
+See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
+a decision made until now) and the design fork it resolved. Splits from
+the single `WU-28` line this replaces the same way WU-16a/b split PASS 2
+from PASS 1 (ADR-040/041) and WU-19a/b split the persistent pool from the
+diagnostic side channel: the full k-buffer design does not fit
+`SESSION-PROTOCOL.md`'s "3 source files" cap without reopening
+`core/resolve.hpp`/`.cpp` too, so the accumulate side (this unit) and the
+resolve/composite side (WU-28b, below) are separate units, following the
+same splat/resolve seam WU-09/WU-10 already established.
+
+Design, per ADR-059: a new, additive per-cell storage shape — up to
+`kBufferK` (4) depth-tagged slots, keyed by `Frag::tag`, alongside (not
+replacing) today's single-`AccumCell`-per-cell path, so every unit that has
+never needed multi-surface handling (every existing shape and test) is
+unaffected. Same-tag contributions accumulate into their tag's own slot
+with exactly today's `accumulateCorner()` arithmetic (order-independent
+sum, I6 unchanged) — this sidesteps the tied-`z` determinism risk ADR-059
+found, since ties within one surface's own quantised `z` never need
+breaking at all. When a fragment's tag has no existing slot in a cell and
+all `kBufferK` slots are already occupied by other tags, the farthest-so-far
+occupied slot (by first-seen `z`) is evicted and replaced. ADR-059 records
+this as an explicit, accepted caveat, chosen deliberately over the fully
+order-independent no-cap/truncate-at-resolve alternative: this specific
+eviction's outcome, in the case of more than `kBufferK` distinct tags
+genuinely overlapping one destination cell, is not proven order-independent
+across threading paths.
+
+**Files:** `src/core/types.hpp` (new k-slot record, e.g. `KSlot` — tag,
+first-seen `z`, one `AccumCell`; a compile-time `kBufferK` constant),
+`src/core/splat.hpp`, `src/core/splat.cpp` (new, additive entry points
+alongside — not replacing — `splatTile()`/`sumBanks()`, e.g.
+`splatTileKBuffer()`/`sumBanksKBuffer()`, per `SESSION-PROTOCOL.md` rule 2:
+existing entry points' names and contracts are frozen), `tests/test_kbuffer_storage.cpp`
+(new); plus `CMakeLists.txt` (`test_kbuffer_storage` target added).
+
+**Accept:** for a synthetic tile where multiple tags' fragments land in the
+same cells, `--threads 1` output (each cell's set of occupied tag-slots and
+their accumulated Y/Cb/Cr/w) is byte-identical to an 8-thread run's output,
+for at least one fragment order exercising same-tag ties at identical
+quantised `z` and one exercising the >`kBufferK`-distinct-tags eviction
+case (this second case's own outcome is checked only for run-to-run
+self-consistency at a given thread count, not against an independent
+oracle — exactly what ADR-059's own documented caveat concedes it cannot
+promise). A cell where only one tag is ever present reproduces today's
+plain `sumBanks()` `AccumCell` exactly.
+
+*Status:* scoped only this session — no code written. See `HANDOFF.md`.
+
+### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `todo`
+See `DECISIONS.md` ADR-059. Consumes WU-28a's per-cell occupied-slot set.
+Two related but distinct outcomes, per Steve's own original framing of this
+unit's scope (recorded in `WU-28`'s original single-line entry, preserved
+here in spirit): opaque occlusion (front tag's slot wins outright, the rest
+discarded — the same read-replace-write shape `compositeLayered()` already
+has, ADR-028/029, but now driven by depth order among up to k tag-slots
+instead of by caller-supplied layer order) and transparency (a
+user-controlled blend across the occupied slots, sorted front-to-back by
+each slot's first-seen `z` — the blend ratio/formula itself is this unit's
+own job to design against real code, not fixed by this scoping session).
+Both modes are new, additive `PipelineParams` fields (opt-in, default-off,
+zero-cost-when-absent, the same shape `pool`/`weightOut` already
+established), not a change to `composite()`'s or `compositeLayered()`'s own
+existing contracts.
+
+**Files:** `src/core/resolve.hpp`, `src/core/resolve.cpp` (new function
+alongside `composite()`/`compositeLayered()`; new `PipelineParams` fields
+for opacity mode and blend control), `src/core/pipeline.cpp`
+(`resolveOneTile()` wired to call the new k-buffer resolve path when
+WU-28a's storage is in use), `tests/test_kbuffer_resolve.cpp` (new); plus
+`CMakeLists.txt`.
+
+**Accept:** for a synthetic multi-tag cell set (from WU-28a's storage),
+opaque mode's output matches the nearest tag's own resolved `AccumCell`
+exactly; blend mode's output matches the chosen blend formula for a known
+ratio; the full pipeline (`runFrame()` end to end) at `--threads 1` is
+byte-identical to an 8-thread run for a real folding-sphere frame (WU-21g/h's
+own geometry), satisfying I6 for the completed feature, not just WU-28a's
+storage step in isolation.
+
+*Status:* scoped only this session — no code written. See `HANDOFF.md`.
+
+Both sub-units stay entirely inside `scatter-core` (`core/types.hpp`,
+`core/splat.hpp`/`.cpp`, `core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` —
+no Blackmagic SDK, no Metal/Cocoa anywhere in the touched set) — per
+Steve's own explicit answer during ADR-059's scoping conversation, both are
+buildable, runnable and testable directly in the cloud sandbox once someone
+actually writes them, unlike every DeckLink/Cocoa-touching unit before
+them.
 ### WU-29 — Environment map `todo`
 
 ---
