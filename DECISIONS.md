@@ -6428,3 +6428,142 @@ first job). `wu-28b-green` remains Steve's own next real-terminal step,
 unaffected by this ADR — WU-28b's own committed code is not being
 withdrawn or changed, only the follow-on work needed to make its effect
 visible is being scoped.
+
+**ADR-063 — WU-26 build: dz/du, dz/dv on the Jacobian, and surfaceNormal()
+as core/jacobian.hpp's third Jacobian-derived quantity. Cross-product order
+Tv x Tu (not Tu x Tv), fixed by this project's own front/back convention.**
+Scoping and build together, one session, per SESSION-PROTOCOL.md's normal
+shape — unlike ADR-059/ADR-062, this unit's own scoping did not need
+splitting from its build: `core/lattice.hpp`'s own header comment already
+named the design in full ("dz/du and dz/dv are not needed until WU-26's
+surface normals (cross product of the two tangent vectors) and can be added
+there without changing this interface"), and `core/jacobian.hpp`'s own
+header comment already reserved this file as the destination ("architecture.md
+4.2 lists three things the Jacobian yields at once... K, filter footprint,
+and (WU-26) the surface normal"), so there was no real design fork left to
+resolve before writing code, only the fork's own details below.
+
+**dz/du, dz/dv: additive fields on `Jacobian`, populated by reusing work
+`jacobian()` already does, not a new lattice evaluation.** `core/lattice.cpp`'s
+`jacobian()` already computes `du`/`dv` as full `Vec3` blends (`blend()` sums
+x, y *and* z alike) and previously discarded their own `.z` components when
+filling in the returned `Jacobian`. WU-26 stores those two already-computed
+values instead of discarding them (`j.dzdu = du.z; j.dzdv = dv.z;`) — no
+extra lattice evaluation, the same reuse-not-duplicate reasoning ADR-062
+already applied when it rejected a finite-difference shortcut around this
+exact addition. `Jacobian`'s three existing readers (`densityCompensation()`,
+`ewaFootprint()` in `core/jacobian.hpp`; `pixelJacobian()` in
+`core/binner.cpp`) read only the four original fields by name and are
+unaffected — confirmed by the unchanged `test_ewa`/`test_binner`/full-suite
+results below, not merely asserted. Note for whichever unit consumes this
+next: `pixelJacobian()` converts only the four original fields from lattice-
+parameter to pixel-parameter scale (per-axis `scaleU`/`scaleV`); it does not
+touch `dzdu`/`dzdv` at all, so a `Jacobian` that has passed through
+`pixelJacobian()` carries zeroed z-derivatives. `surfaceNormal()` must be
+called on `lattice.jacobian(u, v)`'s own direct output, before any
+`pixelJacobian()` conversion — WU-28c's own future scoping should note this
+rather than rediscover it by a wrong result.
+
+**surfaceNormal(): Tv x Tu, not Tu x Tv — fixed by this project's own
+front/back convention, derived and checked against a real shape, not
+asserted.** `Tu = (dxdu, dydu, dzdu)`, `Tv = (dxdv, dydv, dzdv)` are the two
+3D tangent vectors the Jacobian now carries in full. Their cross product is
+a normal to the surface at that `(u, v)`, but a cross product's sign depends
+on argument order, and `architecture.md`/`WORK-UNITS.md`'s own WU-28c entry
+already fixes which sign this project needs: front-facing (visible, toward
+the camera) means `normal.z < 0`, back-facing (folded away) means
+`normal.z >= 0`, in this project's z-increases-into-screen convention
+(`core/shapes/shapes.hpp`, ADR-027). Derivation, using `buildSphereLattice()`
+with default `SphereParams` (`angleSpanH`/`angleSpanV` = pi/2, radius = 200)
+except `angleSpanH` widened to `2*pi` for the self-fold case: at the front-
+most control vertex (`phi == psi == 0`, lattice coordinates `u == v ==
+kLatticeMax/2 == 64.0`), `dP/dphi = (radius, 0, 0)` and `dP/dpsi = (0,
+radius, 0)` exactly (differentiate the sphere parametrisation in
+`core/shapes/shapes.hpp` at `phi = psi = 0`: `dx/dphi = radius*cos(phi)*
+cos(psi) = radius`, `dy/dphi = 0`, `dz/dphi = radius*sin(phi)*cos(psi) = 0`;
+`dx/dpsi = -radius*sin(phi)*sin(psi) = 0`, `dy/dpsi = radius*cos(psi) =
+radius`, `dz/dpsi = radius*cos(phi)*sin(psi) = 0`). `d/du` and `d/dv` are
+these same vectors scaled by `dphi/du = angleSpanH/kLatticeMax > 0` and
+`dpsi/dv = angleSpanV/kLatticeMax > 0` respectively — positive scale factors
+that change magnitude, not direction. So `Tv x Tu = (0, radius, 0) x
+(radius, 0, 0) = (0, 0, -radius^2)`: negative z, correctly front-facing.
+`Tu x Tv` gives `(0, 0, +radius^2)` at the same point — the wrong sign for
+this project's convention, which is why `surfaceNormal()` is written as
+`Tv x Tu`, not the more conventional `Tu x Tv`. Checked at the antipodal
+control vertex too, the literal self-fold case WU-28c and `HANDOFF.md`'s
+Session 36 both name: at `phi == pi, psi == 0` (lattice coordinates `u ==
+0.0, v == 64.0`, the fold boundary of a full `angleSpanH == 2*pi` sphere),
+`dP/dphi = (-radius, 0, 0)`, `dP/dpsi = (0, radius, 0)`, giving `Tv x Tu =
+(0, radius, 0) x (-radius, 0, 0) = (0, 0, +radius^2)` — non-negative z,
+correctly back-facing (folded away from the camera). Both derivations are
+checked directly against `buildSphereLattice()`'s own real output in
+`tests/test_jacobian.cpp`'s `test_surface_normal_sign_matches_facing_
+convention()`, not only worked by hand here.
+
+**Internal-consistency fact, checked but deliberately not used as a
+shortcut: `surfaceNormal(j).z` always equals `-(j.dxdu * j.dydv - j.dxdv *
+j.dydu)`, the existing 2x2 Jacobian determinant with a sign flip, regardless
+of `dz/du`, `dz/dv`.** A 3D cross product's z-component depends only on its
+two inputs' own x and y components — algebraically true for any `Tu`, `Tv`,
+not specific to this implementation — so the facing *sign* alone was always
+recoverable from the pre-WU-26 2x2 Jacobian, with no `dz/du`/`dz/dv` needed.
+This does not make WU-26 unnecessary or invite a shortcut: `normal.x` and
+`normal.y` (needed by any future shading consumer — WU-27's own two-sided
+Blinn-Phong shading is expected to want them, per `WORK-UNITS.md`'s own
+WU-27 line) both genuinely depend on `dz/du`, `dz/dv`, and ADR-062 already
+rejected inventing a second, divergent facing computation elsewhere in favour
+of the one `core/lattice.hpp` promises to this unit by name. The identity is
+recorded here, and checked in `tests/test_jacobian.cpp`'s
+`test_surface_normal_z_matches_2x2_determinant()` against the same synthetic,
+non-planar lattice `tests/test_jacobian.cpp` has used since WU-06
+(`makeTestLattice()`), as a useful redundant check on the implementation, not
+as the mechanism WU-28c should actually use.
+
+**Not normalised to unit length.** A per-source-sample `sqrt` would cost
+something every caller pays whether or not it needs magnitude. The one
+consumer scoped so far, WU-28c (not yet built), needs only the sign of
+`normal.z`, not the length — see `WORK-UNITS.md`'s own WU-28c entry. A future
+consumer needing a unit normal normalises this result itself; nothing here
+precludes that, and inventing a normalised variant nobody has asked for yet
+would be scope this unit does not need.
+
+**Files:** `src/core/lattice.hpp` (two new `Jacobian` fields, `dzdu`/`dzdv`,
+defaulted like the rest of the struct; header comment updated — no field
+renamed, no existing field's meaning changed), `src/core/lattice.cpp`
+(`jacobian()` now stores `du.z`/`dv.z` into the two new fields instead of
+discarding them), `src/core/jacobian.hpp` (new `surfaceNormal()`, additive,
+alongside `densityCompensation()`/`ewaFootprint()` — no existing function's
+signature or behaviour changed); `tests/test_jacobian.cpp` (existing
+`checkJacobianAt()` extended to also check `dzdu`/`dzdv` against central
+differences of `eval().z`, exercising all five existing WU-06 test functions
+automatically; two new test functions, `test_surface_normal_z_matches_2x2_
+determinant()` and `test_surface_normal_sign_matches_facing_convention()`,
+the latter against a real `buildSphereLattice()` lattice). No `CMakeLists.txt`
+change: `test_jacobian` already links `scatter-core` in full (`scatter_test()`,
+`CMakeLists.txt`), which already builds `src/core/shapes/sphere.cpp` for
+every test target, so the new sphere-lattice test needed no new wiring.
++184/-27 lines across the four files — within SESSION-PROTOCOL.md's "3
+source files plus its test, ~400 lines" cap.
+
+**Accept:** built and tested in the cloud sandbox first, per this project's
+own precedent for a core-only unit (ADR-060's own WU-28a build): fresh clone
+of `origin/main` at `wu-28b-green`/`5ba60b3`, confirmed matching the real
+repository's own `git tag`/`git log`/`git status -sb` before any file was
+touched. `cmake -B build -G Ninja && cmake --build build` clean, zero
+warnings, zero errors (portable `scatter-core` target only — no Blackmagic
+SDK in this sandbox, same as every earlier cloud-sandbox session). Full
+portable `ctest` suite: 22 of 22 targets passing, no regressions anywhere
+outside `test_jacobian` itself. `test_jacobian` alone: 551 checks passing
+(up from the pre-WU-26 baseline — `dzdu`/`dzdv` checks now run inside every
+existing WU-06 test function via `checkJacobianAt()`, plus the two new
+WU-26-specific functions), confirming both the dz/du, dz/dv agreement with
+central differences (1e-6 relative, WU-06's own tolerance, reused unchanged)
+and both `surfaceNormal()` checks above. Steve's own real-terminal
+build/`ctest`/commit/tag/push (`wu-26-green`) is the remaining step — see
+`HANDOFF.md`.
+
+Does not reopen ADR-059, ADR-060, ADR-061 or ADR-062. Unblocks WU-28c's own
+future scoping session (`WORK-UNITS.md`'s own WU-28c entry can now be scoped
+in full, no longer provisional pending WU-26) — this ADR does not itself
+scope WU-28c, per ADR-062's own explicit deferral of that to a future
+session.

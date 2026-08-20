@@ -26,12 +26,15 @@
 // eval() itself.
 //
 // z rides along in eval() because 4.1 says a shape produces (x, y, z), but
-// Jacobian is deliberately 2x2: 4.2 defines it on x and y only, because it
-// drives K = 1/|det J| and the destination-raster filter footprint, both
-// properties of where a source sample lands in the 2D output raster. dz/du
-// and dz/dv are not needed until WU-26's surface normals (cross product of
-// the two tangent vectors) and can be added there without changing this
-// interface.
+// Jacobian was originally 2x2: 4.2 defines K = 1/|det J| and the
+// destination-raster filter footprint purely from x and y, both properties
+// of where a source sample lands in the 2D output raster, so those two
+// consumers (core/jacobian.hpp's densityCompensation()/ewaFootprint(), and
+// core/binner.cpp's pixelJacobian()) never needed dz/du, dz/dv and are
+// unchanged by WU-26 adding them below. WU-26 (DECISIONS.md ADR-063) is
+// architecture.md 4.2's third Jacobian-derived quantity, the surface normal
+// (cross product of the two tangent vectors) — see core/jacobian.hpp's
+// surfaceNormal(), which reads dzdu/dzdv alongside the original four fields.
 //
 // Double precision throughout: this is evaluated once per frame on one
 // thread (16 641 control vertices, architecture.md 4.1) plus one Catmull-Rom
@@ -67,6 +70,15 @@ struct Jacobian {
     double dxdv = 0.0;
     double dydu = 0.0;
     double dydv = 0.0;
+
+    // WU-26 (DECISIONS.md ADR-063): dP/du's and dP/dv's own z components —
+    // together with the x/y fields above, the full 3D tangent vectors
+    // core/jacobian.hpp's surfaceNormal() needs. Additive: every existing
+    // reader of this struct (densityCompensation(), ewaFootprint(),
+    // pixelJacobian()) reads only the four original fields by name and is
+    // unaffected by these two being appended.
+    double dzdu = 0.0;
+    double dzdv = 0.0;
 };
 
 class Lattice {
@@ -89,11 +101,13 @@ public:
     // rather than undefined behaviour.
     Vec3 eval(double u, double v) const noexcept;
 
-    // Analytic d(eval().x)/du, d(eval().x)/dv, d(eval().y)/du, d(eval().y)/dv
-    // at the same (u, v), obtained by differentiating eval()'s cubic basis
-    // term by term — see tests/test_jacobian.cpp for the central-difference
-    // check this must agree with, interior and at the lattice edges, to
-    // 1e-6 relative (WORK-UNITS.md WU-06 accept criterion).
+    // Analytic d(eval().x)/du, d(eval().x)/dv, d(eval().y)/du, d(eval().y)/dv,
+    // and (WU-26) d(eval().z)/du, d(eval().z)/dv, at the same (u, v),
+    // obtained by differentiating eval()'s cubic basis term by term — see
+    // tests/test_jacobian.cpp for the central-difference check this must
+    // agree with, interior and at the lattice edges, to 1e-6 relative
+    // (WORK-UNITS.md WU-06 accept criterion, extended to dz/du, dz/dv by
+    // WU-26 using the identical method).
     Jacobian jacobian(double u, double v) const noexcept;
 
 private:

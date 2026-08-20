@@ -1,25 +1,43 @@
-// WU-06: lattice expansion and analytic Jacobian.
+// WU-06: lattice expansion and analytic Jacobian. WU-26 (DECISIONS.md
+// ADR-063) extends this file with dz/du, dz/dv and surfaceNormal().
 //
-// Checks two things:
+// Checks:
 //
 // 1. eval() reproduces control vertices exactly at integer lattice
 //    coordinates. q(0) = p1 is the defining property of a Catmull-Rom
 //    spline (core/lattice.cpp's basisValue(0) is (0,1,0,0) exactly) --
 //    a Jacobian test built on top of a broken interpolant would not mean
 //    anything.
-// 2. jacobian()'s analytic dx/du, dx/dv, dy/du, dy/dv agree with central
-//    (or, at the domain boundary, one-sided) differences of eval() to
-//    1e-6 relative, across the lattice interior, at its edges and
+// 2. jacobian()'s analytic dx/du, dx/dv, dy/du, dy/dv, dz/du, dz/dv agree
+//    with central (or, at the domain boundary, one-sided) differences of
+//    eval() to 1e-6 relative, across the lattice interior, at its edges and
 //    corners, and straddling interior cell knots -- WORK-UNITS.md's WU-06
-//    accept criterion.
+//    accept criterion (dz/du, dz/dv added by WU-26 using the identical
+//    method, in checkJacobianAt() below).
+// 3. (WU-26) surfaceNormal()'s cross-product z-component always equals
+//    -(2x2 Jacobian determinant), independent of dz/du, dz/dv -- an
+//    algebraic fact about 3D cross products, not specific to this
+//    implementation, checked against real (non-synthetic) lattice content.
+// 4. (WU-26) surfaceNormal()'s sign convention -- front-facing means
+//    normal.z < 0, back-facing (self-folded) means normal.z >= 0 -- against
+//    a real buildSphereLattice() lattice at its front-most control vertex
+//    and at the antipodal control vertex of a full (angleSpanH == 2*pi)
+//    self-fold, both hand-derived in DECISIONS.md ADR-063.
 //
-// The control vertex data below is synthetic and arbitrary. This checks
-// that jacobian() differentiates whatever eval() computes, for any lattice
-// content -- not that either matches some particular "shape". Real shapes
-// (plane, cylinder, sphere, ...) arrive at WU-11 onward; this unit is the
-// interpolant and its derivative alone.
+// The control vertex data checkJacobianAt() and most tests below use is
+// synthetic and arbitrary. This checks that jacobian() differentiates
+// whatever eval() computes, for any lattice content -- not that either
+// matches some particular "shape". Real shapes (plane, cylinder, sphere,
+// ...) arrive at WU-11 onward; this unit is the interpolant and its
+// derivative (and, since WU-26, the normal built from it) alone. The two
+// WU-26 sign-convention tests are the deliberate exception, using a real
+// buildSphereLattice() lattice because the sign convention is a statement
+// about this project's own front/back convention (ADR-027), not about the
+// interpolant in the abstract.
 
+#include "core/jacobian.hpp"
 #include "core/lattice.hpp"
+#include "core/shapes/shapes.hpp"
 #include "harness.hpp"
 
 #include <algorithm>
@@ -103,11 +121,18 @@ void checkJacobianAt(const Lattice& lat, double u, double v) {
         [&](double vv) { return lat.eval(u, vv).x; }, v, kH, kMin, kMax);
     const double numDyDv = numericDeriv(
         [&](double vv) { return lat.eval(u, vv).y; }, v, kH, kMin, kMax);
+    // WU-26: same method, extended to z.
+    const double numDzDu = numericDeriv(
+        [&](double uu) { return lat.eval(uu, v).z; }, u, kH, kMin, kMax);
+    const double numDzDv = numericDeriv(
+        [&](double vv) { return lat.eval(u, vv).z; }, v, kH, kMin, kMax);
 
     CHECK_ONCE(relClose(j.dxdu, numDxDu, kTol));
     CHECK_ONCE(relClose(j.dydu, numDyDu, kTol));
     CHECK_ONCE(relClose(j.dxdv, numDxDv, kTol));
     CHECK_ONCE(relClose(j.dydv, numDyDv, kTol));
+    CHECK_ONCE(relClose(j.dzdu, numDzDu, kTol));
+    CHECK_ONCE(relClose(j.dzdv, numDzDv, kTol));
 }
 
 }  // namespace
@@ -186,6 +211,65 @@ static void test_eval_and_jacobian_clamp_out_of_range_input() {
     const Jacobian jBelow = lat.jacobian(-5.0, -5.0);
     CHECK(jBelow.dxdu == jMin.dxdu && jBelow.dxdv == jMin.dxdv);
     CHECK(jBelow.dydu == jMin.dydu && jBelow.dydv == jMin.dydv);
+    CHECK(jBelow.dzdu == jMin.dzdu && jBelow.dzdv == jMin.dzdv);
+}
+
+// WU-26 (DECISIONS.md ADR-063): surfaceNormal(j).z depends only on j's x/y
+// fields (a 3D cross product's z-component never involves either input's
+// own z component), so it must always equal -(the existing 2x2 Jacobian
+// determinant) -- independent of dz/du, dz/dv, and for any lattice content,
+// not just the sphere used by the sign-convention test below.
+static void test_surface_normal_z_matches_2x2_determinant() {
+    Lattice lat = makeTestLattice();
+    const double pts[][2] = {
+        {10.3, 20.7}, {64.5, 64.5}, {1.2, 126.8}, {126.8, 1.2},
+        {0.0, 0.0}, {128.0, 128.0}, {64.0, 64.0},
+    };
+    for (const auto& p : pts) {
+        const Jacobian j = lat.jacobian(p[0], p[1]);
+        const Vec3 n = surfaceNormal(j);
+        const double detJ = j.dxdu * j.dydv - j.dxdv * j.dydu;
+        CHECK_ONCE(relClose(n.z, -detJ, 1e-9));
+    }
+}
+
+// WU-26 (DECISIONS.md ADR-063): surfaceNormal()'s sign convention against a
+// real shape, not a synthetic lattice -- this project's own front/back
+// convention (core/shapes/shapes.hpp, ADR-027) is what fixes which sign is
+// "correct" here, so the check needs a real buildSphereLattice() lattice,
+// not arbitrary control data.
+static void test_surface_normal_sign_matches_facing_convention() {
+    constexpr double kPi = 3.14159265358979323846;
+    using scatter::shapes::SphereParams;
+    using scatter::shapes::buildSphereLattice;
+
+    SphereParams p;
+    p.angleSpanH = 2.0 * kPi;  // full wrap: the sphere self-folds (WU-28c's
+                                // own motivating case, HANDOFF.md Session 36).
+    const Lattice lat = buildSphereLattice(p);
+    const double mid = double(kLatticeMax) / 2.0;  // 64.0: phi == psi == 0
+
+    // Front-most control vertex (phi == psi == 0): front-facing per this
+    // project's convention. DECISIONS.md ADR-063 derives dP/du parallel to
+    // (radius, 0, 0), dP/dv parallel to (0, radius, 0) here, giving
+    // Tv x Tu == (0, 0, -radius^2) -- negative z.
+    {
+        const Jacobian j = lat.jacobian(mid, mid);
+        const Vec3 n = surfaceNormal(j);
+        CHECK(n.z < 0.0);
+    }
+
+    // Antipodal control vertex at the fold boundary (col == 0, phi == -pi;
+    // row == mid, psi == 0): the literal back of the sphere, folded away
+    // from the camera. Back-facing per this project's convention.
+    // DECISIONS.md ADR-063 derives dP/du parallel to (-radius, 0, 0),
+    // dP/dv parallel to (0, radius, 0) here, giving Tv x Tu ==
+    // (0, 0, +radius^2) -- non-negative z.
+    {
+        const Jacobian j = lat.jacobian(0.0, mid);
+        const Vec3 n = surfaceNormal(j);
+        CHECK(n.z >= 0.0);
+    }
 }
 
 int main() {
@@ -195,5 +279,7 @@ int main() {
     test_jacobian_corners();
     test_jacobian_across_interior_knots();
     test_eval_and_jacobian_clamp_out_of_range_input();
+    test_surface_normal_z_matches_2x2_determinant();
+    test_surface_normal_sign_matches_facing_convention();
     return scatter::test::summary("test_jacobian");
 }

@@ -175,6 +175,15 @@ Jacobian Lattice::jacobian(double u, double v) const noexcept {
     j.dydu = du.y;
     j.dxdv = dv.x;
     j.dydv = dv.y;
+    // WU-26 (DECISIONS.md ADR-063): du/dv above are already the full Vec3
+    // blend (blend() sums x, y and z alike), so their own z components are
+    // exactly d(eval().z)/du and d(eval().z)/dv — no extra lattice
+    // evaluation needed, reusing what was already computed above rather
+    // than duplicating it (the same reuse-not-duplicate reasoning
+    // DECISIONS.md ADR-062 already applied when rejecting a
+    // finite-difference shortcut around this addition).
+    j.dzdu = du.z;
+    j.dzdv = dv.z;
     return j;
 }
 

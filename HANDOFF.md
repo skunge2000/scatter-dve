@@ -3,236 +3,313 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 36 (scoping only, no code — WU-28c/WU-28d named and scoped in
-outline, gated on WU-26; `CORRECTIONS.md` C-020 and `DECISIONS.md` ADR-062
-recorded. Triggered by Steve's own direct question against the real
-hardware: "should WU-28b have shown occlusion, it didn't.")
-**Tag:** none this session — scoping-only sessions don't tag, same as
-Session 33's own ADR-059 commit.
+**Session:** 37 (WU-26, Normals from lattice — scoped and built together,
+one session, per `SESSION-PROTOCOL.md`'s normal shape; unlike ADR-059/
+ADR-062, WU-26's own scoping did not need splitting from its build, since
+`core/lattice.hpp`'s and `core/jacobian.hpp`'s own header comments already
+named the design in full. Also: WU-28b's own stale `wip` status line
+corrected doc-only, after confirming Steve's own real-terminal close-out —
+`wu-28b-green` — directly via the device bridge. **Also: a same-session
+mistake, found and fixed — see "Flagged now" item 1 and `CORRECTIONS.md`
+C-021.**)
+**Tag:** `wu-26-green` exists but, as of this file being written, points at
+the *wrong* commit (see C-021 below) — do not trust it without checking
+`git log --oneline -3` shows it on a commit that actually contains WU-26's
+own file changes, not `5ba60b3`. "Steve's own next steps" below fixes this;
+if you are reading this file in a later session and that fix has not yet
+run, treat WU-26 as still not properly closed regardless of what `git tag`
+alone shows.
 
 **Before doing anything else in the next session:** run `git tag`, `git
 log --oneline -10` and `git status --short` directly against
-`~/src/scatter-dve` via the device bridge, the same as every session
-before this one — do not trust this file's own account of tag/commit state
-without checking it against the real repository first.
+`~/src/scatter-dve` via the device bridge, the same as every session before
+this one — do not trust this file's own account of tag/commit state without
+checking it against the real repository first.
 
 ## Flagged now
 
-**1. `WORK-UNITS.md`'s own WU-21i entry is still stale — not touched this
-session, now eight sessions old.** Unchanged since Session 35's own note.
+**1. Same-session mistake, found and fixed: `wu-26-green` was created
+before WU-26's own delivered files were committed.** The device bridge
+wrote WU-26's seven files to Steve's working tree but a file write is not a
+`git commit`; the manual `git tag -a wu-26-green ...` fallback (used
+because `ctest` hit the known `test_decklink_device`/ADR-035 exception,
+same as WU-28b) was then given without an intervening `git add`/`git
+commit` step, so the tag landed on `5ba60b3` — a commit that does not
+contain any of WU-26's own changes. `close.sh` itself would have caught
+this (`git status --porcelain` non-empty → refuses with "uncommitted
+changes"), but the manual-tag fallback has no such check. Full account in
+`CORRECTIONS.md` C-021. Fixed later in this same session (see "This session
+in full" below): `wu-26-green` deleted and recreated on the commit that
+actually contains WU-26's own changes, both pushed — confirm this landed by
+checking `git log --oneline -3` shows `wu-26-green` on a commit whose own
+message names WU-26, not on `5ba60b3`.
 
-**2. WU-28b is still `wip`, not `green`, as of this session's own opening
-check — `HEAD` at `2b9eea4`, no `wu-28b-green` tag, tree clean,
-`origin/main` in sync.** Steve's own real-terminal build/run/`ctest`/
-`close.sh 28b` is unaffected by this session's own findings and remains
-the right next action — WU-28b's own committed code is correct for
-exactly what its `Accept:` line says (synthetic multi-tag slot sets; I6
-across the new threaded code path). Nothing this session found is a defect
-in that commit. See "Steve's own next steps."
+**2. `WORK-UNITS.md`'s own WU-21i entry is still stale — not touched this
+session, now nine sessions old.** Unchanged since Session 35's own note.
 
-**3. The real finding this session exists to record: WU-28a's and
-WU-28b's own k-buffer mechanism is not reachable by any real content in
-this codebase today, and won't show occlusion for the live sphere demo no
-matter what mode is set.** Full trace in `CORRECTIONS.md` C-020 and
-`DECISIONS.md` ADR-062 — short version: (a) `tests/
-test_decklink_live_sphere.cpp` never sets `PipelineParams::kBufferMode`
-away from `Off`, so the k-buffer code path isn't even reached; (b) even
-fixing that alone would not help, because `core/binner.cpp` stamps one
-single `PipelineParams::tag` value onto every fragment a
-`generateFragments()` call produces, so the sphere's self-folding front
-and back always carry the same tag and collide into the same k-buffer
-slot — Opaque/Blend resolve would still produce pixel-identical output to
-the pre-WU-28 plain path for this exact content. ADR-059 itself named "a
-sphere's own front and back" as the motivating k=2 case; this session
-found that neither sub-unit actually closes it. Not a defect in WU-28a's
-or WU-28b's own `Files:`/`Accept:` — a real gap neither unit's own scope
-included, now named as WU-28c/WU-28d in `WORK-UNITS.md`.
+**3. `WORK-UNITS.md`'s own WU-28c entry line ("Depends on WU-26 (Normals
+from lattice), not yet scoped or built") is now stale — WU-26 is scoped,
+built and (once "Steve's own next steps" below is run) genuinely `green`.**
+Deliberately not touched: scoping WU-28c in full is that unit's own future
+session's job, not this one's (this session's brief was WU-26 only), and a
+one-line patch here without doing that unit's own real scoping would risk
+exactly the kind of drift `SESSION-PROTOCOL.md`'s anti-drift rules exist to
+prevent. Whoever opens WU-28c next should update that line as part of doing
+the real work, not before it.
 
-**4. The fix depends on WU-26 (Normals from lattice), still unscoped.**
-`core/lattice.hpp`'s own header comment already reserves dz/du/dz/dv and
-the cross-product normal for WU-26 by name — the front/back facing signal
-WU-28c needs is exactly that normal's view-facing sign. A same-session
-finite-difference shortcut around this was considered and rejected (see
-ADR-062) — it would duplicate, not reuse, work `core/lattice.hpp` already
-promises to a specific future unit. WU-26 is therefore now a hard
-prerequisite, not just "next in the backlog" — see `WORK-UNITS.md`'s own
-WU-26 entry, updated with a pointer this session (no `Files:`/`Accept:`
-invented for it here — that stays a future session's own first job).
-
-**5. `.git/index.lock` pattern — not encountered as blocking this session
-(read-only `git` checks via `device_bash` only).** Same known,
-non-blocking behavior documented every session since Session 29. **Steve:
-run `rm -f ~/src/scatter-dve/.git/index.lock` before your own `git
-add`/`git commit` below** if it's present — routine, not new.
+**4. `.git/index.lock` pattern — not encountered as blocking this session
+(read-only `git` checks, a fresh `git clone` via the sandbox's own shell,
+and Steve's own `git add`/`git commit`/`git tag`/`git push` commands against
+`~/src/scatter-dve`, all completing without it blocking anything).** Same
+known, non-blocking behavior documented every session since Session 29.
+**Steve: run `rm -f ~/src/scatter-dve/.git/index.lock` before your own `git
+add`/`git commit`/`git tag` below** if it's present — routine, not new.
 
 ## This session in full
 
-Session opened by Steve's own direct question against the real repository
-and the real hardware, not a scoping request in the abstract: "should
-WU-28b have shown occlusion, it didn't." Verified real repository state
-first, per standing discipline: `HEAD` at `2b9eea4` ("WU-28b: k-buffer
-resolve..."), no `wu-28b-green` tag, `git status -sb` reading `##
-main...origin/main` with no ahead/behind marker — WU-28b's own code is
-committed, correctly, just not yet Steve's-own-real-terminal-closed.
+Opened by verifying real repository state directly via the device bridge,
+per standing discipline, *before* trusting this file's own (Session 36)
+account: `git tag` did not list `wu-28b-green` at that point, `HEAD` was at
+`5ba60b3` (the WU-28 scoping commit), `git status -sb` read `##
+main...origin/main` with no ahead/behind marker. Per this project's own
+explicit stop condition for exactly this situation, work paused and the
+discrepancy was reported rather than assumed away: Steve's own brief
+believed both WU-28 sub-units were already real-terminal `green`, but only
+`wu-28a-green` existed; `HANDOFF.md`'s own account was a session behind
+Steve's own understanding too (Session 36 had already run, scoping
+WU-28c/WU-28d and recording ADR-062/C-020, none of which Steve's own brief
+for this session knew about). Steve then closed WU-28b out at his own real
+terminal (`test_decklink_device`'s known ADR-035 duplex exception, the
+manual `git tag -a wu-28b-green ...` fallback per `SESSION-PROTOCOL.md`,
+explicit `git push origin main`/`git push origin --tags`) — confirmed
+directly against the real repository afterward: `wu-28b-green` in `git tag`,
+`git status -sb` reading `## main...origin/main` with no ahead/behind
+marker (pushed, not local-only).
 
-Traced the symptom against the real files rather than reasoning from
-memory of what WU-28a/WU-28b built: staged and read
-`tests/test_decklink_live_sphere.cpp` (confirmed `kBufferMode` and `tag`
-are never set on its own `PipelineParams`, and confirmed its own lattice
-genuinely self-folds, `kAngleSpanH = 2*pi`), `src/core/binner.hpp`/`.cpp`
-(confirmed `tag` is one scalar function parameter stamped onto every
-`Frag` a call produces), `src/core/splat.cpp` (confirmed
-`routeIntoKBuffer()` keys slots by tag, same-tag reuses the same slot —
-ADR-059's own deliberate, correct choice for I6, not a bug), and
-`src/core/lattice.hpp`/`shapes.hpp` (confirmed the sphere's own
-parametrisation and confirmed `core/lattice.hpp`'s own header comment
-already earmarks dz/du/dz/dv and the cross-product normal for WU-26 by
-name). Two independent, stacking causes found, both recorded in full in
-`CORRECTIONS.md` C-020 and `DECISIONS.md` ADR-062: the live demo never
-enables the k-buffer path at all, and even enabling it would not help
-against this specific content, because front and back of one self-folding
-lattice always share one tag today.
+With WU-28b genuinely closed, moved to WU-26 (Normals from lattice),
+`WORK-UNITS.md`'s own next-in-line unscoped unit and, since Session 36's
+ADR-062, a named hard prerequisite for WU-28c. Read `src/core/shapes/
+shapes.hpp` and `src/core/types.hpp` in full first, per this session's own
+brief, then `src/core/lattice.hpp`, `src/core/lattice.cpp`, `src/core/
+jacobian.hpp` and `src/core/binner.cpp` to ground the design in what
+actually exists today rather than what the header comments merely promise:
+found that `core/lattice.cpp`'s `jacobian()` already computes the full 3D
+`du`/`dv` tangent blends internally (`blend()` sums x, y *and* z) and simply
+discards their `.z` components when filling in the returned (2x2-only)
+`Jacobian` — so WU-26 needed no new lattice evaluation, only storing what
+was already being thrown away. Also found `core/jacobian.hpp`'s own header
+comment had already reserved this exact file as WU-26's destination
+("architecture.md 4.2 lists three things the Jacobian yields at once...K,
+filter footprint, and (WU-26) the surface normal"), and confirmed via
+`grep` and `CMakeLists.txt` that `test_jacobian` already links the full
+`scatter-core` library (including `src/core/shapes/sphere.cpp`), so a real
+`buildSphereLattice()` lattice was available to the test file with no
+`CMakeLists.txt` change.
 
-Scoped the fix as two new units, gated on WU-26, kept separate from each
-other for the same core/DeckLink split reason ADR-059 itself kept WU-28a
-and WU-28b separate from any Cocoa/Blackmagic-touching work: **WU-28c**
-(`core/binner.hpp`/`.cpp` only, core-only, sandbox-buildable once WU-26
-exists to build against — computes a per-fragment facing tag from WU-26's
-own normal) and **WU-28d** (`tests/test_decklink_live_sphere.cpp` only,
-DeckLink-linked, reasoned-through/handed-off only, never sandbox-built —
-turns `kBufferMode` on for the live demo once WU-28c's tags exist).
-Neither unit's `Files:`/`Accept:` in `WORK-UNITS.md` is written as final;
-both are explicitly provisional pending WU-26, the same discipline
-WU-28b's own blend formula followed (designed against real code once its
-prerequisite existed, not invented at scoping time).
+Design decision — the cross-product order (`Tv x Tu`, not the more
+conventional `Tu x Tv`) needed by this project's own front/back sign
+convention — worked out by hand against `buildSphereLattice()`'s actual
+parametrisation (front-most and antipodal self-folded control vertices) and
+recorded in full in `DECISIONS.md` ADR-063, along with a useful,
+independently-checked internal-consistency fact (`surfaceNormal(j).z`
+always equals `-(the existing 2x2 Jacobian determinant)`, an algebraic
+property of 3D cross products, not a shortcut this unit takes) and a note
+for whoever scopes WU-28c next: `core/binner.cpp`'s `pixelJacobian()` does
+not propagate `dzdu`/`dzdv`, so `surfaceNormal()` must be called on
+`lattice.jacobian(u, v)`'s own direct output, not on a `pixelJacobian()`-
+converted one.
 
-**No code written this session — scoping and correction only,** the same
-shape Session 33's own ADR-059 scoping session took. Does not reopen
-ADR-059, ADR-060, or ADR-061 — WU-28a's and WU-28b's own `Files:`/`Accept:`
-are both still correct for exactly what they say they cover, unchanged and
-undisputed by this session.
+Built and tested in the cloud sandbox, per this project's own standing
+discipline for a core-only unit: fresh `git clone` of
+`https://github.com/skunge2000/scatter-dve.git` (not a reused prior
+sandbox), confirmed matching the real repository's own `git tag`/`git log`/
+`git status -sb` (`wu-28b-green` at `HEAD`, `5ba60b3`, clean, in sync)
+*before* any file was touched. `cmake -B build -G Ninja && cmake --build
+build`: clean, zero warnings, zero errors. Full portable `ctest` suite: 22
+of 22 targets passing, no regressions anywhere outside `test_jacobian`
+itself. `test_jacobian` alone: 551 checks passing (existing WU-06 checks
+extended to `dzdu`/`dzdv`, plus two new WU-26-specific functions, one of
+which builds and checks against a real `buildSphereLattice()` lattice, not
+synthetic data — see `DECISIONS.md` ADR-063 for why that particular test
+needed real shape data rather than the file's usual synthetic fixture).
 
-Delivered four changed files to the real repository via `SendUserFile` +
-`device_commit_files`, to `/Users/stephenneal/src/scatter-dve/...`:
-`WORK-UNITS.md`, `DECISIONS.md`, `CORRECTIONS.md`, this file.
-**Delivery confirmation (this session's own device_bash checks after
-writing every file):** `wc -l` on each of the four files matched this
-session's own sandbox copies exactly; `git status --short` showed exactly
-these four files changed, nothing else; byte-for-byte `diff` against this
-session's own sandbox copies, re-staged from the device afterward, showed
-no differences on any of the four.
+Delivered seven changed/new-content files to the real repository via
+`SendUserFile` + `device_commit_files`, to `/Users/stephenneal/src/
+scatter-dve/...`: `src/core/lattice.hpp`, `src/core/lattice.cpp`,
+`src/core/jacobian.hpp`, `tests/test_jacobian.cpp`, `WORK-UNITS.md`,
+`DECISIONS.md`, this file. **Delivery confirmation (this session's own
+device_bash checks after writing every file):** `wc -l` on each of the seven
+files matched this session's own sandbox copies exactly; `git status
+--short` showed exactly these seven files changed, nothing else;
+byte-for-byte `diff` against this session's own sandbox copies, re-staged
+from the device afterward, showed no differences on any of the seven.
+
+Steve then ran WU-26's own close-out: `cmake --build build` clean, `ctest`
+failing exactly one test (`test_decklink_device`, the known ADR-035
+exception — nothing else), matching this session's own cloud-sandbox result
+exactly. Instructed to tag manually (`close.sh` refuses to tag past any
+failure) — but without first being told to `git add`/`git commit` the seven
+delivered files, an omission from this session's own instructions, not
+Steve's. `git tag -a wu-26-green ...` therefore tagged `HEAD` (`5ba60b3`)
+as it stood — a commit that does not contain WU-26's own changes, which
+were still sitting as uncommitted working-tree modifications. `git push
+origin main` reporting "Everything up-to-date" (no commit to push, only the
+tag) was the signal something was wrong; `git status -sb` confirmed it,
+still showing all seven files as `M`. Recorded in full as `CORRECTIONS.md`
+C-021.
+
+**Fixed the same session, before handing back to Steve:** delivered an
+updated `CORRECTIONS.md` (C-021) and this file via the same `SendUserFile` +
+`device_commit_files` route, byte-for-byte-confirmed the same way as the
+first seven files, then gave Steve corrected close-out commands — delete
+the wrong tag locally and on `origin`, commit the eight now-staged files
+(the original seven plus `CORRECTIONS.md`) for real, recreate `wu-26-green`
+on the commit that actually contains them, push commit and tag together.
+See "Steve's own next steps" below for the exact commands; this file was
+written *before* Steve ran them, so "Where we are" below still describes
+the pre-fix state — check `git log --oneline -3` against the real
+repository before trusting either account.
 
 ## Where we are
 
 Phase 6 (Scale up) unchanged: WU-22a/b/c all `green`. Phase 7 (Starlight)
-now reads: **WU-26 `todo`** (now a named hard prerequisite for WU-28c, not
-yet scoped), WU-27 `todo`, WU-28a `green`, **WU-28b `wip`** (still awaiting
-Steve's own real-terminal close-out — unaffected by this session),
-**WU-28c `todo`** (new, gated on WU-26), **WU-28d `todo`** (new, gated on
-WU-28c), WU-29 `todo`. `DECISIONS.md` runs through ADR-062.
-`CORRECTIONS.md` runs through C-020.
+now reads: **WU-26 `wip`** as this file is written — tested green at
+Steve's own real terminal (modulo the known ADR-035 exception), but not yet
+correctly committed/tagged; will be genuinely `green` once "Steve's own next
+steps" below runs — WU-27 `todo`, WU-28a `green`, **WU-28b `green`**
+(confirmed this session — Steve's own real-terminal close-out landed),
+WU-28c `todo` (gated on WU-26 landing correctly; its own `WORK-UNITS.md`
+entry line about WU-26 is now stale — see "Flagged now" item 3), WU-28d
+`todo`, WU-29 `todo`. `DECISIONS.md` runs through ADR-063. `CORRECTIONS.md`
+runs through C-021.
 
 ## Next work unit
 
-Two things, in order: (1) Steve's own real-terminal close-out of WU-28b —
-unaffected by this session, still the right next action, see "Steve's own
-next steps" below; (2) after that, or independently, WU-26 (Normals from
-lattice) needs its own real scoping session — a future session's first job
-there is `Files:`/`Accept:` scoping, same discipline as every unscoped
-unit, now with WU-28c specifically depending on its outcome (the normal
-needs to be something WU-28c's own per-fragment tagging can consume, i.e.
-available per source sample during `generateFragments()`, not only at
-control-vertex resolution — worth that future session's own attention
-alongside whatever WU-27's Blinn-Phong shading needs from the same
-normal).
+Steve's own correction commands below (delete the wrong tag, commit for
+real, retag, push) — see "Steve's own next steps". After that: WU-28c
+(self-fold facing tag), whose own real scoping session can now proceed in
+full — that future session's first job is fixing WU-28c's own stale
+"Depends on WU-26... not yet scoped or built" line as part of doing its real
+`Files:`/`Accept:` scoping, not before.
 
 ## Open questions
 
-Unchanged from Session 35: `kCaptureRingCapacity`'s value of 8 (WU-20a/20b,
-ADR-046), the cold-start green-frame artifact (WU-21d), Q3 (macOS/Desktop
-Video version), and Q4 (lattice edge damping, C-008(a)) all remain open,
-none touched this session.
+Unchanged from Session 35/36: `kCaptureRingCapacity`'s value of 8 (WU-20a/
+20b, ADR-046), the cold-start green-frame artifact (WU-21d), Q3 (macOS/
+Desktop Video version), and Q4 (lattice edge damping, C-008(a)) all remain
+open, none touched this session.
 
 ## Blocked / red
 
-Nothing red. WU-28c is blocked on WU-26 (not yet scoped); WU-28d is
+Nothing red. WU-28c is blocked on WU-26 landing correctly; WU-28d is
 blocked on WU-28c. Neither is a broken state — both are honestly `todo`,
-correctly sequenced. WU-28b remains `wip`, not blocked, simply awaiting
-Steve's own close-out.
+correctly sequenced. WU-26 is `wip`, not broken: its own code is tested and
+working (both in the cloud sandbox and, modulo the known ADR-035 exception,
+at Steve's own real terminal) — only the commit/tag bookkeeping needs
+correcting, per C-021.
 
 ## Environment check
 
-Unchanged from Session 35: **UltraStudio Monitor 3G** (output,
+Unchanged from Session 35/36: **UltraStudio Monitor 3G** (output,
 HDMI-mirrored) and **UltraStudio Recorder 3G** (input) both last confirmed
 working in Session 29's own real-hardware runs. **UltraStudio 4K Mini**
 remains on hold pending a PSU replacement. `origin` remains configured and
-in sync as of this session's own opening check.
+in sync as of this session's own opening and closing checks.
 
 ## Append to DECISIONS.md
 
-ADR-062 (real-content gap scoping: why WU-28a/WU-28b cannot show occlusion
-for real self-folding content, WU-28c/WU-28d named and provisionally
-scoped, the WU-26 dependency and why a same-session shortcut around it was
-rejected) — appended in full this session; see `DECISIONS.md`. Does not
-reopen ADR-059, ADR-060, or ADR-061.
+ADR-063 (WU-26 build: dz/du, dz/dv on the Jacobian, `surfaceNormal()` as
+`core/jacobian.hpp`'s third Jacobian-derived quantity, the `Tv x Tu`
+cross-product order and its derivation against a real sphere lattice, the
+internal-consistency fact relating `surfaceNormal(j).z` to the existing 2x2
+determinant, and why it is not used as a shortcut) — appended in full this
+session; see `DECISIONS.md`. Does not reopen ADR-059, ADR-060, ADR-061 or
+ADR-062.
 
 ## Append to CORRECTIONS.md
 
-C-020 (ADR-059 named "a sphere's own front and back" as WU-28's own
-motivating case; neither WU-28a nor WU-28b actually closes it, because the
-k-buffer keys slots by a tag that's one scalar per call, not per fragment;
-general lesson — check a unit's own motivating real-world symptom against
-the real symptom, not only against its own synthetic `Accept:` data) —
-appended in full this session; see `CORRECTIONS.md`.
+C-021 (WU-26 close-out: `wu-26-green` was created before the delivered
+files were committed, so it initially pointed at a commit lacking WU-26's
+own changes; general lesson that the manual-tag fallback, unlike
+`close.sh`, has no uncommitted-changes check, so any close-out using it
+must spell out `git add`/`git commit` before `git tag`) — appended in full
+this session; see `CORRECTIONS.md`.
 
 ## Closed out this session
 
-Nothing — scoping-only, no tag, same as Session 33's own ADR-059 commit.
+WU-28b, by Steve at his own real terminal (correctly — his working tree was
+clean when that tag was created, unaffected by C-021). WU-26 is not yet
+correctly closed as this file is written — `wu-26-green` exists but points
+at the wrong commit; "Steve's own next steps" below fixes that.
 
 ## Steve's own next steps
 
-**First, close out WU-28b for real — this session's own findings do not
-change anything about this step, it's still correct:**
+**Fix `wu-26-green`, then close WU-26 out for real.** This replaces the
+tagging step already run — the tag it created needs deleting, not building
+on top of.
+
+First, delete the wrong tag, locally and on `origin`:
+
+```
+cd ~/src/scatter-dve
+git tag -d wu-26-green
+git push origin :refs/tags/wu-26-green
+```
+
+Then commit the files that are actually sitting in your working tree
+(confirm with `git status --short` first — it should list exactly these
+eight, the seven WU-26 files plus this session's own `CORRECTIONS.md`
+update, nothing else):
 
 ```
 rm -f ~/src/scatter-dve/.git/index.lock
 cd ~/src/scatter-dve
-git status
-cd ~/src/scatter-dve
-cmake --build build
-cd build
-ctest --output-on-failure
+git status --short
+git add DECISIONS.md HANDOFF.md WORK-UNITS.md CORRECTIONS.md src/core/jacobian.hpp src/core/lattice.cpp src/core/lattice.hpp tests/test_jacobian.cpp
+git commit -m "WU-26: normals from lattice (ADR-063); C-021 tag-before-commit correction"
 ```
 
-If that's green:
+No need to rebuild or re-run `ctest` — the build/test you already ran used
+these exact files (they were on disk, just uncommitted), so that result
+stands: clean build, one known ADR-035 exception, nothing else. Recreate
+the tag on this new commit and push both:
 
 ```
-cd ~/src/scatter-dve
-./tools/close.sh 28b
-```
-
-If `close.sh` prints `WU-28b closed green.`, it already pushed. If it
-prints `WARNING: push failed`, push explicitly:
-
-```
+git tag -a wu-26-green -m "WU-26: normals from lattice green (test_decklink_device/foundDuplexDevice is ADR-035's known exception)"
 git push origin main
 git push origin --tags
 ```
 
-**Then, separately, review and commit this session's own scoping docs** —
-doc-only, no build/test needed (nothing here touches source):
+Verify:
 
 ```
 cd ~/src/scatter-dve
-git diff -- WORK-UNITS.md DECISIONS.md CORRECTIONS.md HANDOFF.md
-git add WORK-UNITS.md DECISIONS.md CORRECTIONS.md HANDOFF.md
-git commit -m "WU-28 scoping: self-fold facing-tag gap, WU-28c/WU-28d named, gated on WU-26 (ADR-062, C-020)"
-git push origin main
+git log --oneline -3
+git tag | tail -5
+git status -sb
 ```
 
-(No tag for this commit — scoping-only sessions don't tag, the same as
-Session 33's own `a18a419` scoping commit for ADR-059.)
+`git log --oneline -3` should now show a *new* commit at `HEAD` (your own
+WU-26 commit message above, not `5ba60b3`) carrying the `wu-26-green` tag;
+`git status -sb` should read `## main...origin/main` with no ahead marker
+and no modified files listed at all (the working tree genuinely clean, not
+just "no ahead/behind" with `M` lines still present the way it was after
+the first, wrong tag).
 
-Once both are done, `git log --oneline -3` should show this scoping commit
-at `HEAD`, the WU-28b close commit just below it, and `wu-28b-green` in
-`git tag`.
+**If `ctest` fails with anything else** — any test other than
+`test_decklink_device`'s own duplex check — stop, don't tag, and paste me
+the full `--output-on-failure` output; that would be a real regression this
+session's own cloud-sandbox run (Linux x86_64, no DeckLink SDK) could not
+have caught, and needs a session to look at it, not a blind tag.
+
+This was compiled and tested in the cloud sandbox only (Linux x86_64, GCC
+13.3, no Blackmagic SDK) — it still needs your own real-terminal
+build/`ctest` above (AppleClang, ARM64, full DeckLink-linked suite) before
+it's genuinely `green`. Run `ctest` from `~/src/scatter-dve/build`
+specifically, as above (`cd build` then `ctest`, or `ctest --test-dir
+build` from the repo root) — not from the repo root with a bare `ctest`,
+which is what left the stray `Testing/` directory at the repo root once
+before. If you see a `Testing/` directory at `~/src/scatter-dve` itself
+(not inside `build/`), flag it rather than deleting it — `device_bash`
+can't delete files, and I'd want to see it before we decide what to do
+about it.

@@ -637,3 +637,30 @@ WU-21g/h) is a claim that the finished feature will fix *that exact,
 observable thing* — worth a session checking against the real symptom
 before calling the motivating case closed, not just against the synthetic
 test data the unit's own `Accept:` line happened to specify.
+
+**C-021 — WU-26 close-out: `wu-26-green` was created before the delivered
+files were committed, so the tag initially pointed at a commit lacking
+WU-26's own changes entirely.** Session 37 delivered WU-26's seven changed
+files to the real repository via the device bridge, leaving them as
+uncommitted working-tree changes (writing a file to disk is not committing
+it), then walked Steve through the manual `git tag -a wu-26-green ...`
+fallback (triggered by the already-accepted `test_decklink_device`/ADR-035
+duplex exception) without an intervening `git add`/`git commit` step. A `git
+tag` command tags whatever commit `HEAD` currently is, oblivious to
+working-tree state — it does not check for or refuse uncommitted changes,
+unlike `close.sh`, which explicitly does (`git status --porcelain` non-empty
+→ "ERROR: uncommitted changes. Commit them first", refuses to proceed).
+WU-28b's own close-out earlier in this same session was unaffected by this
+same mistake only because its own code had already been committed in a
+prior session — Steve's working tree was genuinely clean when that tag was
+created, confirmed directly beforehand. **General lesson: any close-out
+instructions using the manual-tag fallback (not `close.sh` itself) must
+include an explicit `git add`/`git commit` step before the `git tag`
+step, spelled out in the same command block** — `close.sh`'s own built-in
+uncommitted-changes check is not present on that path, and nothing else
+catches its absence; `git push origin main` reporting "Everything
+up-to-date" immediately after such a tag is a symptom worth recognising on
+sight, not routine output. Fixed the same session: `wu-26-green` deleted
+locally and on `origin`, the seven files committed for real, `wu-26-green`
+recreated on the commit that actually contains them, both pushed — see
+`HANDOFF.md`.

@@ -1641,13 +1641,59 @@ needs turn out to be by then, same discipline as every other unit.
 
 ## Phase 7 — Starlight
 
-### WU-26 — Normals from lattice `todo`
-Not yet scoped — a future session's own first job here is real
-`Files:`/`Accept:` scoping, same as every other unscoped unit. **Now also
-a hard prerequisite for WU-28c** (self-fold facing tag, below in Phase 7's
-own listing): `core/lattice.hpp`'s own header comment already reserves
-dz/du/dz/dv and the cross-product normal for this unit specifically — see
-DECISIONS.md ADR-062 for how that dependency was found.
+### WU-26 — Normals from lattice `wip`
+Built and cloud-sandbox-tested this session (Session 37); not yet Steve's
+own real-terminal `green` — see *Status* below. See `DECISIONS.md` ADR-063
+for the full design and derivation. Hard
+prerequisite for WU-28c (self-fold facing tag, below in Phase 7's own
+listing): `core/lattice.hpp`'s own header comment already reserved dz/du,
+dz/dv and the cross-product normal for this unit specifically (see
+`DECISIONS.md` ADR-062 for how that dependency was found); this unit builds
+exactly that.
+
+Design: `Jacobian` gains `dzdu`/`dzdv`, populated in `core/lattice.cpp`'s
+`jacobian()` by storing the z component of the `du`/`dv` blends it already
+computes (no new lattice evaluation). `core/jacobian.hpp` gains
+`surfaceNormal(const Jacobian&)`, the third Jacobian-derived quantity that
+file's own header comment already reserved a slot for — the cross product
+`Tv x Tu` of the two 3D tangent vectors, *not* `Tu x Tv`: this project's
+z-increases-into-screen convention (`core/shapes/shapes.hpp`, ADR-027) needs
+a front-facing point's normal to read `normal.z < 0`, and `Tv x Tu` is the
+order that gives that sign, checked against a real `buildSphereLattice()`
+lattice at its front-most and (fully self-folded, `angleSpanH == 2*pi`)
+antipodal control vertices — see ADR-063 for the derivation. Not normalised
+to unit length: the one consumer scoped so far (WU-28c, not yet built)
+needs only the sign of `normal.z`.
+
+**Files:** `src/core/lattice.hpp` (two new, additive `Jacobian` fields),
+`src/core/lattice.cpp` (`jacobian()` stores what it already computes rather
+than discarding it), `src/core/jacobian.hpp` (new `surfaceNormal()`,
+additive, alongside `densityCompensation()`/`ewaFootprint()`);
+`tests/test_jacobian.cpp` (existing `checkJacobianAt()` extended to dz/du,
+dz/dv; two new test functions for `surfaceNormal()`). No `CMakeLists.txt`
+change needed — `test_jacobian` already links the full `scatter-core`
+library, `src/core/shapes/sphere.cpp` included. +184/-27 lines across the
+four files.
+
+**Accept:** `jacobian()`'s analytic dz/du, dz/dv agree with central
+differences of `eval().z` to 1e-6 relative, across the lattice interior, its
+edges, corners and interior knots — WU-06's own method and tolerance,
+extended to z. `surfaceNormal(j).z` equals `-(j.dxdu * j.dydv - j.dxdv *
+j.dydu)` (the existing 2x2 Jacobian determinant, sign-flipped) for arbitrary
+lattice content, an algebraic identity of 3D cross products independent of
+dz/du, dz/dv. Against a real `buildSphereLattice()` lattice with
+`angleSpanH == 2*pi`: `surfaceNormal()` at the front-most control vertex has
+`normal.z < 0`; at the antipodal (self-folded) control vertex, `normal.z >=
+0`.
+
+*Status:* `wip` — green in the cloud sandbox this session (Session 37) —
+fresh clone of `origin/main` confirmed at `wu-28b-green`/`5ba60b3` before any
+file was touched; `cmake --build build` clean; full portable `ctest` suite
+22/22
+passing, no regressions; `test_jacobian` itself 551 checks passing. Not yet
+Steve's own real-terminal `build`/`ctest`/`close.sh 26`/tag/push — see
+`HANDOFF.md`.
+
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
 ### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
@@ -1710,7 +1756,7 @@ suite (21 targets) green, no regressions, `test_kbuffer_storage` itself
 1082 checks passing after ADR-060's own zero-weight-corner fix. See
 `HANDOFF.md`.
 
-### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `wip`
+### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `green`
 See `DECISIONS.md` ADR-059. Consumes WU-28a's per-cell occupied-slot set.
 Two related but distinct outcomes, per Steve's own original framing of this
 unit's scope (recorded in `WU-28`'s original single-line entry, preserved
@@ -1757,11 +1803,22 @@ per-channel `CHECK_ONCE`). Sizing ran over `SESSION-PROTOCOL.md`'s own
 `src/core/resolve.cpp`, `src/core/pipeline.cpp` and `CMakeLists.txt`, plus
 333 lines in the new `tests/test_kbuffer_resolve.cpp`, 576 total after one
 trimming pass from an initial 638 — flagged plainly rather than cut further
-against correctness coverage; see `HANDOFF.md`. Not yet `green`: Steve's
-own real-terminal build/run/commit/tag/push (`wu-28b-green`) is still this
-unit's own path to that status, per `SESSION-PROTOCOL.md` — the sandbox's
-toolchain (GCC 13.3/Clang 18.1, Linux x86_64) is evidence, not a
-substitute, for his own (AppleClang, ARM64). See `HANDOFF.md`.
+against correctness coverage; see `HANDOFF.md`. **Now confirmed `green`:**
+this status line itself was left at `wip` in that commit (`2b9eea4`);
+corrected here, doc-only, by Session 37 while re-verifying repository state
+before starting WU-26 (the same kind of correction Session 35 made for
+WU-28a's own stale status line, not by touching any of this unit's own
+source files). Confirmed directly via the device bridge, not assumed from
+this file's own prior text: `git tag` lists `wu-28b-green`; `git status -sb`
+reads `## main...origin/main` with no ahead/behind marker (pushed, not
+local-only). `ctest`'s one failure was the already-accepted
+`test_decklink_device`/ADR-035 duplex-check exception (the Monitor 3G is
+playback-only), so the manual `git tag -a wu-28b-green ...` fallback was
+used, per `SESSION-PROTOCOL.md`, on top of commit `5ba60b3` — the WU-28
+scoping commit, not `2b9eea4` itself, since Steve's own close-out ran after
+that scoping session landed; this is expected (`close.sh`/the manual
+fallback tag whatever `HEAD` is at close time, not a unit's own original
+commit) and does not change what the tag certifies about WU-28b's own code.
 
 **Real-content gap found after this session (CORRECTIONS.md C-020,
 DECISIONS.md ADR-062): neither WU-28a nor WU-28b's own k-buffer mechanism
