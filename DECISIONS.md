@@ -6115,3 +6115,98 @@ mechanism), `docs/architecture.md`, or any already-`green` unit. WU-28a is
 the natural next session's own first job; per Steve's own answer during
 this scoping conversation, that session can build, run and test it directly
 in this sandbox, since nothing it touches leaves `scatter-core`.
+
+**ADR-060 — WU-28a build: k-buffer storage/accumulation, unbanked, and the
+zero-weight-corner routing fix (`src/core/types.hpp`, `src/core/splat.hpp`/
+`.cpp`, `tests/test_kbuffer_storage.cpp`; `CMakeLists.txt`).** Session
+opened by verifying real repository state directly (`git tag`, `git log
+--oneline -10`, `git status --short`) against `HANDOFF.md`'s own account of
+Session 33's close: `HEAD` at `a18a419` ("WU-28 scoping..."), clean tree,
+`origin/main` in sync, no drift. Then `core/types.hpp`, `core/splat.hpp`/
+`.cpp` re-read in full against ADR-059's own design before writing
+anything, to confirm nothing drifted between the scoping session and this
+one — nothing had.
+
+Two concrete implementation choices this session made, within ADR-059's
+already-fixed design, worth recording since neither was fully decided by
+that scoping session:
+
+**(1) The k-buffer storage is NOT split across `kBanks` (4) independent
+banks the way `TileAccum` is**, despite ADR-059's own illustrative naming
+("e.g. `splatTileKBuffer()`/`sumBanksKBuffer()`") echoing the plain path's
+bank-oriented shape. `TileAccum`'s four-bank split exists to pipeline
+store-to-load latency for a fragment's four read-modify-writes (ADR-002) —
+a performance concern ADR-059's own "correctness first" scope does not ask
+this unit to solve. Banking a tag-keyed, eviction-order-sensitive structure
+would also require deciding a cross-bank merge order (which bank's own
+tag-slot occupancy wins when two banks' partial views of one destination
+cell disagree) that ADR-059 never specifies — a genuinely separate design
+question, not a free extension of the plain path's scheme, and one this
+unit's own scope should not silently invent an answer to. `TileKBufferAccum`
+is therefore a single flat per-cell array of up to `kBufferK` `KSlot`,
+written directly during `splatTileKBuffer()`'s own pass over `frags`, with
+eviction driven by that pass's own arrival order — the same order-dependence
+ADR-059 already documents and accepts for the >`kBufferK`-distinct-tags
+case, not a new one this choice introduces. `splatTileKBuffer()`/
+`sumBanksKBuffer()`'s own two-function shape is kept regardless (accumulate,
+then extract to a flat output array), so a later unit could introduce
+banking without changing either function's contract; `sumBanksKBuffer()`'s
+own name is kept from ADR-059's suggestion even though, without banks, it
+now performs a straight per-cell copy rather than a literal bank-sum —
+documented in `splat.hpp`'s own comment on `TileKBufferAccum`, not silently
+inconsistent with its name.
+
+**(2) A real bug, caught by the cloud sandbox's own compiler and test run,
+not reasoned through in advance: `splatCorners()` (unchanged, shared with
+the plain path) calls its `sink` callback for every corner inside tile
+bounds regardless of that corner's own bilinear weight, including the three
+"dead" corners of a fragment sitting at an exact grid position, each with
+`rawWeight == 0`.** In the plain path this is inert — `accumulateCorner()`
+adds a zero contribution to an `AccumCell` that may never be inspected
+again. It is not inert for tag-keyed k-buffer routing: a naive
+`splatTileKBuffer()` would still let a `rawWeight == 0` visit claim a free
+slot, or evict an occupied one, for a tag making zero real contribution to
+that cell — this session's own first build of
+`test_kbuffer_storage.cpp`'s `test_single_tag_matches_plain_sumBanks()`
+failed exactly this way (two of its "no other cell touched" checks) on the
+very first `ctest` run, not caught by design review beforehand. Fixed
+within this unit's own file: `splatTileKBuffer()`'s sink lambda now skips
+any corner with `rawWeight == 0` before calling `routeIntoKBuffer()`, so a
+k-buffer touch always means a genuine one. Not a defect in `splatCorners()`
+or in the plain path (`accumulateCorner()`'s own zero-add is genuinely
+harmless there, by design) — this only corrects an unchecked assumption
+that visiting a corner and contributing to it were the same event, true for
+the plain path's arithmetic but not for the k-buffer's own occupancy
+tracking. See `CORRECTIONS.md`'s new entry this session.
+
+Built and tested directly in this project's cloud sandbox this session, a
+first for any WU-28-adjacent unit and, per `HANDOFF.md`'s own Session-33
+account, a first for this project generally: cloned the real
+`skunge2000/scatter-dve` origin, applied the same files delivered to the
+real repository via the device bridge, configured and built the
+`scatter-core`/`test_kbuffer_storage` targets with the sandbox's own CMake
+and compiler (GCC 13.3, Linux x86_64 — not Steve's own AppleClang/ARM64
+toolchain), and ran the resulting binary directly. `ctest` across the full
+portable suite (21 targets, everything `scatter-core` builds without the
+Blackmagic SDK or Metal/Cocoa) passed clean, including every pre-existing
+test unrelated to this unit — no regression. `test_kbuffer_storage` itself
+passed 1082 checks after the zero-weight-corner fix above. This sandbox run
+is real compiler/test evidence, not a substitute for Steve's own real
+terminal: the sandbox's toolchain is not guaranteed to match his (see
+CORRECTIONS.md C-012's own cross-compiler floating-point lesson, though
+nothing in this unit's own integer-only accumulation path is exposed to
+that specific risk) and the sandbox has no git identity of its own to
+commit/tag/push with. Steve's own real-terminal build/run/commit/tag/push
+remains this unit's own path to `green`, per `SESSION-PROTOCOL.md`.
+
+Sizing: the three source files plus test came to 430 added lines total (175
+across `core/types.hpp`, `core/splat.hpp`, `core/splat.cpp` and
+`CMakeLists.txt`; 255 in `tests/test_kbuffer_storage.cpp`) — modestly over
+`SESSION-PROTOCOL.md`'s own "~400 lines" figure, judged close enough to the
+stated approximation not to warrant a further split, after trimming
+comment density once from an initial draft that ran closer to 520.
+
+Does not reopen ADR-059 (the tag-keyed, bounded-k, depth-sort-at-resolve
+design; the hard-cap-with-eviction-caveat choice) or any already-`green`
+unit. WU-28b (resolve/composite) remains untouched, unstarted, and out of
+this unit's own file scope, per ADR-059's own split.

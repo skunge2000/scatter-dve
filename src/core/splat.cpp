@@ -31,6 +31,23 @@ const AccumCell& TileAccum::bank(int bankIdx, int x, int y) const noexcept {
                  [std::size_t(y) * std::size_t(kTileSize) + std::size_t(x)];
 }
 
+// Value-initialises every cell's KSlot array via KSlot's own default
+// member initialisers (core/types.hpp) -- every slot starts unoccupied,
+// the same "zero-initialised on construction" convention TileAccum uses.
+TileKBufferAccum::TileKBufferAccum() : cells_(std::size_t(kTilePixels)) {}
+
+void TileKBufferAccum::clear() noexcept {
+    std::fill(cells_.begin(), cells_.end(), std::array<KSlot, kBufferK>{});
+}
+
+std::array<KSlot, kBufferK>& TileKBufferAccum::cell(int x, int y) noexcept {
+    return cells_[std::size_t(y) * std::size_t(kTileSize) + std::size_t(x)];
+}
+
+const std::array<KSlot, kBufferK>& TileKBufferAccum::cell(int x, int y) const noexcept {
+    return cells_[std::size_t(y) * std::size_t(kTileSize) + std::size_t(x)];
+}
+
 namespace {
 
 // architecture.md 4.5's four corners, named to match its own prose exactly
@@ -153,6 +170,47 @@ void splatCorners(const Frag& f, auto&& sink) {
     }
 }
 
+// One fragment's contribution to one cell's k-buffer, per ADR-059's tag
+// routing (WU-28a): find `f.tag`'s existing slot and accumulate into it
+// via accumulateCorner() above (unchanged, order-independent, I6); else
+// claim a free slot; else evict the farthest-so-far occupied slot (by
+// firstSeenZ -- larger is farther, Frag::z's own "near = 0" convention)
+// and claim that one instead. The one place this policy is written.
+void routeIntoKBuffer(std::array<KSlot, kBufferK>& slots, const Frag& f,
+                      std::int32_t rawWeight) noexcept {
+    for (KSlot& slot : slots) {
+        if (slot.occupied && slot.tag == f.tag) {
+            accumulateCorner(slot.cell, f, rawWeight);
+            return;
+        }
+    }
+    for (KSlot& slot : slots) {
+        if (!slot.occupied) {
+            slot.occupied = true;
+            slot.tag = f.tag;
+            slot.firstSeenZ = f.z;
+            slot.cell = AccumCell{};
+            accumulateCorner(slot.cell, f, rawWeight);
+            return;
+        }
+    }
+    // All kBufferK slots occupied by other tags: evict the farthest-so-far
+    // (ADR-059's accepted caveat -- a firstSeenZ tie resolves to whichever
+    // this scan reaches first: deterministic per run, not claimed
+    // order-independent across fragment orders).
+    KSlot* farthest = &slots[0];
+    for (KSlot& slot : slots) {
+        if (slot.firstSeenZ > farthest->firstSeenZ) {
+            farthest = &slot;
+        }
+    }
+    farthest->occupied = true;
+    farthest->tag = f.tag;
+    farthest->firstSeenZ = f.z;
+    farthest->cell = AccumCell{};
+    accumulateCorner(farthest->cell, f, rawWeight);
+}
+
 }  // namespace
 
 void splatTile(const std::vector<Frag>& frags, TileAccum& accum) {
@@ -189,6 +247,34 @@ void splatTileReference(const std::vector<Frag>& frags, AccumCell* out) {
                                   std::size_t(x)],
                               f, rawWeight);
         });
+    }
+}
+
+void splatTileKBuffer(const std::vector<Frag>& frags, TileKBufferAccum& accum) {
+    for (const Frag& f : frags) {
+        splatCorners(f, [&](int bankIdx, int x, int y, std::int32_t rawWeight) {
+            (void)bankIdx;  // no bank split for the k-buffer -- see
+                             // TileKBufferAccum's own comment in splat.hpp.
+            // A rawWeight-0 corner (the other three corners of an
+            // exact-grid-position fragment, or any fragment whose
+            // fractional position is exactly 0 on one axis) is harmless
+            // in the plain path -- accumulateCorner() adds zero to an
+            // AccumCell that may never be looked at again. It is NOT
+            // harmless here: routeIntoKBuffer() below would still claim a
+            // free slot (or evict an occupied one) for a tag that made no
+            // real contribution to this cell. Skip zero-weight corners
+            // entirely so a k-buffer touch always means a genuine one.
+            if (rawWeight == 0) return;
+            routeIntoKBuffer(accum.cell(x, y), f, rawWeight);
+        });
+    }
+}
+
+void sumBanksKBuffer(const TileKBufferAccum& accum, std::array<KSlot, kBufferK>* out) {
+    for (int y = 0; y < kTileSize; ++y) {
+        for (int x = 0; x < kTileSize; ++x) {
+            out[std::size_t(y) * std::size_t(kTileSize) + std::size_t(x)] = accum.cell(x, y);
+        }
     }
 }
 

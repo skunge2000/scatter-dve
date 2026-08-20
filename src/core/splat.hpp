@@ -108,4 +108,56 @@ void sumBanks(const TileAccum& accum, AccumCell* out);
 // overwrite it.
 void splatTileReference(const std::vector<Frag>& frags, AccumCell* out);
 
+// ---------------------------------------------------------------------------
+// K-buffer accumulation (WU-28a; DECISIONS.md ADR-059) -- storage/
+// accumulation only, new and additive alongside -- never replacing --
+// TileAccum/splatTile()/sumBanks() above. Resolve/composite (depth-sorting
+// the occupied slots, opaque vs blend outcomes) is WU-28b's own unit,
+// consuming this one's output; nothing here decides how a multi-tag cell
+// is finally composited.
+// ---------------------------------------------------------------------------
+
+// Per-tile k-buffer storage: one array of up to kBufferK tag-keyed KSlot
+// per cell, kTilePixels cells. Unlike TileAccum, NOT split across kBanks
+// independent banks: the plain path's four-bank split exists to pipeline
+// store-to-load latency (ADR-002), a performance concern ADR-059's own
+// "correctness first" scope does not need yet -- and banking a
+// tag-keyed, eviction-order-sensitive structure would additionally
+// require a cross-bank merge order ADR-059 never specifies. Still keeps
+// the plain path's two-step accumulate/extract-to-flat-array shape below,
+// so a later unit could add banking without changing either contract.
+class TileKBufferAccum {
+public:
+    TileKBufferAccum();
+
+    // Zeroes all cells (all slots unoccupied) -- same convention as
+    // TileAccum::clear().
+    void clear() noexcept;
+
+    // x and y in [0, kTileSize); out-of-range is the caller's bug, not
+    // checked here, same convention as TileAccum::bank().
+    std::array<KSlot, kBufferK>&       cell(int x, int y) noexcept;
+    const std::array<KSlot, kBufferK>& cell(int x, int y) const noexcept;
+
+private:
+    std::vector<std::array<KSlot, kBufferK>> cells_;
+};
+
+// Splats every fragment in `frags` into `accum`, tag-routed per ADR-059: a
+// fragment whose tag already occupies a slot accumulates into it via
+// exactly accumulateCorner() (unchanged, order-independent, I6); a
+// fragment whose tag has no slot claims a free one; if none are free, the
+// farthest-so-far occupied slot (by first-seen z) is evicted and claimed
+// instead -- ADR-059's accepted non-order-independence caveat for the
+// rare >kBufferK-distinct-tags case, not something this function fixes.
+// Does not clear `accum` first, same convention as splatTile().
+void splatTileKBuffer(const std::vector<Frag>& frags, TileKBufferAccum& accum);
+
+// Copies each cell's up to kBufferK KSlot entries out to `out`, row-major
+// (y * kTileSize + x), overwritten not accumulated into (sumBanks()'s own
+// contract shape) even though there is only one internal store to copy
+// from -- see TileKBufferAccum's own comment. `out` must point to at
+// least kTilePixels entries.
+void sumBanksKBuffer(const TileKBufferAccum& accum, std::array<KSlot, kBufferK>* out);
+
 }  // namespace scatter

@@ -545,3 +545,43 @@ uncertainty honestly (as ADR-054 did) is necessary but not sufficient;
 where a simpler, universally-supported alternative exists (plain
 characters here, instead of a modifier-key escape sequence), preferring it
 from the start avoids needing this entry at all.
+
+**C-019 — WU-28a's first draft of `splatTileKBuffer()` assumed that
+`splatCorners()` only invokes its `sink` callback for a corner that
+actually contributes weight, carried over unexamined from how the plain
+path (`accumulateCorner()`) happens to tolerate the opposite.**
+*Claimed (implicitly, this session's own first draft of
+`core/splat.cpp`'s `splatTileKBuffer()`):* routing every `sink` call
+straight into `routeIntoKBuffer()` — claim a free slot for a new tag, or
+evict the farthest-so-far occupied one if none are free — was a correct,
+direct translation of the tag-routing/eviction policy ADR-059 already
+fixed, for any corner `splatCorners()` visits inside tile bounds.
+*Correct:* `splatCorners()` (unchanged, shared with `splatTile()`) calls
+`sink(bank, cellX, cellY, rawWeight)` for all four of a fragment's corners
+that fall inside the tile, including any whose bilinear weight is exactly
+zero — routine for a fragment sitting at an exact grid position (three of
+its four corners get `rawWeight == 0`) and possible whenever a fragment's
+fractional position is exactly 0 on one axis. `accumulateCorner()`
+tolerates this silently in the plain path: multiplying by a `rawWeight` of
+0 adds nothing to an `AccumCell` that may never be inspected again if
+nothing else ever touches that cell. `routeIntoKBuffer()` does not have
+that same safety margin — a zero-weight visit would still claim a free
+slot (marking a cell "occupied" by a tag that made no real contribution to
+it) or, worse, evict a genuinely-contributing tag's slot to make room for
+one that contributes nothing. Caught by this session's own first `ctest`
+run in the cloud sandbox, not by design review: `tests/
+test_kbuffer_storage.cpp`'s `test_single_tag_matches_plain_sumBanks()`
+failed two of its "no other cell touched" checks (the fragment's own
+three zero-weight corners had each phantom-claimed a slot in a
+neighbouring cell). Fixed within this unit's own file:
+`splatTileKBuffer()`'s sink lambda now skips any corner with
+`rawWeight == 0` before calling `routeIntoKBuffer()`. Not a defect in
+`splatCorners()` or in `accumulateCorner()`/the plain path — both behave
+exactly as WU-09/ADR-025 already established, correctly, for what the
+plain path's own arithmetic needs. **General lesson for future units:** a
+new consumer of an existing shared helper (`splatCorners()` here) needs
+its own review of that helper's full contract, not just the part its
+existing caller happens to rely on — a zero-weight callback invocation was
+already part of `splatCorners()`'s documented behaviour (every in-bounds
+corner, not just contributing ones), simply never load-bearing for any
+caller before this one.

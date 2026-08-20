@@ -226,6 +226,12 @@ target_include_directories(test_pipeline_bytes PRIVATE ${CMAKE_CURRENT_SOURCE_DI
 # own small patterns and lattices directly (no tools/testpat.hpp include
 # needed, unlike test_pipeline_bytes above).
 scatter_test(test_coverage_capture)
+# WU-28a -- k-buffer storage: tag-keyed depth slots (DECISIONS.md ADR-059).
+# Portable, zero DeckLink dependency, no new scatter-core source file
+# (core/splat.cpp already builds into scatter-core above) -- exercises the
+# new splatTileKBuffer()/sumBanksKBuffer() entry points directly, no
+# tools/testpat.hpp needed (constructs its own small Frag sets).
+scatter_test(test_kbuffer_storage)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

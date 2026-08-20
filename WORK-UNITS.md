@@ -1643,7 +1643,7 @@ needs turn out to be by then, same discipline as every other unit.
 
 ### WU-26 — Normals from lattice `todo`
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
-### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `todo`
+### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `wip`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
 a decision made until now) and the design fork it resolved. Splits from
 the single `WU-28` line this replaces the same way WU-16a/b split PASS 2
@@ -1690,7 +1690,18 @@ oracle — exactly what ADR-059's own documented caveat concedes it cannot
 promise). A cell where only one tag is ever present reproduces today's
 plain `sumBanks()` `AccumCell` exactly.
 
-*Status:* scoped only this session — no code written. See `HANDOFF.md`.
+*Status:* built and tested this session (DECISIONS.md ADR-060) — all
+`Files:` above delivered to the real repository via the device bridge and
+confirmed written (`wc -l`/`git status --short`/`git diff --stat` all
+matched the sandbox copies exactly). Configured, built (`scatter-core`,
+`test_kbuffer_storage`) and run directly in this project's cloud sandbox,
+a first for any WU-28-adjacent unit: full portable `ctest` suite (21
+targets) green, no regressions, `test_kbuffer_storage` itself 1082 checks
+passing after ADR-060's own zero-weight-corner fix. Not yet `green`:
+Steve's own real-terminal build/run/commit/tag/push (`wu-28a-green`) is
+still this unit's own path to that status, per `SESSION-PROTOCOL.md` — the
+sandbox's toolchain (GCC 13.3, Linux x86_64) is evidence, not a
+substitute, for his own (AppleClang, ARM64). See `HANDOFF.md`.
 
 ### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `todo`
 See `DECISIONS.md` ADR-059. Consumes WU-28a's per-cell occupied-slot set.

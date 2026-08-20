@@ -147,6 +147,37 @@ static_assert(kMaxFragContribution <= INT64_MAX / 1000000,
               "int64 must absorb a million full-weight fragments per cell");
 
 // ---------------------------------------------------------------------------
+// K-buffer storage (WU-28a; DECISIONS.md ADR-059) — front/back
+// occlusion/transparency accumulation
+//
+// New, additive alongside AccumCell above. A cell touched by more than one
+// surface (e.g. a folding sphere's own front and back) needs up to
+// kBufferK distinct Frag::tag slots instead of one. Keyed by tag, not by
+// z: Frag::z's 16-bit quantisation makes exact ties between same-surface
+// fragments routine, so keying by z during accumulation would make
+// eviction order-sensitive on ties within one surface. Same-tag
+// contributions accumulate into their one shared slot via today's
+// order-independent accumulateCorner() (I4/I6, unchanged); z is used only
+// once, at resolve time (WU-28b), to sort the occupied slots front-to-back.
+// ---------------------------------------------------------------------------
+
+// Fixed per-cell ceiling on distinct simultaneously-tracked tags (ADR-059's
+// "headroom beyond the minimal front/back case"). Raisable by a later unit.
+inline constexpr int kBufferK = 4;
+
+// One tag-keyed slot in a cell's k-buffer. `occupied` false means free --
+// unclaimed, or freed by eviction. `firstSeenZ` is the depth of whichever
+// fragment first claimed this slot for its tag; splat.cpp's
+// splatTileKBuffer() uses it only to pick the farthest-so-far occupied
+// slot to evict on overflow, never to break ties within one tag's own sum.
+struct KSlot {
+    std::uint8_t  tag = 0;
+    bool          occupied = false;
+    std::uint16_t firstSeenZ = 0;
+    AccumCell     cell{};
+};
+
+// ---------------------------------------------------------------------------
 // Tiling (ADR-002, open question Q1)
 //
 // Tile size is a compile-time constant so WU-09 can benchmark both candidates
