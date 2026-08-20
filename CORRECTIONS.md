@@ -585,3 +585,55 @@ existing caller happens to rely on — a zero-weight callback invocation was
 already part of `splatCorners()`'s documented behaviour (every in-bounds
 corner, not just contributing ones), simply never load-bearing for any
 caller before this one.
+
+**C-020 — ADR-059's own scoping named "a sphere's own front and back" as
+the k=2 minimal case WU-28 exists to fix, but neither WU-28a nor WU-28b
+built the piece that gives front and back different `Frag::tag` values —
+without it, the k-buffer they built cannot ever separate a self-fold at
+all.**
+*Claimed (implicitly, by omission — ADR-059 through ADR-061, and this
+project's own `WORK-UNITS.md` `WU-28a`/`WU-28b` status lines before this
+session):* that building WU-28a's storage and WU-28b's resolve was
+sufficient to fix the visible symptom WU-21g/h's own full-360-degree
+sphere wrap first put on screen (ADR-053) — Steve's own question, "should
+WU-28b have shown occlusion," surfaced that this was never actually true.
+*Correct:* the k-buffer keys its up to `kBufferK` slots *by `Frag::tag`*
+(ADR-059's own deliberate choice, made to keep same-tag accumulation
+order-independent for I6 — see `src/core/splat.cpp`'s `routeIntoKBuffer()`,
+line ~182: same tag reuses the same slot). But `Frag::tag` is a single
+scalar per `generateFragments()`/`runFrame()` call — `core/binner.cpp`'s
+own fragment-generation loop does `frag.tag = tag;` for every fragment it
+emits in that call, from one `std::uint8_t tag` function parameter sourced
+from `PipelineParams::tag`. A single self-folding lattice, generated in one
+call (exactly `tests/test_decklink_live_sphere.cpp`'s own
+`makeSphereLattice()`, `angleSpanH == 2*pi`), therefore stamps the *same*
+tag onto every fragment regardless of whether it comes from the surface's
+near side or its folded-away far side. Front and back always land in the
+same k-buffer slot and get summed together by the same
+order-independent `accumulateCorner()` arithmetic the plain path already
+uses — Opaque and Blend resolve modes both degenerate to numerically the
+same output `composite()` already produced before WU-28 existed, for this
+exact content. Separately (compounding, not the root cause):
+`tests/test_decklink_live_sphere.cpp` never sets `PipelineParams::kBufferMode`
+away from its default `Off` either, so today the k-buffer code path is not
+even reached by that file — but fixing that alone would not produce
+visible occlusion, per the tag-collision issue above. Would have manifested
+(had the wiring gap alone been fixed without this one) as `Opaque`/`Blend`
+modes silently producing pixel-identical output to the plain path on real
+self-folding content, with no test in `tests/test_kbuffer_resolve.cpp`
+positioned to catch it — that unit's own accept criterion for real content
+was I6 (thread-count independence) only, deliberately scoped away from
+multi-tag correctness against real geometry (WORK-UNITS.md's own WU-28b
+entry, "Parts A/B already cover the multi-slot resolve arithmetic
+directly" against synthetic data) — a reasonable call for *that* unit's own
+job, but one that left this gap with nothing positioned to surface it until
+Steve looked at the actual screen. Now WU-28c/WU-28d
+(`WORK-UNITS.md`), gated on WU-26 (Normals from lattice) — see
+`DECISIONS.md` ADR-062 for the full scoping and why the fix depends on
+WU-26 specifically rather than a same-unit shortcut. **General lesson for
+future units:** an ADR naming a concrete real-world symptom as a unit's own
+motivating case (here, "a sphere's own front and back" made visible by
+WU-21g/h) is a claim that the finished feature will fix *that exact,
+observable thing* — worth a session checking against the real symptom
+before calling the motivating case closed, not just against the synthetic
+test data the unit's own `Accept:` line happened to specify.

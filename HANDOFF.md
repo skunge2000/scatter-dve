@@ -3,15 +3,12 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 35 (WU-28b — k-buffer resolve, built and tested, per Session
-33's own scoping and Session 34's WU-28a. Per Steve's own standing answer,
-WU-28b stays entirely inside `scatter-core`, so this session actually
-built and ran it directly in this project's cloud sandbox, the same way
-Session 34 did for WU-28a.)
-**Tag:** none this session. WU-28b is `wip`, not `green` — it was built
-and tested in the cloud sandbox, but `SESSION-PROTOCOL.md`'s own `green`
-status is reserved for Steve's own real-terminal build/run/commit/tag/push,
-which has not happened yet.
+**Session:** 36 (scoping only, no code — WU-28c/WU-28d named and scoped in
+outline, gated on WU-26; `CORRECTIONS.md` C-020 and `DECISIONS.md` ADR-062
+recorded. Triggered by Steve's own direct question against the real
+hardware: "should WU-28b have shown occlusion, it didn't.")
+**Tag:** none this session — scoping-only sessions don't tag, same as
+Session 33's own ADR-059 commit.
 
 **Before doing anything else in the next session:** run `git tag`, `git
 log --oneline -10` and `git status --short` directly against
@@ -22,315 +19,220 @@ without checking it against the real repository first.
 ## Flagged now
 
 **1. `WORK-UNITS.md`'s own WU-21i entry is still stale — not touched this
-session (out of scope for WU-28b), now seven sessions old.** Unchanged
-since Session 34's own note. Worth doing directly whenever a session next
-touches `WORK-UNITS.md` for an unrelated reason and is prepared to ask
-Steve the deferred by-eye acceptance question (which letter keys were
-tried, whether `Q` exits cleanly) rather than answer it on his behalf.
+session, now eight sessions old.** Unchanged since Session 35's own note.
 
-**2. WU-28a's own status line in `WORK-UNITS.md` was found stale this
-session — read `wip` despite `wu-28a-green` already existing in the real
-repository — and corrected, doc-only, before WU-28b's own work started.**
-Session 34's own close left the status paragraph text at `wip` because it
-was written before Steve's real-terminal close-out happened; that
-close-out (commit `5ba1086`, tag `wu-28a-green`, `origin/main` in sync)
-landed afterward without a further doc edit. This session verified the
-real state directly (`git tag`/`git log --oneline -10`/`git status -sb`)
-before trusting either the old `HANDOFF.md` text or the old `WORK-UNITS.md`
-text, per the same anti-drift discipline every session follows, then fixed
-the status line since this session was already touching the file. Did not
-touch any of WU-28a's own source files (`core/types.hpp`, `core/splat.hpp`/
-`.cpp`, `tests/test_kbuffer_storage.cpp`) — read only, per this session's
-own standing scope.
+**2. WU-28b is still `wip`, not `green`, as of this session's own opening
+check — `HEAD` at `2b9eea4`, no `wu-28b-green` tag, tree clean,
+`origin/main` in sync.** Steve's own real-terminal build/run/`ctest`/
+`close.sh 28b` is unaffected by this session's own findings and remains
+the right next action — WU-28b's own committed code is correct for
+exactly what its `Accept:` line says (synthetic multi-tag slot sets; I6
+across the new threaded code path). Nothing this session found is a defect
+in that commit. See "Steve's own next steps."
 
-**3. WU-28b is `wip`, not `green` — Steve's own real-terminal build/run/
-commit/tag/push is this unit's own remaining step.** See "Steve's own next
-steps" below for the exact commands. The cloud sandbox's own build/test
-run (`DECISIONS.md` ADR-061) is real compiler/test evidence — GCC 13.3 and
-Clang 18.1 on Linux x86_64, Release and Debug, tile 2^4 and 2^5, plus
-ASan+UBSan and TSan, all 22 portable `ctest` targets green in every
-configuration, no sanitizer reports — but is evidence, not a substitute:
-the sandbox's toolchain does not match Steve's own (AppleClang, ARM64),
-and the sandbox has no git identity to commit/tag/push with regardless.
+**3. The real finding this session exists to record: WU-28a's and
+WU-28b's own k-buffer mechanism is not reachable by any real content in
+this codebase today, and won't show occlusion for the live sphere demo no
+matter what mode is set.** Full trace in `CORRECTIONS.md` C-020 and
+`DECISIONS.md` ADR-062 — short version: (a) `tests/
+test_decklink_live_sphere.cpp` never sets `PipelineParams::kBufferMode`
+away from `Off`, so the k-buffer code path isn't even reached; (b) even
+fixing that alone would not help, because `core/binner.cpp` stamps one
+single `PipelineParams::tag` value onto every fragment a
+`generateFragments()` call produces, so the sphere's self-folding front
+and back always carry the same tag and collide into the same k-buffer
+slot — Opaque/Blend resolve would still produce pixel-identical output to
+the pre-WU-28 plain path for this exact content. ADR-059 itself named "a
+sphere's own front and back" as the motivating k=2 case; this session
+found that neither sub-unit actually closes it. Not a defect in WU-28a's
+or WU-28b's own `Files:`/`Accept:` — a real gap neither unit's own scope
+included, now named as WU-28c/WU-28d in `WORK-UNITS.md`.
 
-**4. Sizing ran well over `SESSION-PROTOCOL.md`'s own "~400 lines" figure
-— 576 total after one trimming pass from an initial 638 (243 across
-`src/core/resolve.hpp`/`.cpp`, `src/core/pipeline.cpp`, `CMakeLists.txt`;
-333 in the new `tests/test_kbuffer_resolve.cpp`).** Trimmed comment
-density only — no test case, no Opaque/Blend coverage, no design-rationale
-content cut to make the number smaller, and the touched-file set is
-already exactly `WORK-UNITS.md`'s own `Files:` list for this unit, the
-minimum ADR-059's own PASS-2/resolve split leaves for one coherent
-"resolve/composite" unit. Flagged plainly, per this session's own
-instruction to stop and report rather than force a further split or cut
-coverage. See `DECISIONS.md` ADR-061 for the full breakdown.
+**4. The fix depends on WU-26 (Normals from lattice), still unscoped.**
+`core/lattice.hpp`'s own header comment already reserves dz/du/dz/dv and
+the cross-product normal for WU-26 by name — the front/back facing signal
+WU-28c needs is exactly that normal's view-facing sign. A same-session
+finite-difference shortcut around this was considered and rejected (see
+ADR-062) — it would duplicate, not reuse, work `core/lattice.hpp` already
+promises to a specific future unit. WU-26 is therefore now a hard
+prerequisite, not just "next in the backlog" — see `WORK-UNITS.md`'s own
+WU-26 entry, updated with a pointer this session (no `Files:`/`Accept:`
+invented for it here — that stays a future session's own first job).
 
-**5. A real, but minor, compiler issue this session's own sandbox build
-caught: GCC 13's `-Werror=array-bounds` misfired on a `std::sort` call
-over a 4-element `std::array` with a runtime sub-range.** Not a design or
-reasoning error — Clang 18 raised nothing on the same code, and the
-`std::sort` call itself was correct — so no `CORRECTIONS.md` entry; see
-`DECISIONS.md` ADR-061 for the full explanation. Fixed by replacing the
-call with a hand-written insertion sort, documented in `resolve.cpp`'s own
-comment as a known compiler quirk at this array size. Worth a future
-session remembering if another small fixed-capacity `std::array` sort ever
-shows up on this same GCC line.
-
-**6. One untracked `Testing/` directory found at the repository root
-during this session's own opening verification
-(`Testing/Temporary/CTestCostData.txt`, `Testing/Temporary/LastTest.log`)
-— not part of the tracked tree, did not block the clean-tree check, not
-removed (`device_bash` cannot delete files).** Almost certainly `ctest`
-was run from the repository root instead of `build/` at some point —
-harmless, but **Steve: run `rm -rf ~/src/scatter-dve/Testing` at your own
-terminal** whenever convenient; not urgent, not blocking anything below.
-
-**7. `.git/index.lock` pattern — not encountered this session (no local
-commits attempted; this session only wrote files via `SendUserFile` +
-`device_commit_files`).** Still the same known, non-blocking behavior
-documented across Sessions 29-34: `device_bash` git commands that only
-read (`status`, `log`, `diff`, `show`, `tag`) succeed and print correct
-output even with a stale lock file present; `device_bash` itself can never
-remove it. **Steve: run `rm -f ~/src/scatter-dve/.git/index.lock` before
-your own `git add`/`git commit` below** — routine, not a one-off fix.
-
-**8. `device_stage_files`/`device_commit_files` HTTP 403 `untrusted_device`
-— not encountered this session.** If it recurs: it means the Mac slept
-mid-session and invalidated the device's trusted-sign-in state, not an
-account problem — ask Steve to re-enable access in the Claude desktop app
-(no fresh sign-in needed), then retry. Noted only so a future session does
-not have to re-diagnose it from scratch again.
+**5. `.git/index.lock` pattern — not encountered as blocking this session
+(read-only `git` checks via `device_bash` only).** Same known,
+non-blocking behavior documented every session since Session 29. **Steve:
+run `rm -f ~/src/scatter-dve/.git/index.lock` before your own `git
+add`/`git commit` below** if it's present — routine, not new.
 
 ## This session in full
 
-Session opened by requesting device-bridge access to `~/src/scatter-dve`
-only (the Blackmagic SDK folder was not requested — WU-28b touches only
-`src/core/`, nothing DeckLink- or Metal/Cocoa-related, per ADR-059's own
-scoping). Read `SESSION-PROTOCOL.md`, `HANDOFF.md`, `WORK-UNITS.md`,
-`DECISIONS.md`, `CORRECTIONS.md` and `INVARIANTS.md` in full, paying
-specific attention to `HANDOFF.md`'s own Session-34 account, `WORK-UNITS.md`'s
-WU-28b entry, and `DECISIONS.md` ADR-059/060 — then verified real
-repository state directly (`git tag`, `git log --oneline -10`, `git status
---short`, `git status -sb`) before trusting any of it, per this project's
-own standing anti-drift rule and this session's own explicit instruction
-not to build WU-28b against an unconfirmed WU-28a: `wu-28a-green` present
-in `git tag`; `HEAD` at `5ba1086` ("WU-28a: k-buffer storage..."), the same
-commit; `git status -sb` reading `## main...origin/main`, no ahead/behind
-marker. Confirmed, not assumed — WU-28a really is real-terminal `green`,
-even though `HANDOFF.md`'s and `WORK-UNITS.md`'s own text still said
-otherwise (Flagged items 2 above). `core/types.hpp`, `core/splat.hpp`/
-`.cpp`, `core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` then re-read in full
-against ADR-059/060's own design before writing anything — nothing had
-drifted since Session 34.
+Session opened by Steve's own direct question against the real repository
+and the real hardware, not a scoping request in the abstract: "should
+WU-28b have shown occlusion, it didn't." Verified real repository state
+first, per standing discipline: `HEAD` at `2b9eea4` ("WU-28b: k-buffer
+resolve..."), no `wu-28b-green` tag, `git status -sb` reading `##
+main...origin/main` with no ahead/behind marker — WU-28b's own code is
+committed, correctly, just not yet Steve's-own-real-terminal-closed.
 
-Built WU-28b exactly per `WORK-UNITS.md`'s own `Files:`/`Accept:` entry:
-`src/core/resolve.hpp`/`.cpp` (new `KBufferResolveMode` enum and
-`compositeKBuffer()`, alongside — not replacing — `composite()`/
-`compositeLayered()`; new, additive `PipelineParams::kBufferMode` field,
-default `Off`, zero-cost-when-absent, the same shape `pool`/`weightOut`
-already established), `src/core/pipeline.cpp` (`resolveOneTile()` wired to
-the new k-buffer resolve path in both the `threads<=1` oracle branch and
-the threaded PASS-2 path, explicitly not writing `weightOut` along that
-path), `tests/test_kbuffer_resolve.cpp` (new), `CMakeLists.txt`
-(`test_kbuffer_resolve` target added). Two design questions ADR-059 left
-open, decided and recorded in `DECISIONS.md` ADR-061: one `KBufferResolveMode`
-field rather than two separate opacity/blend fields; Blend mode as a
-direct generalization of `compositeLayered()`'s own two-layer
-read-replace-write mechanism to up to `kBufferK` occupied slots, sorted by
-`firstSeenZ` with a smallest-tag tie-break, cross-checked directly against
-`compositeLayered()` for the two-slot case. A real but minor compiler issue
-(GCC 13's `-Warray-bounds` false positive on a small fixed-capacity
-`std::array` sort) caught by the sandbox's own build, fixed with a
-hand-written insertion sort — see ADR-061 and Flagged item 5; not a
-`CORRECTIONS.md`-worthy design error.
+Traced the symptom against the real files rather than reasoning from
+memory of what WU-28a/WU-28b built: staged and read
+`tests/test_decklink_live_sphere.cpp` (confirmed `kBufferMode` and `tag`
+are never set on its own `PipelineParams`, and confirmed its own lattice
+genuinely self-folds, `kAngleSpanH = 2*pi`), `src/core/binner.hpp`/`.cpp`
+(confirmed `tag` is one scalar function parameter stamped onto every
+`Frag` a call produces), `src/core/splat.cpp` (confirmed
+`routeIntoKBuffer()` keys slots by tag, same-tag reuses the same slot —
+ADR-059's own deliberate, correct choice for I6, not a bug), and
+`src/core/lattice.hpp`/`shapes.hpp` (confirmed the sphere's own
+parametrisation and confirmed `core/lattice.hpp`'s own header comment
+already earmarks dz/du/dz/dv and the cross-product normal for WU-26 by
+name). Two independent, stacking causes found, both recorded in full in
+`CORRECTIONS.md` C-020 and `DECISIONS.md` ADR-062: the live demo never
+enables the k-buffer path at all, and even enabling it would not help
+against this specific content, because front and back of one self-folding
+lattice always share one tag today.
 
-Per Steve's own standing answer (WU-28b stays entirely inside
-`scatter-core`), this unit was genuinely built and tested in this
-project's cloud sandbox this session, not just reasoned through: cloned
-the real `skunge2000/scatter-dve` origin fresh (not a reused sandbox from
-any prior session), confirmed it matched `wu-28a-green`/`5ba1086` before
-any file was touched, applied the new/changed files, and configured/built
-across a wider matrix than WU-28a's own single-configuration precedent,
-given the new arithmetic and the new concurrent code path at stake: GCC
-13.3 and Clang 18.1, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5, plus a
-Debug ASan+UBSan build, plus a Release TSan build. All 22 portable `ctest`
-targets passed clean in every one of the eight configurations, including
-every pre-existing test this unit did not touch (no regression), with no
-sanitizer report of any kind in any log. Unlike WU-28a's own test, this
-unit's accept criterion required exercising real multi-threading, not
-fragment-order permutation:
-`test_kbuffer_pipeline_threads_1_matches_threads_8()` runs the full
-pipeline (`runFrame()` end to end, `Blend` mode) for a real WU-21g/h
-folding-sphere frame at `--threads 1` and compares byte-for-byte,
-per-pixel per-channel, against `--threads {2, 3, 8}` — genuinely
-satisfied, not simulated.
+Scoped the fix as two new units, gated on WU-26, kept separate from each
+other for the same core/DeckLink split reason ADR-059 itself kept WU-28a
+and WU-28b separate from any Cocoa/Blackmagic-touching work: **WU-28c**
+(`core/binner.hpp`/`.cpp` only, core-only, sandbox-buildable once WU-26
+exists to build against — computes a per-fragment facing tag from WU-26's
+own normal) and **WU-28d** (`tests/test_decklink_live_sphere.cpp` only,
+DeckLink-linked, reasoned-through/handed-off only, never sandbox-built —
+turns `kBufferMode` on for the live demo once WU-28c's tags exist).
+Neither unit's `Files:`/`Accept:` in `WORK-UNITS.md` is written as final;
+both are explicitly provisional pending WU-26, the same discipline
+WU-28b's own blend formula followed (designed against real code once its
+prerequisite existed, not invented at scoping time).
 
-Delivered all eight changed/new files to the real repository via
-`SendUserFile` + `device_commit_files`, to `/Users/stephenneal/src/scatter-dve/...`
-(the real device paths from `get_device_info`'s own `connectedFolders`,
-not the `device_bash` mount path): `src/core/resolve.hpp`,
-`src/core/resolve.cpp`, `src/core/pipeline.cpp`, `CMakeLists.txt`,
-`tests/test_kbuffer_resolve.cpp` (new), `WORK-UNITS.md`, `DECISIONS.md`,
-this file. **Delivery confirmation (this session's own device_bash checks
-after writing every file):** `wc -l` on each of the eight files matched
-this session's own sandbox copies exactly; `git status --short` showed
-exactly the five modified files (`CMakeLists.txt`, `src/core/resolve.cpp`,
-`src/core/resolve.hpp`, `src/core/pipeline.cpp`, plus `WORK-UNITS.md` and
-`DECISIONS.md` for the doc updates) plus the one new file
-(`tests/test_kbuffer_resolve.cpp`), nothing else unexpected; `git diff
---stat` matched the sandbox's own diff stat exactly for every tracked
-file; byte-for-byte `diff` against this session's own sandbox copies,
-re-staged from the device afterward, showed no differences on any of the
-eight files.
+**No code written this session — scoping and correction only,** the same
+shape Session 33's own ADR-059 scoping session took. Does not reopen
+ADR-059, ADR-060, or ADR-061 — WU-28a's and WU-28b's own `Files:`/`Accept:`
+are both still correct for exactly what they say they cover, unchanged and
+undisputed by this session.
+
+Delivered four changed files to the real repository via `SendUserFile` +
+`device_commit_files`, to `/Users/stephenneal/src/scatter-dve/...`:
+`WORK-UNITS.md`, `DECISIONS.md`, `CORRECTIONS.md`, this file.
+**Delivery confirmation (this session's own device_bash checks after
+writing every file):** `wc -l` on each of the four files matched this
+session's own sandbox copies exactly; `git status --short` showed exactly
+these four files changed, nothing else; byte-for-byte `diff` against this
+session's own sandbox copies, re-staged from the device afterward, showed
+no differences on any of the four.
 
 ## Where we are
 
 Phase 6 (Scale up) unchanged: WU-22a/b/c all `green`. Phase 7 (Starlight)
-now reads: WU-26 `todo`, WU-27 `todo`, **WU-28a `green`** (status line
-corrected this session to match confirmed real-terminal state), **WU-28b
-`wip`** (built and tested in the cloud sandbox this session; Steve's own
-real-terminal run still needed for `green`), WU-29 `todo`. `DECISIONS.md`
-runs through ADR-061. `CORRECTIONS.md` unchanged this session, still runs
-through C-019.
+now reads: **WU-26 `todo`** (now a named hard prerequisite for WU-28c, not
+yet scoped), WU-27 `todo`, WU-28a `green`, **WU-28b `wip`** (still awaiting
+Steve's own real-terminal close-out — unaffected by this session),
+**WU-28c `todo`** (new, gated on WU-26), **WU-28d `todo`** (new, gated on
+WU-28c), WU-29 `todo`. `DECISIONS.md` runs through ADR-062.
+`CORRECTIONS.md` runs through C-020.
 
 ## Next work unit
 
-Steve's own real-terminal close-out of WU-28b (build, run `ctest`, commit,
-tag `wu-28b-green`, push) — see "Steve's own next steps" below for the
-exact commands. After that lands, both WU-28 sub-units are fully closed
-and Phase 7 continues with **WU-26** (normals from lattice) or **WU-27**
-(Blinn-Phong shading), both currently unscoped `todo` entries — a future
-session's own first job there is real `Files:`/`Accept:` scoping, same
-discipline as every other unit. Fixing `WU-21i`'s own stale status line
-(Flagged item 1) remains a small, unrelated open item worth doing
-opportunistically.
+Two things, in order: (1) Steve's own real-terminal close-out of WU-28b —
+unaffected by this session, still the right next action, see "Steve's own
+next steps" below; (2) after that, or independently, WU-26 (Normals from
+lattice) needs its own real scoping session — a future session's first job
+there is `Files:`/`Accept:` scoping, same discipline as every unscoped
+unit, now with WU-28c specifically depending on its outcome (the normal
+needs to be something WU-28c's own per-fragment tagging can consume, i.e.
+available per source sample during `generateFragments()`, not only at
+control-vertex resolution — worth that future session's own attention
+alongside whatever WU-27's Blinn-Phong shading needs from the same
+normal).
 
 ## Open questions
 
-Unchanged from Session 34: `kCaptureRingCapacity`'s value of 8 (WU-20a/20b,
+Unchanged from Session 35: `kCaptureRingCapacity`'s value of 8 (WU-20a/20b,
 ADR-046), the cold-start green-frame artifact (WU-21d), Q3 (macOS/Desktop
 Video version), and Q4 (lattice edge damping, C-008(a)) all remain open,
 none touched this session.
 
 ## Blocked / red
 
-Nothing red. Nothing blocked. WU-28b is `wip` (sandbox-green, not yet
-Steve's-real-terminal-green) — not blocked on anything, its own close-out
-is simply Steve's next action.
+Nothing red. WU-28c is blocked on WU-26 (not yet scoped); WU-28d is
+blocked on WU-28c. Neither is a broken state — both are honestly `todo`,
+correctly sequenced. WU-28b remains `wip`, not blocked, simply awaiting
+Steve's own close-out.
 
 ## Environment check
 
-Unchanged from Session 34: **UltraStudio Monitor 3G** (output,
+Unchanged from Session 35: **UltraStudio Monitor 3G** (output,
 HDMI-mirrored) and **UltraStudio Recorder 3G** (input) both last confirmed
 working in Session 29's own real-hardware runs. **UltraStudio 4K Mini**
-remains on hold pending a PSU replacement. `origin`
-(`https://github.com/skunge2000/scatter-dve.git`) remains configured and
-in sync as of this session's own opening check — no push happened from
-this session's own device_bash (it never runs `git commit`/`git push`
-itself); Steve's own commit/push below will be the first change to that
-state since his own WU-28a close-out.
-
-**Reconfirmed this session:** the cloud sandbox's portable toolchain — now
-demonstrated across GCC 13.3, Clang 18.1, CMake 3.28.3 and Ninja, plus
-ASan/UBSan/TSan sanitizer builds — remains a genuine, repeatable capability
-for any `scatter-core`-only unit, not a one-off from Session 34.
+remains on hold pending a PSU replacement. `origin` remains configured and
+in sync as of this session's own opening check.
 
 ## Append to DECISIONS.md
 
-ADR-061 (WU-28b build: the `KBufferResolveMode` field design and the
-Blend-mode formula as a generalization of `compositeLayered()`; the GCC
-13 `-Warray-bounds` false positive and its fix; the eight-configuration
-sandbox build/test methodology; sizing) — appended in full this session;
-see `DECISIONS.md`. Does not reopen ADR-059, ADR-060, or any already-green
-unit.
+ADR-062 (real-content gap scoping: why WU-28a/WU-28b cannot show occlusion
+for real self-folding content, WU-28c/WU-28d named and provisionally
+scoped, the WU-26 dependency and why a same-session shortcut around it was
+rejected) — appended in full this session; see `DECISIONS.md`. Does not
+reopen ADR-059, ADR-060, or ADR-061.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session. The GCC `-Warray-bounds` issue (Flagged item 5,
-`DECISIONS.md` ADR-061) is a toolchain quirk caught and fixed within this
-unit's own build, not a design or reasoning error that misled a decision —
-judged not to meet `CORRECTIONS.md`'s own bar ("errors already made during
-design"), unlike WU-28a's own C-019.
+C-020 (ADR-059 named "a sphere's own front and back" as WU-28's own
+motivating case; neither WU-28a nor WU-28b actually closes it, because the
+k-buffer keys slots by a tag that's one scalar per call, not per fragment;
+general lesson — check a unit's own motivating real-world symptom against
+the real symptom, not only against its own synthetic `Accept:` data) —
+appended in full this session; see `CORRECTIONS.md`.
 
 ## Closed out this session
 
-Nothing tagged `green` — WU-28b was built and tested in the cloud sandbox
-this session, genuinely (eight compiler/build-type/tile-size/sanitizer
-configurations, not just "it compiled once"), but `SESSION-PROTOCOL.md`
-reserves `green`/tagging for Steve's own real-terminal close-out, which is
-this unit's own next, and final, step.
+Nothing — scoping-only, no tag, same as Session 33's own ADR-059 commit.
 
 ## Steve's own next steps
 
-`.git/index.lock` may need clearing first (Flagged item 7), and there's a
-harmless stray `Testing/` directory worth clearing too (Flagged item 6):
+**First, close out WU-28b for real — this session's own findings do not
+change anything about this step, it's still correct:**
 
 ```
 rm -f ~/src/scatter-dve/.git/index.lock
-rm -rf ~/src/scatter-dve/Testing
 cd ~/src/scatter-dve
 git status
-git diff -- src/core/resolve.hpp src/core/resolve.cpp src/core/pipeline.cpp CMakeLists.txt WORK-UNITS.md DECISIONS.md HANDOFF.md
-git status --short
-```
-
-`tests/test_kbuffer_resolve.cpp` is new, so `git diff` alone will not show
-its content — review it directly:
-
-```
-cat ~/src/scatter-dve/tests/test_kbuffer_resolve.cpp
-```
-
-If the diffs and the new file look right, build and test at your own real
-terminal from the `build/` directory specifically (this session's own
-cloud-sandbox run used GCC 13.3/Clang 18.1 on Linux x86_64 — your own
-AppleClang/ARM64 toolchain is the one that actually counts for `green`):
-
-```
 cd ~/src/scatter-dve
 cmake --build build
 cd build
 ctest --output-on-failure
 ```
 
-If that's green, stage and commit everything (this project's own
-`tools/close.sh` refuses to tag on a dirty tree, so commit first):
-
-```
-cd ~/src/scatter-dve
-git add src/core/resolve.hpp src/core/resolve.cpp src/core/pipeline.cpp tests/test_kbuffer_resolve.cpp CMakeLists.txt WORK-UNITS.md DECISIONS.md HANDOFF.md
-git commit -m "WU-28b: k-buffer resolve, opaque/blend composite (ADR-059/ADR-061)"
-```
-
-Then close the unit — `tools/close.sh` reconfigures, rebuilds, reruns
-`ctest` itself from `build/`, tags `wu-28b-green` on success, and pushes
-both the commit and the tag automatically:
+If that's green:
 
 ```
 cd ~/src/scatter-dve
 ./tools/close.sh 28b
 ```
 
-If `close.sh` prints `WU-28b closed green.`, the push already happened —
-nothing further needed. If it instead prints a `WARNING: push failed`
-line, run the two pushes explicitly:
+If `close.sh` prints `WU-28b closed green.`, it already pushed. If it
+prints `WARNING: push failed`, push explicitly:
 
 ```
 git push origin main
 git push origin --tags
 ```
 
-(This is the same manual-push fallback `SESSION-PROTOCOL.md` calls for
-whenever a push doesn't happen automatically — required, not optional,
-whenever that warning appears.)
+**Then, separately, review and commit this session's own scoping docs** —
+doc-only, no build/test needed (nothing here touches source):
 
-If `ctest` is red at your own terminal (either the manual run above or
-inside `close.sh`), the fastest way to get this session's own log of what
-to expect is to paste the failing test's own output back in; nothing in
-this session's own eight-configuration sandbox run (including
-ThreadSanitizer on the new threaded code path) suggests a platform-specific
-risk, but the sandbox's toolchain is evidence, not a guarantee, for yours.
+```
+cd ~/src/scatter-dve
+git diff -- WORK-UNITS.md DECISIONS.md CORRECTIONS.md HANDOFF.md
+git add WORK-UNITS.md DECISIONS.md CORRECTIONS.md HANDOFF.md
+git commit -m "WU-28 scoping: self-fold facing-tag gap, WU-28c/WU-28d named, gated on WU-26 (ADR-062, C-020)"
+git push origin main
+```
 
-Once done, `git status -sb` should read `## main...origin/main` with no
-`[ahead]`/`[behind]` marker, and `git log --oneline -1` should show this
-commit at `HEAD`, with `wu-28b-green` in `git tag`.
+(No tag for this commit — scoping-only sessions don't tag, the same as
+Session 33's own `a18a419` scoping commit for ADR-059.)
+
+Once both are done, `git log --oneline -3` should show this scoping commit
+at `HEAD`, the WU-28b close commit just below it, and `wu-28b-green` in
+`git tag`.

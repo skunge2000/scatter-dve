@@ -6332,3 +6332,99 @@ Does not reopen ADR-059 or ADR-060, or any already-`green` unit. Both
 WU-28 sub-units are now built and sandbox-tested; `wu-28b-green` (Steve's
 own real-terminal build/run/commit/tag/push) is this unit's own remaining
 step, per `SESSION-PROTOCOL.md`.
+
+**ADR-062 — real-content gap scoping: WU-28c (self-fold facing tag) and
+WU-28d (wire it into the live sphere demo), gated on WU-26.** Session
+opened by Steve's own direct question — "should WU-28b have shown
+occlusion, it didn't" — against the real `test_decklink_live_sphere.cpp`
+demo, after WU-28b's own commit (`2b9eea4`) had landed but before Steve's
+own real-terminal `ctest`/tag/push. Verified real repository state first,
+per this project's own standing discipline: `HEAD` at `2b9eea4`, no
+`wu-28b-green` tag yet, `git status -sb` reading `## main...origin/main`
+with no ahead/behind marker — WU-28b is committed, not yet Steve's-own-
+real-terminal-green.
+
+Traced the "no occlusion" symptom directly against the real files, not
+reasoned from memory: `tests/test_decklink_live_sphere.cpp`'s own
+`test_live_playback_manual_sphere_control_letter_keys()` builds
+`scatter::PipelineParams params;` with only `destWidth`/`destHeight` set —
+`kBufferMode` stays `Off`, so WU-28a/WU-28b's own code is never reached by
+that file at all. That alone would explain the symptom, but is not the
+real or the whole story: `core/binner.cpp`'s `generateFragments()`/
+`generateFragmentsRowRange()` stamp one `std::uint8_t tag` function
+parameter — sourced from `PipelineParams::tag`, one scalar per call —
+uniformly onto every `Frag` a call produces (`frag.tag = tag;`). The live
+sphere demo's own lattice is genuinely self-folding
+(`makeSphereLattice()`'s `kAngleSpanH = 2*pi`, full wrap, "exact fold
+boundary" per that file's own comment on `kAngleSpanV`), generated in one
+`generateFragments()` call, so every fragment from it — front-facing and
+folded-away-back alike — carries the identical tag. ADR-059's own k-buffer
+design keys slots *by tag*, deliberately, to keep same-tag accumulation
+order-independent for I6 (`src/core/splat.cpp`'s `routeIntoKBuffer()`: a
+matching tag reuses the existing slot rather than claiming a new one) — so
+front and back of this exact sphere always collide into one slot and sum
+together via the same order-independent `accumulateCorner()` arithmetic
+the pre-WU-28 plain path already used. Even with `kBufferMode` set to
+`Opaque` or `Blend`, resolve would see exactly one occupied slot per cell
+and produce numerically the same output `composite()` already produced.
+Recorded in full as `CORRECTIONS.md` C-020: ADR-059 named "a sphere's own
+front and back" as the k=2 minimal case motivating this whole feature, so
+this is a real claim that turned out false against the actual symptom, not
+just an unbuilt nice-to-have.
+
+**Why the fix is not a same-session patch:** giving a self-folding
+surface's front and back different tags needs a per-fragment facing
+signal — something that can look at one source sample and say "this point
+is on the surface's near side or its folded-away far side" — computed
+during `generateFragments()`'s own per-sample loop (which already
+evaluates the lattice and its Jacobian for every sample, so this is new
+logic in an already-visited place). The geometrically correct, shape-
+agnostic version of that signal is a surface normal's view-facing sign:
+`normal.z < 0` (front-facing, toward the camera, in this project's own
+z-increases-into-screen convention) versus `normal.z >= 0` (back-facing,
+folded away). `core/lattice.hpp`'s own header comment already names this
+exact mechanism and already reserves it for a specific future unit: "z is
+deliberately 2x2... dz/du and dz/dv are not needed until WU-26's surface
+normals (cross product of the two tangent vectors) and can be added there
+without changing this interface." A same-session finite-difference
+shortcut around `core/lattice.hpp`'s own interface — approximating dz/du,
+dz/dv locally inside `core/binner.cpp` without touching `Lattice`/
+`Jacobian` at all — was considered and rejected: that would be a second,
+independently-invented facing computation living beside the one
+`core/lattice.hpp` already promises to WU-26 by name, exactly the kind of
+divergent-design risk `SESSION-PROTOCOL.md`'s anti-drift rules (never
+reopen a settled design question in a different unit; names in headers are
+fixed) exist to prevent. The correct sequencing is WU-26 first, then a new
+unit that consumes its normal.
+
+**Two new units, not one, to keep the DeckLink/core split ADR-059 itself
+established:** WU-28c (`core/binner.hpp`/`.cpp` only, core-only, therefore
+buildable and testable directly in this project's cloud sandbox the same
+way WU-28a/WU-28b were) computes the per-fragment facing tag once WU-26
+supplies a normal; WU-28d (`tests/test_decklink_live_sphere.cpp` only)
+turns `kBufferMode` on for the live demo once WU-28c's tags make doing so
+meaningful. Mixing these into one unit would put a Blackmagic-SDK-linked
+file in the same unit as core-only logic, the exact split ADR-059's own
+scoping session explicitly avoided for WU-28a/WU-28b themselves — kept
+separate here for the same reason. Neither unit's own `Files:`/`Accept:`
+in `WORK-UNITS.md` is written as final: WU-28c's is provisional pending
+WU-26 actually existing to build against (the same discipline WU-28b's own
+blend formula followed — designed against real code once its own
+prerequisite existed, not invented at scoping time), and WU-28d's `Accept:`
+is necessarily a by-eye criterion, since no automated test can observe an
+SDI monitor — the same kind of criterion WU-21i's own letter-key controls
+already use.
+
+**No code written this session — scoping and correction only, as this
+project's own precedent (ADR-059) already establishes for a scoping
+session.** Does not reopen ADR-059, ADR-060, or ADR-061 — WU-28a's and
+WU-28b's own `Files:`/`Accept:` are both still correct for exactly what
+they say they cover (synthetic multi-tag slot sets; I6 across the new
+threaded code path), neither of which this ADR disputes. WU-26 remains
+unscoped `todo`, now recorded as a hard prerequisite for WU-28c
+(`WORK-UNITS.md`'s own WU-26 entry updated with a pointer, not a
+`Files:`/`Accept:` — scoping WU-26 itself remains a future session's own
+first job). `wu-28b-green` remains Steve's own next real-terminal step,
+unaffected by this ADR — WU-28b's own committed code is not being
+withdrawn or changed, only the follow-on work needed to make its effect
+visible is being scoped.

@@ -1642,6 +1642,12 @@ needs turn out to be by then, same discipline as every other unit.
 ## Phase 7 — Starlight
 
 ### WU-26 — Normals from lattice `todo`
+Not yet scoped — a future session's own first job here is real
+`Files:`/`Accept:` scoping, same as every other unscoped unit. **Now also
+a hard prerequisite for WU-28c** (self-fold facing tag, below in Phase 7's
+own listing): `core/lattice.hpp`'s own header comment already reserves
+dz/du/dz/dv and the cross-product normal for this unit specifically — see
+DECISIONS.md ADR-062 for how that dependency was found.
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
 ### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
@@ -1757,6 +1763,23 @@ unit's own path to that status, per `SESSION-PROTOCOL.md` — the sandbox's
 toolchain (GCC 13.3/Clang 18.1, Linux x86_64) is evidence, not a
 substitute, for his own (AppleClang, ARM64). See `HANDOFF.md`.
 
+**Real-content gap found after this session (CORRECTIONS.md C-020,
+DECISIONS.md ADR-062): neither WU-28a nor WU-28b's own k-buffer mechanism
+is reachable by any real content in this codebase today.** `KBufferResolveMode`
+is opt-in and nothing sets it away from `Off` in any live/demo entry point
+(`tests/test_decklink_live_sphere.cpp` included), and — the deeper issue —
+every `Frag` generated within one `generateFragments()`/`runFrame()` call
+carries the same single `PipelineParams::tag`/`std::uint8_t tag` value
+(`core/binner.cpp`'s own `frag.tag = tag;`), so a single self-folding
+surface's front and back, which the k-buffer keys apart *by tag*, always
+collide into the same slot regardless of resolve mode. WU-28a/WU-28b's own
+`Files:`/`Accept:` above are unaffected and remain correct for what they
+actually cover (synthetic multi-tag slot sets, and I6 across the new
+threaded code path) — the gap is a missing piece neither sub-unit's own
+scope included: something has to assign *different* tags to a folding
+surface's own front and back before the k-buffer has anything to separate.
+See WU-28c/WU-28d below.
+
 Both sub-units stay entirely inside `scatter-core` (`core/types.hpp`,
 `core/splat.hpp`/`.cpp`, `core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` —
 no Blackmagic SDK, no Metal/Cocoa anywhere in the touched set) — per
@@ -1764,6 +1787,78 @@ Steve's own explicit answer during ADR-059's scoping conversation, both are
 buildable, runnable and testable directly in the cloud sandbox once someone
 actually writes them, unlike every DeckLink/Cocoa-touching unit before
 them.
+
+### WU-28c — self-fold facing tag: per-fragment tag from surface normals `todo`
+See `DECISIONS.md` ADR-062. Closes the real-content gap flagged on WU-28b
+above: gives a self-folding surface's front and back *different*
+`Frag::tag` values, so WU-28a's k-buffer has something to key apart and
+WU-28b's resolve modes have more than one occupied slot to ever act on.
+**Depends on WU-26 (Normals from lattice), not yet scoped or built.**
+`core/lattice.hpp`'s own header comment already earmarks exactly this:
+Jacobian is deliberately 2x2 today because "dz/du and dz/dv are not needed
+until WU-26's surface normals (cross product of the two tangent vectors)
+and can be added there without changing this interface." Facing —
+front-facing (visible, `normal.z < 0` in this project's z-increases-into-
+screen convention) versus back-facing (folded away from camera, `normal.z
+>= 0`) — is exactly the sign WU-26's own normal supplies per source
+sample. This unit does not reopen or duplicate WU-26's own job (computing
+the normal correctly, analytically, from the lattice's tangents) — it
+consumes that result. A same-session finite-difference shortcut around
+WU-26 was considered and rejected: `core/lattice.hpp`'s own comment already
+promises this dz/du/dz/dv work to WU-26 specifically, and inventing a
+second, divergent facing computation elsewhere is exactly what
+`SESSION-PROTOCOL.md`'s anti-drift rules (never reopen a settled design
+question in a different unit) exist to prevent.
+
+**Files (once WU-26 lands and this unit is actually scoped in full):**
+expected to be `core/binner.hpp`/`.cpp` (a new, additive per-sample tag
+mode alongside today's single-scalar-`tag` `generateFragments()`/
+`generateFragmentsRowRange()` — the existing per-sample loop already
+evaluates the lattice and its Jacobian for every source sample, so this is
+new logic in an already-visited place, not a new pass), a new test
+(synthetic self-folding lattice, e.g. a lattice built directly at the
+angleSpanH == 2*pi fold boundary, checked against a hand-computed
+front/back split). Exact `Files:`/`Accept:` is this unit's own job to fix
+for real once WU-26 exists to build against — not invented here, the same
+discipline WU-28b's own `Accept:` line followed for its blend formula.
+
+*Status:* named and given a real-content rationale this session so the gap
+this session found is not lost — not yet scoped in full (its own
+`Files:`/`Accept:` above is provisional, pending WU-26). No code written.
+See `HANDOFF.md`.
+
+### WU-28d — wire self-fold occlusion into the live sphere demo `todo`
+See `DECISIONS.md` ADR-062. Once WU-28c exists, turns the feature on where
+Steve can actually see it: `tests/test_decklink_live_sphere.cpp` currently
+constructs `scatter::PipelineParams params;` (around its own
+`test_live_playback_manual_sphere_control_letter_keys()`) and never sets
+`kBufferMode` away from `Off` — this unit sets it (`Opaque` or `Blend`,
+possibly a new letter-key toggle between the two, consistent with WU-21i's
+own letter-key control scheme) once WU-28c's per-fragment facing tags make
+doing so meaningful. Deliberately kept separate from WU-28c: WU-28c is
+core-only (`core/binner.hpp`/`.cpp`, sandbox-buildable/testable, same as
+every WU-28-adjacent unit before it), while this unit touches a
+Blackmagic-SDK-linked test file and therefore can only be reasoned through
+and handed off via the device bridge, never built or run in the cloud
+sandbox — the same DeckLink/Cocoa split every other unit in this project
+already respects (ADR-059's own explicit reason WU-28a/WU-28b stayed
+core-only in the first place).
+
+**Files:** `tests/test_decklink_live_sphere.cpp` only, expected — no other
+file should need touching if WU-28c's own API is additive, per the pattern
+every k-buffer-adjacent unit so far has kept.
+
+**Accept:** provisional, pending WU-28c's own real API — expected to be a
+by-eye criterion (Steve's own real-hardware run: does the folding sphere's
+back half now visibly disappear behind its front half, in the same spirit
+WU-21i's own by-eye accept criteria for letter-key controls already are),
+since no automated test can observe an SDI monitor. Fixed for real once
+WU-28c lands.
+
+*Status:* named this session so the second half of the gap (feature built
+but never switched on for real content) is not lost either. No code
+written. See `HANDOFF.md`.
+
 ### WU-29 — Environment map `todo`
 
 ---
