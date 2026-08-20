@@ -1643,7 +1643,7 @@ needs turn out to be by then, same discipline as every other unit.
 
 ### WU-26 — Normals from lattice `todo`
 ### WU-27 — Blinn-Phong, linear light, two-sided `todo`
-### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `wip`
+### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
 a decision made until now) and the design fork it resolved. Splits from
 the single `WU-28` line this replaces the same way WU-16a/b split PASS 2
@@ -1690,20 +1690,21 @@ oracle — exactly what ADR-059's own documented caveat concedes it cannot
 promise). A cell where only one tag is ever present reproduces today's
 plain `sumBanks()` `AccumCell` exactly.
 
-*Status:* built and tested this session (DECISIONS.md ADR-060) — all
-`Files:` above delivered to the real repository via the device bridge and
-confirmed written (`wc -l`/`git status --short`/`git diff --stat` all
-matched the sandbox copies exactly). Configured, built (`scatter-core`,
-`test_kbuffer_storage`) and run directly in this project's cloud sandbox,
-a first for any WU-28-adjacent unit: full portable `ctest` suite (21
-targets) green, no regressions, `test_kbuffer_storage` itself 1082 checks
-passing after ADR-060's own zero-weight-corner fix. Not yet `green`:
-Steve's own real-terminal build/run/commit/tag/push (`wu-28a-green`) is
-still this unit's own path to that status, per `SESSION-PROTOCOL.md` — the
-sandbox's toolchain (GCC 13.3, Linux x86_64) is evidence, not a
-substitute, for his own (AppleClang, ARM64). See `HANDOFF.md`.
+*Status:* `green` — Steve's own real-terminal build/run/commit/tag/push
+landed since Session 34 (this status line itself was left at `wip` in that
+commit; corrected here, doc-only, by Session 35 while re-verifying
+repository state before starting WU-28b, not by touching any of this
+unit's own source files). Confirmed directly via the device bridge, not
+assumed from this file's own prior text: `git tag` lists `wu-28a-green`;
+`git log --oneline -10` shows it at `HEAD` (`5ba1086`, "WU-28a: k-buffer
+storage, tag-keyed depth slots (ADR-059/ADR-060)"); `git status -sb` reads
+`## main...origin/main` with no ahead/behind marker. Built and tested in
+the cloud sandbox first (DECISIONS.md ADR-060): full portable `ctest`
+suite (21 targets) green, no regressions, `test_kbuffer_storage` itself
+1082 checks passing after ADR-060's own zero-weight-corner fix. See
+`HANDOFF.md`.
 
-### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `todo`
+### WU-28b — k-buffer resolve: depth-ordered opaque/blend composite `wip`
 See `DECISIONS.md` ADR-059. Consumes WU-28a's per-cell occupied-slot set.
 Two related but distinct outcomes, per Steve's own original framing of this
 unit's scope (recorded in `WU-28`'s original single-line entry, preserved
@@ -1734,7 +1735,27 @@ byte-identical to an 8-thread run for a real folding-sphere frame (WU-21g/h's
 own geometry), satisfying I6 for the completed feature, not just WU-28a's
 storage step in isolation.
 
-*Status:* scoped only this session — no code written. See `HANDOFF.md`.
+*Status:* built and tested this session (DECISIONS.md ADR-061) — new
+`KBufferResolveMode` enum (`Off`/`Opaque`/`Blend`) and the additive
+`PipelineParams::kBufferMode` field, `compositeKBuffer()` alongside
+`composite()`/`compositeLayered()`, `resolveOneTile()` wired to the new
+path in both the `threads<=1` oracle branch and the threaded PASS-2 path.
+Configured, built and run directly in this project's cloud sandbox across
+GCC 13.3 and Clang 18.1, Release and Debug, tile 2^4 and 2^5, plus
+AddressSanitizer+UndefinedBehaviorSanitizer and ThreadSanitizer builds: all
+22 portable `ctest` targets green in every configuration, no regressions,
+no sanitizer reports. `--threads 1` vs `--threads {2,3,8}` byte-identical
+for a real WU-21g/h folding-sphere frame in `Blend` mode (I6, per-pixel
+per-channel `CHECK_ONCE`). Sizing ran over `SESSION-PROTOCOL.md`'s own
+"~400 lines" figure — 243 insertions across `src/core/resolve.hpp`,
+`src/core/resolve.cpp`, `src/core/pipeline.cpp` and `CMakeLists.txt`, plus
+333 lines in the new `tests/test_kbuffer_resolve.cpp`, 576 total after one
+trimming pass from an initial 638 — flagged plainly rather than cut further
+against correctness coverage; see `HANDOFF.md`. Not yet `green`: Steve's
+own real-terminal build/run/commit/tag/push (`wu-28b-green`) is still this
+unit's own path to that status, per `SESSION-PROTOCOL.md` — the sandbox's
+toolchain (GCC 13.3/Clang 18.1, Linux x86_64) is evidence, not a
+substitute, for his own (AppleClang, ARM64). See `HANDOFF.md`.
 
 Both sub-units stay entirely inside `scatter-core` (`core/types.hpp`,
 `core/splat.hpp`/`.cpp`, `core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` —

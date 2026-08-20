@@ -77,6 +77,16 @@
 // per-tile loop; every branch above (threads<=1, params.pool != nullptr,
 // the per-call ThreadPool) already funnels through this one
 // resolveOneTile() function, so nothing else in this file changes.
+//
+// WU-28b (Phase 7, DECISIONS.md ADR-059, ADR-061) adds
+// PipelineParams::kBufferMode (core/resolve.hpp): resolveOneTile() below now
+// branches on it, splatting into and resolving from WU-28a's own
+// TileKBufferAccum/KSlot storage via compositeKBuffer() instead of the
+// plain TileAccum/AccumCell/composite() path, when set. Default Off leaves
+// the plain path unchanged and never constructs WU-28a's storage -- every
+// branch above still funnels through the one resolveOneTile(), now with two
+// additional, nullptr-when-off scratch parameters mirroring accum/
+// tileCells' own shape, extending I6 through this unit's new code.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -88,6 +98,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -211,13 +222,9 @@ namespace {
 void resolveOneTile(std::span<const TileBins* const> sources,
                      const PipelineParams& params, video::Raster444& dest,
                      TileAccum& accum, std::vector<AccumCell>& tileCells,
+                     TileKBufferAccum* kAccum,
+                     std::vector<std::array<KSlot, kBufferK>>* tileKCells,
                      int tx, int ty) {
-    accum.clear();
-    for (const TileBins* bins : sources) {
-        splatTile(bins->tile(tx, ty), accum);
-    }
-    sumBanks(accum, tileCells.data());
-
     const int originX = tx * kTileSize;
     const int originY = ty * kTileSize;
     // A tile at the destination raster's own right/bottom edge can extend
@@ -226,9 +233,53 @@ void resolveOneTile(std::span<const TileBins* const> sources,
     // raster have no destination pixel to write and are simply not
     // visited, the same "no fragment lost or duplicated, nothing
     // fabricated past the edge" discipline ADR-024's off-raster-drop
-    // choice already uses one stage earlier.
+    // choice already uses one stage earlier. Shared by both branches below.
     const int localWidth = std::min(kTileSize, params.destWidth - originX);
     const int localHeight = std::min(kTileSize, params.destHeight - originY);
+
+    // WU-28b (DECISIONS.md ADR-059, ADR-061): the k-buffer resolve path --
+    // splatTileKBuffer()/sumBanksKBuffer() in place of splatTile()/
+    // sumBanks(), compositeKBuffer() in place of composite() below.
+    // kAccum/tileKCells are guaranteed non-null here -- every caller only
+    // constructs them when params.kBufferMode != Off, mirroring accum/
+    // tileCells' own unconditional construction, so the plain path pays
+    // nothing extra when off.
+    if (params.kBufferMode != KBufferResolveMode::Off) {
+        kAccum->clear();
+        for (const TileBins* bins : sources) {
+            splatTileKBuffer(bins->tile(tx, ty), *kAccum);
+        }
+        sumBanksKBuffer(*kAccum, tileKCells->data());
+
+        for (int ly = 0; ly < localHeight; ++ly) {
+            for (int lx = 0; lx < localWidth; ++lx) {
+                const std::array<KSlot, kBufferK>& slots =
+                    (*tileKCells)[std::size_t(ly) * std::size_t(kTileSize) +
+                                  std::size_t(lx)];
+                const CompositedCell out =
+                    compositeKBuffer(slots, params.kBufferMode, params.background);
+
+                const int dx = originX + lx;
+                const int dy = originY + ly;
+                const std::size_t idx =
+                    std::size_t(dy) * std::size_t(dest.width) + std::size_t(dx);
+                dest.Y[idx] = out.Y;
+                dest.Cb[idx] = out.Cb;
+                dest.Cr[idx] = out.Cr;
+
+                // WU-22a's weightOut is deliberately not written along
+                // this path -- see PipelineParams::kBufferMode's own doc
+                // comment (core/resolve.hpp).
+            }
+        }
+        return;
+    }
+
+    accum.clear();
+    for (const TileBins* bins : sources) {
+        splatTile(bins->tile(tx, ty), accum);
+    }
+    sumBanks(accum, tileCells.data());
 
     for (int ly = 0; ly < localHeight; ++ly) {
         for (int lx = 0; lx < localWidth; ++lx) {
@@ -372,13 +423,36 @@ void runThreaded(const Lattice& lattice, const SourceRaster& src,
     std::vector<std::vector<AccumCell>> cellBufs(
         numWorkersN, std::vector<AccumCell>(tilePixelsN));
 
+    // WU-28b: per-worker k-buffer scratch, mirroring arenas/cellBufs above
+    // -- allocated only when params.kBufferMode != Off, so the plain-mode
+    // path pays nothing extra and every threading path keeps funnelling
+    // through the one resolveOneTile() (WU-16a's own "cannot silently
+    // diverge" property).
+    std::vector<std::optional<TileKBufferAccum>> kArenas;
+    std::vector<std::vector<std::array<KSlot, kBufferK>>> kCellBufs;
+    if (params.kBufferMode != KBufferResolveMode::Off) {
+        kArenas.resize(numWorkersN);
+        for (auto& a : kArenas) {
+            a.emplace();
+        }
+        kCellBufs.assign(numWorkersN,
+                          std::vector<std::array<KSlot, kBufferK>>(tilePixelsN));
+    }
+
     pool.runOnAll([&](int worker) {
         TileAccum& accum = arenas[std::size_t(worker)];
         std::vector<AccumCell>& tileCells = cellBufs[std::size_t(worker)];
+        TileKBufferAccum* kAccum = nullptr;
+        std::vector<std::array<KSlot, kBufferK>>* tileKCells = nullptr;
+        if (params.kBufferMode != KBufferResolveMode::Off) {
+            kAccum = &*kArenas[std::size_t(worker)];
+            tileKCells = &kCellBufs[std::size_t(worker)];
+        }
         for (int idx = worker; idx < totalTiles; idx += numWorkers) {
             const int tx = idx % tilesX;
             const int ty = idx / tilesX;
-            resolveOneTile(allArenas, params, dest, accum, tileCells, tx, ty);
+            resolveOneTile(allArenas, params, dest, accum, tileCells, kAccum,
+                            tileKCells, tx, ty);
         }
     });
 }
@@ -421,10 +495,27 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
 
         TileAccum accum;
         std::vector<AccumCell> tileCells(tilePixelsN);
+
+        // WU-28b: k-buffer scratch, only constructed when
+        // params.kBufferMode != Off -- see runThreaded()'s own matching
+        // comment above for why this keeps the plain path's own oracle loop
+        // at zero extra cost when the mode is left at its default.
+        std::optional<TileKBufferAccum> kAccumOpt;
+        std::vector<std::array<KSlot, kBufferK>> tileKCells;
+        TileKBufferAccum* kAccum = nullptr;
+        std::vector<std::array<KSlot, kBufferK>>* tileKCellsPtr = nullptr;
+        if (params.kBufferMode != KBufferResolveMode::Off) {
+            kAccumOpt.emplace();
+            tileKCells.resize(tilePixelsN);
+            kAccum = &*kAccumOpt;
+            tileKCellsPtr = &tileKCells;
+        }
+
         const std::array<const TileBins*, 1> soloSource{&bins};
         for (int ty = 0; ty < tilesY; ++ty) {
             for (int tx = 0; tx < tilesX; ++tx) {
-                resolveOneTile(soloSource, params, dest, accum, tileCells, tx, ty);
+                resolveOneTile(soloSource, params, dest, accum, tileCells, kAccum,
+                                tileKCellsPtr, tx, ty);
             }
         }
         return;

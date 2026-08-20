@@ -6210,3 +6210,125 @@ Does not reopen ADR-059 (the tag-keyed, bounded-k, depth-sort-at-resolve
 design; the hard-cap-with-eviction-caveat choice) or any already-`green`
 unit. WU-28b (resolve/composite) remains untouched, unstarted, and out of
 this unit's own file scope, per ADR-059's own split.
+
+**ADR-061 — WU-28b build: k-buffer resolve, `KBufferResolveMode`
+(`Off`/`Opaque`/`Blend`), and the GCC 13 `-Warray-bounds` false positive
+(`src/core/resolve.hpp`/`.cpp`, `src/core/pipeline.cpp`,
+`tests/test_kbuffer_resolve.cpp`; `CMakeLists.txt`).** Session opened by
+requesting device-bridge access to `~/src/scatter-dve` only (not the
+Blackmagic SDK folder — this unit touches only `src/core/`, per ADR-059's
+own scoping). Read `SESSION-PROTOCOL.md`, `HANDOFF.md`, `WORK-UNITS.md`,
+`DECISIONS.md`, `CORRECTIONS.md` and `INVARIANTS.md` in full, then verified
+real repository state directly (`git tag`, `git log --oneline -10`, `git
+status --short`, `git status -sb`) rather than trusting `HANDOFF.md`'s own
+Session-34 account, which recorded WU-28a as `wip`, not `green`, at that
+session's own close: `wu-28a-green` is present in `git tag`; `HEAD` is at
+`5ba1086` ("WU-28a: k-buffer storage..."), the same commit; `git status
+-sb` reads `## main...origin/main` with no ahead/behind marker — Steve's
+own real-terminal close-out had genuinely landed since Session 34, this
+file's own text just hadn't caught up (`WORK-UNITS.md`'s WU-28a status
+line corrected from `wip` to `green` this session, doc-only — see that
+file). One untracked `Testing/` directory (`Testing/Temporary/
+CTestCostData.txt`, `Testing/Temporary/LastTest.log`) was present at the
+repository root, not part of the tracked tree and not blocking the clean-
+tree check — almost certainly `ctest` run from the repository root instead
+of `build/` at some point; flagged for Steve, not fixed here (`device_bash`
+cannot delete files). `core/types.hpp`, `core/splat.hpp`/`.cpp`,
+`core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` then re-read in full against
+ADR-059/060's own design before writing anything — nothing had drifted.
+
+Two design questions ADR-059 left to this unit, decided:
+
+**(1) A single `KBufferResolveMode` enum field (`Off`/`Opaque`/`Blend`) on
+`PipelineParams`, not two separate fields, covers both "opacity mode and
+blend control" (`WORK-UNITS.md`'s own phrase).** `Off` is the default
+(zero-cost-when-absent, the same shape `pool`/`weightOut` already
+established, ADR-044/056) — `resolveOneTile()` falls through to the
+unchanged plain `splatTile()`/`sumBanks()`/`composite()` path entirely,
+never allocating or touching WU-28a's own k-buffer storage. `Opaque` and
+`Blend` are mutually exclusive resolve-time behaviours over the same
+underlying occupied-slot set, not independent toggles, so one field
+naturally expresses "which of these three things happens," rather than two
+fields that could disagree (e.g. blend-control set with opacity mode off).
+
+**(2) Blend mode's exact formula generalizes `compositeLayered()`'s own
+existing two-layer read-replace-write mechanism (ADR-028/029) to up to
+`kBufferK` occupied slots**, sorted nearest-first by `firstSeenZ`
+(`KSlot`'s own "near = 0" convention), ties broken by smallest `tag` for a
+deterministic total order, then composited farthest-to-nearest: `bg`
+against the farthest slot's own `AccumCell`, the result read back as the
+next slot's own background, repeated inward. Chosen specifically because
+it reuses `composite()` as its only arithmetic primitive (no new blend math
+to prove correct) and is exactly, directly cross-checkable against
+`compositeLayered()` itself for the two-slot case — `tests/
+test_kbuffer_resolve.cpp`'s own `test_blend_two_slots_matches_
+compositeLayered()` does this. `Opaque` mode is simpler: the nearest
+occupied slot (by the same `firstSeenZ`/`tag` order) wins outright,
+`composite()`'d directly against `bg`, the rest discarded — the same
+read-replace-write shape as `Blend`'s own single-slot case, not a
+separately-reasoned mechanism.
+
+A real, but minor, build issue — not a design or reasoning error, so no
+`CORRECTIONS.md` entry: GCC 13's `-Werror=array-bounds` misfired on
+`std::sort(occupied.begin(), occupied.begin() + n, ...)` over a
+`std::array<const KSlot*, kBufferK>` (`kBufferK` = 4) with runtime bound
+`n` (`error: array subscript 16 is outside array bounds of ... [1]`) — GCC's
+own `__final_insertion_sort` internal threshold (16) confusing its
+array-bounds analysis at this small, fixed capacity, confirmed a false
+positive by building (Clang 18 raised nothing on the same code; the sorted
+values and their consumers were already exhaustively covered by Part A/B
+of this unit's own test before and after the change). Fixed by replacing
+the `std::sort()` call with a hand-written insertion sort loop over the
+same `occupied` pointer array — documented in `resolve.cpp`'s own comment
+as a known compiler quirk at this array size, not suppressed via pragma.
+
+Unlike WU-28a's own test, this unit's accept criterion (`WORK-UNITS.md`)
+genuinely requires exercising real multi-threading, not fragment-order
+permutation: `test_kbuffer_pipeline_threads_1_matches_threads_8()` runs the
+full pipeline (`runFrame()` end to end, `Blend` mode, single tag — see
+below) for a real WU-21g/h folding-sphere frame (`angleSpanH == 2*pi`,
+`angleSpanV == pi`, the pole-to-pole seamless-wrap geometry ADR-053
+establishes) at `--threads 1` and compares byte-for-byte, per-pixel
+per-channel, against `--threads {2, 3, 8}` — I6 for the completed feature,
+not just WU-28a's own storage step in isolation. `PipelineParams::tag` is
+single-valued per `runFrame()` call, so a single call cannot itself route
+fragments into more than one k-buffer slot per cell; this test's own job is
+solely to prove threading determinism through the new code paths, since
+multi-slot resolve arithmetic is already exhaustively covered directly by
+Part A (`Opaque`) and Part B (`Blend`) against synthetic, hand-constructed
+slot sets, including known-ratio and tie-break cases.
+
+Built and tested directly in this project's cloud sandbox this session, a
+fresh clone of the real `skunge2000/scatter-dve` origin (not a reused
+sandbox from any prior session), confirmed at `wu-28a-green`/`5ba1086`
+before any file was touched. Verification went beyond WU-28a's own
+single-configuration precedent, given the new arithmetic (`compositeKBuffer`)
+and the new concurrent code path (`resolveOneTile()`'s k-buffer branch) at
+stake: GCC 13.3 and Clang 18.1, Release and Debug, `SCATTER_TILE_LOG2` 4
+and 5, plus a Debug AddressSanitizer+UndefinedBehaviorSanitizer build, plus
+a Release ThreadSanitizer build — eight configurations in all. All 22
+portable `ctest` targets passed clean in every one, including every
+pre-existing test this unit did not touch (no regression), with no
+sanitizer report of any kind (checked directly against each build's own
+`Testing/Temporary/*.log` for the ThreadSanitizer run, not just `ctest`'s
+own pass/fail).
+
+Sizing: 243 insertions across `src/core/resolve.hpp` (+70),
+`src/core/resolve.cpp` (+65), `src/core/pipeline.cpp` (+109/-9) and
+`CMakeLists.txt` (+8), plus 333 lines in the new
+`tests/test_kbuffer_resolve.cpp` — 576 total, over `SESSION-PROTOCOL.md`'s
+own "~400 lines" figure by a wider margin than WU-28a's own "modestly
+over" 430, after one trimming pass from an initial 638 (comment density
+only — no test case, blend/opaque coverage, or design-rationale content
+cut to make the number smaller). Flagged plainly rather than force a
+further split: the four touched files are exactly `WORK-UNITS.md`'s own
+`Files:` list for this unit, already the minimum ADR-059's own PASS-2 vs.
+resolve/composite split leaves for "resolve/composite" as one coherent
+piece — `resolve.hpp`/`.cpp` cannot be split further without separating a
+declaration from its own definition, and `pipeline.cpp`'s changes are
+confined to `resolveOneTile()` and its two call sites, not spread wider.
+
+Does not reopen ADR-059 or ADR-060, or any already-`green` unit. Both
+WU-28 sub-units are now built and sandbox-tested; `wu-28b-green` (Steve's
+own real-terminal build/run/commit/tag/push) is this unit's own remaining
+step, per `SESSION-PROTOCOL.md`.

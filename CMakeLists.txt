@@ -232,6 +232,14 @@ scatter_test(test_coverage_capture)
 # new splatTileKBuffer()/sumBanksKBuffer() entry points directly, no
 # tools/testpat.hpp needed (constructs its own small Frag sets).
 scatter_test(test_kbuffer_storage)
+# WU-28b -- k-buffer resolve: depth-ordered opaque/blend composite
+# (DECISIONS.md ADR-059, ADR-061). Portable, zero DeckLink dependency, no
+# new scatter-core source file (core/resolve.cpp/core/pipeline.cpp already
+# build into scatter-core above) -- Parts A/B build their own KSlot arrays
+# directly; Part C's own full-pipeline I6 check needs tools/testpat.hpp the
+# same way test_threading/test_persistent_pool already do.
+scatter_test(test_kbuffer_resolve)
+target_include_directories(test_kbuffer_resolve PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

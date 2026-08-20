@@ -42,6 +42,7 @@
 #include "core/types.hpp"
 #include "video/raster.hpp"
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -180,6 +181,61 @@ CompositedCell composite(const AccumCell& cell,
 //   already establishes), then composited once via composite() above.
 CompositedCell compositeLayered(const AccumCell& lower, const AccumCell& upper,
                                  std::uint8_t upperTag, std::uint8_t opaqueTag,
+                                 const Background& bg = kDefaultBackground) noexcept;
+
+// ---------------------------------------------------------------------------
+// K-buffer resolve -- WU-28b (DECISIONS.md ADR-059, ADR-061). Consumes
+// WU-28a's own per-cell occupied-slot set (core/splat.hpp's
+// TileKBufferAccum/splatTileKBuffer()/sumBanksKBuffer(), core/types.hpp's
+// KSlot/kBufferK) -- new, additive alongside composite()/compositeLayered()
+// above, not a change to either's existing contract.
+// ---------------------------------------------------------------------------
+
+// Which of WU-28a's own k-buffer storage a runFrame() call should resolve
+// through, if any -- see PipelineParams::kBufferMode below. One field
+// covers both ADR-059's "opacity mode" and "blend control": Off leaves
+// today's plain path (composite() against one AccumCell) completely
+// untouched; Opaque and Blend each select one of ADR-059's own two
+// resolve-time outcomes.
+enum class KBufferResolveMode {
+    Off,     // default -- WU-28a's storage is not even allocated (see
+             // PipelineParams::kBufferMode below)
+    Opaque,  // nearest occupied tag-slot wins outright, the rest discarded
+    Blend,   // every occupied slot composited back-to-front by first-seen z
+};
+
+// Resolves one destination cell's up to kBufferK tag-slots (WU-28a's own
+// sumBanksKBuffer() output) into one CompositedCell, per `mode` -- ADR-059's
+// two resolve-time outcomes; the exact mechanism, this unit's own job to
+// design per ADR-059's own deferral (see resolve.cpp):
+//
+// - Opaque: among the occupied slots, the one with the smallest
+//   KSlot::firstSeenZ ("near = 0", Frag::z's own convention) is
+//   composite()'d against `bg` alone, as if it were the cell's only
+//   surface; every other slot is discarded.
+// - Blend: every occupied slot, sorted front-to-back by firstSeenZ,
+//   composited back-to-front -- the farthest against `bg` first, each
+//   nearer slot then composited over the accumulated result using its own
+//   coverage as alpha. Literally compositeLayered()'s own "read, then
+//   write over the read" mechanism above, generalised from exactly two
+//   caller-ordered layers to however many slots are occupied, ordered by
+//   depth instead of by caller: two occupied slots reduce to one
+//   compositeLayered() call with upperTag forced equal to opaqueTag --
+//   tests/test_kbuffer_resolve.cpp checks this directly, an independent
+//   cross-check against an already-tested function.
+//
+// Both modes break a firstSeenZ tie (two distinct tags' first-seen
+// fragments landing at the same quantised z -- routine, the same
+// quantisation ADR-059 already names for same-tag ties during
+// accumulation) by smallest `tag`: a fixed, deterministic order over an
+// already-fixed `slots` array, so the same input always produces the same
+// output regardless of thread count or tile-visitation order -- I6,
+// extended from WU-28a's own accumulation step through this resolve step.
+//
+// A cell with no occupied slot returns composite(AccumCell{}, bg) -- pure
+// background, the same "Σw == 0" case composite() already handles.
+CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
+                                 KBufferResolveMode mode,
                                  const Background& bg = kDefaultBackground) noexcept;
 
 // ---------------------------------------------------------------------------
@@ -335,6 +391,20 @@ struct PipelineParams {
     // test_capture_is_side_effect_free() checks exactly that: identical
     // composited dest output whether weightOut is null or supplied.
     WeightAccum* weightOut = nullptr;
+
+    // WU-28b (Phase 7, DECISIONS.md ADR-059, ADR-061): which of WU-28a's
+    // own k-buffer storage this call's own PASS 2 should resolve through,
+    // via compositeKBuffer() above, in place of the plain TileAccum/
+    // AccumCell/composite() path. Default Off: every existing caller keeps
+    // compiling and behaving exactly as before, byte for byte --
+    // core/pipeline.cpp's resolveOneTile() does not even construct
+    // TileKBufferAccum when this is left at its default, the same
+    // "opt-in, default-off, zero-cost-when-absent" shape
+    // PipelineParams::pool (ADR-044) and weightOut (ADR-056) above already
+    // established. weightOut is not written when this field is not Off --
+    // a k-buffer cell has no single AccumCell::w for its contract to
+    // capture (see core/pipeline.cpp's resolveOneTile()).
+    KBufferResolveMode kBufferMode = KBufferResolveMode::Off;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

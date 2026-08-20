@@ -119,4 +119,69 @@ CompositedCell compositeLayered(const AccumCell& lower, const AccumCell& upper,
     return composite(sumCells(lower, upper), bg);
 }
 
+namespace {
+
+// Total order over occupied KSlots for compositeKBuffer()'s own two modes
+// (WU-28b): primarily by firstSeenZ ascending (smaller = nearer, KSlot's
+// own "near = 0" convention), ties (routine, not defensive -- see
+// compositeKBuffer()'s own comment in resolve.hpp) broken by smallest tag.
+bool nearerThan(const KSlot& a, const KSlot& b) noexcept {
+    if (a.firstSeenZ != b.firstSeenZ) return a.firstSeenZ < b.firstSeenZ;
+    return a.tag < b.tag;
+}
+
+}  // namespace
+
+CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
+                                 KBufferResolveMode mode,
+                                 const Background& bg) noexcept {
+    std::array<const KSlot*, kBufferK> occupied{};
+    int n = 0;
+    for (const KSlot& s : slots) {
+        if (s.occupied) {
+            occupied[std::size_t(n)] = &s;
+            ++n;
+        }
+    }
+    if (n == 0) {
+        return composite(AccumCell{}, bg);
+    }
+
+    if (mode == KBufferResolveMode::Opaque) {
+        const KSlot* nearest = occupied[0];
+        for (int i = 1; i < n; ++i) {
+            if (nearerThan(*occupied[std::size_t(i)], *nearest)) {
+                nearest = occupied[std::size_t(i)];
+            }
+        }
+        return composite(nearest->cell, bg);
+    }
+
+    // Blend: sort the occupied pointers nearest-first -- a hand-written
+    // insertion sort, not std::sort: kBufferK is at most 4, small enough
+    // that GCC 13's own -Warray-bounds mistakes std::sort's internal
+    // insertion-sort threshold for a real out-of-bounds access against
+    // `occupied`'s static capacity (a known false positive at this size,
+    // confirmed by building; not a real bug in the sort or a reason to
+    // suppress the warning instead). Then composite farthest-to-nearest --
+    // occupied[n-1] against bg first, each nearer slot composited over the
+    // accumulated result, exactly compositeLayered()'s own mechanism above.
+    for (int i = 1; i < n; ++i) {
+        const KSlot* key = occupied[std::size_t(i)];
+        int j = i - 1;
+        while (j >= 0 && nearerThan(*key, *occupied[std::size_t(j)])) {
+            occupied[std::size_t(j + 1)] = occupied[std::size_t(j)];
+            --j;
+        }
+        occupied[std::size_t(j + 1)] = key;
+    }
+
+    Background acc = bg;
+    for (int i = n - 1; i >= 0; --i) {
+        const CompositedCell step = composite(occupied[std::size_t(i)]->cell, acc);
+        acc = asBackground(step);
+    }
+    return CompositedCell{acc.Y, acc.Cb, acc.Cr};
+}
+
 }  // namespace scatter
