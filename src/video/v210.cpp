@@ -8,6 +8,9 @@
 
 #include "video/v210.hpp"
 
+#include <cstring>
+#include <vector>
+
 #if defined(__ARM_NEON)
 #include <arm_neon.h>  // file scope, not nested in any namespace -- WU-17, ADR-042
 #endif
@@ -191,6 +194,21 @@ void packImage(const Sample* Y, std::ptrdiff_t yStrideSamples,
                 Cr + r * cStrideSamples,
                 width,
                 dst + r * dstStrideBytes);
+    }
+}
+
+// packBlackFrame -- WU-21d, DECISIONS.md ADR-064. See video/v210.hpp's own
+// declaration comment for the full design.
+void packBlackFrame(int width, int height, std::uint8_t* dst) {
+    const int cw = chromaWidth(width);
+    std::vector<Sample> Y(std::size_t(width), kBlack);
+    std::vector<Sample> Cb(std::size_t(cw), kChromaZero);
+    std::vector<Sample> Cr(std::size_t(cw), kChromaZero);
+
+    const std::size_t stride = rowBytesMin(width);
+    packRow(Y.data(), Cb.data(), Cr.data(), width, dst);
+    for (int row = 1; row < height; ++row) {
+        std::memcpy(dst + std::size_t(row) * stride, dst, stride);
     }
 }
 

@@ -656,8 +656,20 @@ full-duplex check, is ADR-035's own already-accepted exception (the
 UltraStudio Monitor 3G is playback-only), unrelated to this unit.
 `./tools/close.sh 17` correctly refused to tag automatically (its own gate
 cannot distinguish an accepted exception from a real failure, by design);
-Steve tagged `wu-17-green` by hand, the same way he did for
-`wu-15a-green`/`wu-16a-green`/`wu-16b-green`.
+Steve was given the `git tag -a wu-17-green ...` command to run by hand, the
+same way he did for `wu-15a-green`/`wu-16a-green`/`wu-16b-green`. **Doc-only
+correction, this session, while re-verifying repository state before
+starting WU-21d:** no `wu-17-green` tag exists in the real repository as of
+this writing, confirmed directly via `git tag` — this line's own prior text
+("Steve tagged `wu-17-green` by hand") overstated what had actually
+happened, the same kind of doc/reality gap `HANDOFF.md`'s own Session-37
+account (C-021) and this session's own WU-21i correction above both name.
+The header line above (`pending Steve's manual tag`) already had this right;
+only this paragraph's own body text was wrong. The code itself is genuinely
+done and verified per this entry's own text above (full suite green at
+Steve's own real terminal, `test_v210_neon` passing) — only the tag itself is
+missing. Not touching any source file; see `HANDOFF.md` for the exact
+command to close this out for real.
 ### WU-18 — NEON chroma resampling `green` (`wu-18-green`, pending Steve's manual tag)
 See `DECISIONS.md` ADR-043 for the full design and for this session's own
 scoping work (this line was barer going in than WU-17's own line was
@@ -1192,30 +1204,68 @@ and a previously unanticipated cold-start green-frame finding (named, not
 fixed). Confirmed `green` in substance; the `wu-21c-green` git tag itself is
 Steve's own next action at his own real terminal.
 
-### WU-21d — Cold-start black fill for `LiveFramePlayback`'s own pool `todo`
-Recorded ahead of this unit's own real scoping session so it isn't lost, the
-same "Steve's own stated preference, noted here for whoever scopes this
-unit" convention WU-23's own entry below already uses — not a decision made
-now, and not itself a real `Files:`/`Accept:` scope. WU-21c's own real-
-hardware verification (`DECISIONS.md` ADR-050's own same-session addendum)
-found that `LiveFramePlayback`'s pool buffers, scheduled during
-`startWith()`'s own preroll loop before `CaptureConsumer` has produced its
-own first output, are left holding whatever `CreateVideoFrame()` first
-allocated them with — effectively zero-filled `v210` — which decodes as a
-strongly saturated green once converted for display, seen by eye on the
-Monitor 3G's own HDMI-mirrored output as a few seconds of solid green before
-real content appears. Candidate fix named there: fill each pool buffer with
-black immediately after `CreateVideoFrame()`, before the preroll loop
-schedules any of them, so a cold start shows black rather than green. Also
-candidate territory for whoever scopes this unit, not yet decided: the
-literal one-hour endurance run and by-eye live-content confirmation
-`WORK-UNITS.md`'s own WU-21c `Accept:` text deferred here; and real
-measurement of whether WU-21c's own measured `framesRepeated` rate (~15% on
-one 5-second run) stays acceptable over a longer run, with a possible
-timestamp-alignment refinement if not — both already named in ADR-050 as
-"not decided here." Whether all of this stays one unit or splits (the same
-a/b/c discipline this project already uses when a unit's scope grows past
-the 3-file/400-line cap) is that session's own call, not decided here.
+### WU-21d — Cold-start black fill for `LiveFramePlayback`'s own pool `wip`
+See `DECISIONS.md` ADR-064 for the full design and for this session's own
+scoping work: the "confirmed DeckLink-linked before assuming either way"
+check (`CMakeLists.txt`'s own `scatter-decklink` target, `if(APPLE AND
+BLACKMAGIC_SDK_DIR AND EXISTS ...)`, and this session's own cloud-sandbox
+`cmake -B build` output confirming `src/io/decklink_live_output.cpp` is not
+compiled there at all), the portable/DeckLink-linked split (`scatter::v210::
+packBlackFrame()`, new, alongside `packRow()`/`packImage()` — portable,
+sandbox-buildable/testable; `decklink_live_output.cpp`'s own change —
+calling it once per `create()`, filling every pool buffer immediately after
+`CreateVideoFrame()` — reasoned-through-only, same as every DeckLink-linked
+unit before it), and the scope decision explicitly narrowing this unit to
+the black-fill fix alone, leaving the endurance-run/`framesRepeated`-rate
+candidate territory this entry originally also named undecided, exactly as
+`DECISIONS.md` ADR-050's own "Not decided here, deliberately" paragraph
+already left it.
+
+WU-21c's own real-hardware verification (`DECISIONS.md` ADR-050's own
+same-session addendum) found that `LiveFramePlayback`'s pool buffers,
+scheduled during `startWith()`'s own preroll loop before `CaptureConsumer`
+has produced its own first output, are left holding whatever
+`CreateVideoFrame()` first allocated them with — effectively zero-filled
+`v210` — which decodes as a strongly saturated green once converted for
+display, seen by eye on the Monitor 3G's own HDMI-mirrored output as a few
+seconds of solid green before real content appears. This unit builds
+ADR-050's own named candidate fix: fill each pool buffer with black
+immediately after `CreateVideoFrame()`, before the preroll loop schedules
+any of them.
+
+**Files:** `src/video/v210.hpp` (new `packBlackFrame()` declaration,
+additive), `src/video/v210.cpp` (new `packBlackFrame()` definition, plus two
+new standard-library includes), `src/io/decklink_live_output.cpp`
+(`startWith()`'s pool-creation loop black-fills each buffer via the
+already-existing local `fillFrameBuffer()` helper; `create()` fails cleanly
+if a fill fails, same as every other `startWith()` step); `tests/
+test_v210.cpp` (new `testPackBlackFrame()`, three widths). No
+`CMakeLists.txt` change. +117/-0 lines across the four files — within
+`SESSION-PROTOCOL.md`'s "3 source files plus its test, ~400 lines" cap.
+
+**Accept:** `packBlackFrame()` unpacks back to `kBlack`/`kChromaZero` at
+every sample, at three widths (12, 14, 720), with every row's own packed
+bytes identical to row 0's — `tests/test_v210.cpp`'s `testPackBlackFrame()`.
+Every mechanical criterion `tests/test_decklink_live_output.cpp` already
+checks is unchanged and must still hold. Unautomatable, Steve's own by-eye
+job (see `DECISIONS.md` ADR-064's own reasoning for why no new automated
+check was added instead): with a live source patched into the Recorder 3G's
+own SDI input, the Monitor 3G's own HDMI-mirrored output should show black,
+not solid green, for the first few seconds after `LiveFramePlayback::
+create()` starts scheduled playback, before real captured content arrives.
+
+*Status:* `wip` — the portable half (`packBlackFrame()`, `video/v210.*`,
+`tests/test_v210.cpp`) built and tested in this session's own cloud sandbox:
+fresh clone confirmed at `wu-26-green`/`4381823` before any file was
+touched, full 8-configuration matrix (GCC 13.3/Clang 18.1, Release/Debug,
+tile 4/5) plus GCC 13 ASan+UBSan all green, zero warnings, `ctest` 22/22 in
+every configuration, `test_v210` itself 5117 checks passing. The
+DeckLink-linked half (`decklink_live_output.cpp`) is reasoned-through-only,
+written via the device bridge and re-read back to confirm the write landed
+— confirmed via this session's own cloud-sandbox `cmake -B build` output
+that it is not compiled there at all (no Blackmagic SDK, no AppleClang/
+Xcode toolchain), so it is genuinely untested until Steve's own real-
+terminal build/`ctest`/by-eye confirmation. See `HANDOFF.md`.
 
 ### WU-21e — First live-warped-video demo: a real sphere lattice
 (`core/shapes/sphere.cpp`, WU-11/ADR-027) through the live pipeline WU-21c
@@ -1407,7 +1457,14 @@ Superseded by WU-21i, same "superseded before being tagged" treatment
 WU-21e/f/g each received one unit earlier.
 
 ### WU-21i — Letter-key manual controls (X/x, Y/y, Z/z), replacing
-WU-21h's own broken shift+cursor scheme `wip`
+WU-21h's own broken shift+cursor scheme `green` (`wu-21i-green`)
+Status line corrected doc-only, by this session while re-verifying
+repository state before starting WU-21d — `wu-21i-green` confirmed present
+directly via `git tag` against the real repository, not assumed from this
+line's own prior text (stale `wip` for nine sessions, per Session 35's own
+note below and unchanged since). Not touching any of this unit's own source
+files, the same kind of correction Session 35 made for WU-28a's own stale
+status line and Session 37 made for WU-28b's.
 See `DECISIONS.md` ADR-055 and `CORRECTIONS.md` C-018 for the full story:
 plain arrow-key rotation is unchanged (it worked); shift+cursor
 repositioning and `I`/`O` resizing are both replaced by six ordinary

@@ -121,6 +121,38 @@ void packImage(const Sample* Y, std::ptrdiff_t yStrideSamples,
                std::uint8_t* dst, std::ptrdiff_t dstStrideBytes) noexcept;
 
 // ---------------------------------------------------------------------------
+// packBlackFrame — WU-21d, DECISIONS.md ADR-064
+//
+// Writes a full black-and-neutral-chroma frame: kCode10Black (core/types.hpp,
+// via kBlack) at every Y sample, kCode10ChromaZero (via kChromaZero) at every
+// Cb/Cr sample — the offset-binary "no signal yet" colour (I3), not a
+// caller-supplied pattern. `dst` must hold at least rowBytesMin(width) *
+// height bytes, tight-packed (row stride is exactly rowBytesMin(width), no
+// alignment padding) — the same layout LiveFramePlayback's own pool buffers
+// and CaptureConsumer::copyLatestFrame() already use
+// (src/io/decklink_live_output.cpp/decklink_capture_consumer.cpp), which is
+// this function's own first caller: a LiveFramePlayback pool buffer,
+// scheduled during preroll before CaptureConsumer has produced its own first
+// output, otherwise carries whatever CreateVideoFrame() first allocated it
+// with — effectively zero-filled v210, which decodes as solid green on a
+// real monitor, not black.
+//
+// Every row's packed bytes are identical by construction (the same three
+// planar values at every sample, on every row), so only the first row is
+// actually packed by packRow; the remaining rows are memcpy'd from it, not
+// repacked. Applies I2's protocol clamp exactly as packRow always does — both
+// kCode10Black and kCode10ChromaZero already sit inside [kCode10Min,
+// kCode10Max], so the clamp never actually engages here, but this function
+// does not special-case around it either. Not noexcept: unlike every other
+// entry point in this file, it allocates one row's worth of planar scratch
+// space internally rather than taking caller-owned buffers, the same
+// allocating-convenience trade-off Raster422/Raster444 (video/raster.hpp)
+// already make elsewhere in this project.
+// ---------------------------------------------------------------------------
+
+void packBlackFrame(int width, int height, std::uint8_t* dst);
+
+// ---------------------------------------------------------------------------
 // NEON operations — WU-17, ADR-042
 //
 // Present only when __ARM_NEON is defined (AArch64 always defines it; no

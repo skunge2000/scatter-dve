@@ -1,6 +1,10 @@
 // scatter-dve — WU-21c: continuous SDI re-output.
 //
 // See io/decklink_live_output.hpp and DECISIONS.md ADR-050 for the design.
+// WU-21d/ADR-064 (startWith()'s pool-creation loop, below) fills the
+// cold-start green finding ADR-050's own same-session addendum named: every
+// pool buffer is now filled black immediately after CreateVideoFrame(),
+// before any of them are scheduled.
 
 #include "io/decklink_live_output.hpp"
 #include "io/com_ptr.hpp"
@@ -108,10 +112,28 @@ bool LiveFramePlayback::startWith() {
         return false;
     }
 
+    // WU-21d, DECISIONS.md ADR-064: every pool buffer is filled black
+    // immediately after CreateVideoFrame(), before the preroll loop below
+    // schedules any of them. Left unfilled, a buffer carries whatever
+    // CreateVideoFrame() first allocated it with -- effectively zero-filled
+    // v210, which decodes as solid green on a real monitor for however long
+    // it takes CaptureConsumer to produce its own first output (this file's
+    // own "nothing fresher -- leave existing content unchanged" refill
+    // policy, above, never overwrites it before then). Built once, not once
+    // per buffer: every pool buffer's own cold-start content is identical,
+    // and scatter::v210::packBlackFrame() is not cheap enough to redo
+    // poolSize times for the same result.
+    std::vector<std::uint8_t> blackFrame(scatter::v210::rowBytesMin(m_width) * std::size_t(m_height));
+    scatter::v210::packBlackFrame(m_width, m_height, blackFrame.data());
+
     m_pool.resize(poolSize);
     for (auto& frame : m_pool) {
         if (m_output->CreateVideoFrame(m_width, m_height, rowBytes, bmdFormat10BitYUV, bmdFrameFlagDefault,
                                         frame.releaseAndGetAddressOf()) != S_OK) {
+            m_output->DisableVideoOutput();
+            return false;
+        }
+        if (!fillFrameBuffer(frame, blackFrame)) {
             m_output->DisableVideoOutput();
             return false;
         }

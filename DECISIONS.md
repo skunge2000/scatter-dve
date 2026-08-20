@@ -6567,3 +6567,178 @@ future scoping session (`WORK-UNITS.md`'s own WU-28c entry can now be scoped
 in full, no longer provisional pending WU-26) — this ADR does not itself
 scope WU-28c, per ADR-062's own explicit deferral of that to a future
 session.
+
+**ADR-064 — WU-21d: cold-start black fill for `LiveFramePlayback`'s own
+pool. `scatter::v210::packBlackFrame()` (new, portable, `src/video/v210.hpp`/
+`.cpp`), called once per `create()` in `startWith()` (`src/io/
+decklink_live_output.cpp`) to fill every pool buffer black immediately after
+`CreateVideoFrame()`, before the preroll loop schedules any of them.**
+Session opened by verifying real repository state directly via the device
+bridge, per standing discipline, before trusting `HANDOFF.md`'s own account:
+`git tag` listed both `wu-26-green` and `wu-28b-green`; `git log --oneline
+-10`showed `HEAD` at `4381823` ("WU-26: normals from lattice (ADR-063);
+C-021 tag-before-commit correction"), confirmed via `git merge-base
+--is-ancestor` to have both tags as ancestors (`wu-26-green` dereferences to
+`4381823` itself — `git rev-parse wu-26-green` returning a different-looking
+hash is the annotated tag object's own SHA, not the commit it points at,
+confirmed by `git log wu-26-green`/`git show -s wu-26-green` both resolving
+to `4381823`); `git status --short` empty; `git status -sb` read `## main
+...origin/main` with no ahead/behind marker. Session 37's own C-021 fix
+(`HANDOFF.md`'s "Steve's own next steps") had genuinely landed — WU-26 and
+WU-28b both real-terminal `green`, matching Session 37's `HANDOFF.md`
+verbatim, no drift found this time. WU-26/WU-28a/WU-28b/WU-28c/WU-28d are
+untouched by this entry, per this session's own brief.
+
+**Scope, decided now: the black-fill fix named in `WORK-UNITS.md`'s own
+WU-21d entry and `DECISIONS.md` ADR-050's own same-session addendum, and
+only that.** WU-21d's own original entry also named, as candidate territory
+for "whoever scopes this unit" and explicitly left undecided there: the
+literal one-hour endurance run and by-eye live-content confirmation
+`WORK-UNITS.md`'s own WU-21c `Accept:` text deferred, and real measurement of
+whether WU-21c's own measured `framesRepeated` rate (~15% on one 5-second
+run) stays acceptable over a longer run. Both remain out of this unit's own
+scope, undecided, exactly as ADR-050's own "Not decided here, deliberately"
+paragraph already left them — nothing here resolves either, and neither is
+named as a future work unit yet, since nothing currently depends on them the
+way WU-28c depended on WU-26. This session's own job is the one piece
+`WORK-UNITS.md`'s own WU-21d entry actually named a candidate fix for.
+
+**Confirmed DeckLink-linked before assuming either way, per this session's
+own brief.** `CMakeLists.txt`'s own `scatter-decklink` static library target
+(line ~399) lists `src/io/decklink_live_output.cpp` among its sources,
+guarded by `if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS
+"${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPI.h")` — confirmed directly by
+reading the file, not inferred from its own `#include "DeckLinkAPI.h"`
+alone. `LiveFramePlayback` is `IDeckLinkOutput`-facing by construction (WU-21c,
+ADR-050): this session's own cloud-sandbox `cmake -B build` output states
+plainly "BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) —
+skipping scatter-decklink" — `decklink_live_output.cpp` is not compiled at
+all in this sandbox, confirmed by its own absence from every build log this
+session produced. This unit is therefore not core-only, and this session's
+own build/test claims below are scoped accordingly — the portable half only,
+never the DeckLink-linked half.
+
+**Design: push the pure, portable part (build black v210 bytes) into
+`video/v210.hpp`/`.cpp`, keep the DeckLink-linked part (`decklink_live_
+output.cpp`) to the minimum SDK-facing glue.** `core/types.hpp` already
+carries the two constants this needs — `kBlack` (`Sample`, 4096, "I3's
+offset-binary black") and `kChromaZero` (`Sample`, 32768, achromatic) — and
+`video/v210.hpp` already carries `kPadLuma`/`kPadChroma`, the identical pair
+of *10-bit-code* values (`kCode10Black`/`kCode10ChromaZero`) used for a
+different purpose (short-final-group padding), establishing `video/v210.hpp`
+as an established, precedented home for exactly this kind of "known-value"
+utility rather than a new one invented for this unit. `packBlackFrame(int
+width, int height, std::uint8_t* dst)` fills `Y`/`Cb`/`Cr` planar scratch
+arrays with `kBlack`/`kChromaZero`, packs the first row via the existing
+`packRow()` (I2's clamp applies exactly as it always does, though it never
+actually engages here — both constants already sit inside `[kCode10Min,
+kCode10Max]`), then `memcpy`s that one packed row into every remaining row —
+every row's own packed bytes are identical by construction, since the
+same three planar values are used at every sample on every row, so only one
+row is ever actually packed. `decklink_live_output.cpp`'s own `startWith()`
+then does exactly three new things: build one `blackFrame` byte buffer via
+`packBlackFrame(m_width, m_height, ...)` before the pool-creation loop
+(built once, not once per buffer — every buffer's own cold-start content is
+identical); call the pool-creation loop's already-existing local
+`fillFrameBuffer()` helper (WU-21c, unchanged) with it immediately after each
+`CreateVideoFrame()` succeeds; fail `create()` cleanly (`DisableVideoOutput()`,
+return false, same as every other `startWith()` failure path) if a
+particular buffer's own black-fill write fails. No change to
+`refillAndSchedule()`, the round-robin policy, pool sizing, or any of
+ADR-050's own genlock/clock-domain decisions — this entry touches only what
+a buffer holds between `CreateVideoFrame()` and its own first real refill,
+nothing about how or when refills happen afterward.
+
+**This is a materially more testable design than putting the black-fill
+logic directly in `decklink_live_output.cpp` would have been — not scope
+creep, a direct consequence of where the portable/DeckLink-linked seam
+actually falls for this fix.** `packBlackFrame()` has no DeckLink dependency
+at all — it is exactly as portable as `packRow()`/`packImage()`, which it
+is built from — so it is genuinely built and tested in this session's own
+cloud sandbox (below), the same as any core-only unit, even though the unit
+as a whole is not core-only and `decklink_live_output.cpp` itself remains
+reasoned-through-only, unbuilt and unrun in this sandbox, per every
+DeckLink-touching unit's own precedent since WU-14/ADR-031. This mirrors the
+project's own established `scatter-core`/`scatter-decklink` separation
+(`CaptureConsumer` calling into `runFrameBytes()` rather than reimplementing
+warp logic, ADR-048) applied to this one small addition rather than
+inventing a new pattern.
+
+**Files:** `src/video/v210.hpp` (new `packBlackFrame()` declaration,
+additive, alongside `packRow()`/`packImage()` — no existing declaration
+touched), `src/video/v210.cpp` (new `packBlackFrame()` definition, plus
+`#include <cstring>`/`#include <vector>`, neither previously needed by this
+file), `src/io/decklink_live_output.cpp` (`startWith()`'s pool-creation loop
+edited to black-fill each buffer; file-level header comment gains one
+sentence pointing at this entry — no other file touched, no `CMakeLists.txt`
+change needed since `v210.cpp` already compiles into `scatter-core` and
+`decklink_live_output.cpp` already compiles into `scatter-decklink`);
+`tests/test_v210.cpp` (new `testPackBlackFrame(width, height)`, called at
+three widths — 12, a multiple of 6 with no short-final-group; 14, which
+exercises `packRow()`'s own short-final-group pad path, structurally
+different even though `kPadLuma`/`kPadChroma` happen to already equal the
+values this function fills with, so the two cases are not testing the same
+thing under different names; and 720, the project's own real 576p25 width).
++117/-0 lines across the four files (`git diff --stat`, this session's own
+sandbox clone) — within `SESSION-PROTOCOL.md`'s "3 source files plus its
+test, ~400 lines" cap. No `tests/test_decklink_live_output.cpp` change:
+adding an automated check that a pool buffer reads back black immediately
+after `create()` returns, before its own first real refill, would need new
+public accessor surface on `LiveFramePlayback` this unit does not otherwise
+need, and a race against `ScheduledFrameCompleted()`'s own refill callback
+already running by the time any test thread could read a buffer back
+(`StartScheduledPlayback` is called before `create()` returns) — not
+attempted here; see `Accept:` below for why this stays Steve's own by-eye
+job instead, the same division of labour every unautomatable live-pipeline
+criterion since WU-15b has used.
+
+**Accept:** `packBlackFrame(width, height, dst)`, unpacked back via the
+existing `unpackImage()`, reads `kBlack` at every `Y` sample and
+`kChromaZero` at every `Cb`/`Cr` sample, at three widths (12, 14, 720) —
+`tests/test_v210.cpp`'s new `testPackBlackFrame()`. Every row's own packed
+bytes are identical to row 0's, checked directly against the raw bytes
+(`std::memcmp`), not only via their unpacked-domain effect. Unautomatable,
+Steve's own by-eye job, the same division of labour WU-15b/WU-19b/WU-21e
+through WU-21i's own criteria already use: with a live source patched into
+the Recorder 3G's own SDI input, the Monitor 3G's own HDMI-mirrored output
+should show black, not the strongly saturated green ADR-050's own addendum
+recorded, for the first few seconds after `LiveFramePlayback::create()`
+starts scheduled playback, before real captured content arrives — worth
+reporting either way, the same "worth a look by eye" framing every prior
+by-eye criterion in this project has used. Every mechanical criterion
+`tests/test_decklink_live_output.cpp` already checks (`stats().completed >
+0`, `stats().displayedLate == 0`, `stats().dropped == 0`, the
+`CaptureConsumer`/`CaptureSource` accounting invariants) is unchanged by
+this entry and must still hold — this fix touches only pool-buffer content
+before the first real refill, nothing about the scheduling mechanics those
+checks exercise.
+
+**Status:** built and tested in the cloud sandbox, this session, for the
+portable half only (`packBlackFrame()`, `video/v210.*`, `tests/test_v210.cpp`)
+— per the "confirmed DeckLink-linked" finding above, `decklink_live_
+output.cpp` is not compiled by this sandbox's own CMake configuration at
+all, so its own change is reasoned-through-only, drafted and written via the
+device bridge, re-read back from there to confirm the write landed correctly
+(`SESSION-PROTOCOL.md` anti-drift rule 8), not built or run in this session.
+Portable half: fresh clone of `https://github.com/skunge2000/scatter-dve.git`,
+confirmed matching the real repository's own `git tag`/`git log`/`git status
+-sb` (`wu-26-green` at `HEAD`, `4381823`, clean, in sync) before any file was
+touched. Full 8-configuration matrix — GCC 13.3.0 and Clang 18.1.3, Release
+and Debug, `SCATTER_TILE_LOG2` 4 and 5 — all green, zero warnings under this
+project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` set, plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all`: clean, no sanitizer report. `ctest`: 22 of 22
+targets passing in every configuration, no regressions anywhere outside
+`test_v210` itself. `test_v210` alone: 5117 checks passing (up from the
+pre-WU-21d baseline — three new `testPackBlackFrame()` calls). Steve's own
+real-terminal build/`ctest` of the DeckLink-linked half, and the by-eye
+cold-start confirmation above, are the remaining steps — see `HANDOFF.md`.
+
+Does not reopen ADR-050 — extends its own named-not-fixed candidate ("fill
+each pool buffer with black immediately after `CreateVideoFrame()`, before
+the preroll loop schedules any of them") into a real implementation, changes
+nothing about the pool-sizing, refill-policy or genlock/clock-domain
+decisions ADR-050 itself made. Does not reopen ADR-010, ADR-032, ADR-037,
+ADR-048 or ADR-063 — `packBlackFrame()` is additive alongside `packRow()`/
+`packImage()`, consuming `core/types.hpp`'s existing `kBlack`/`kChromaZero`
+exactly as they already stood.

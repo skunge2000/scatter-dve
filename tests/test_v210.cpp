@@ -411,6 +411,41 @@ void testFrame576() {
     testRoundTrip(720, 576, 0x0576u);
 }
 
+// ---------------------------------------------------------------------------
+// 10. packBlackFrame -- WU-21d, DECISIONS.md ADR-064: a full black-and-
+// neutral-chroma frame, the exact byte content a cold LiveFramePlayback pool
+// buffer should carry instead of whatever CreateVideoFrame() first allocated
+// it with (src/io/decklink_live_output.cpp).
+// ---------------------------------------------------------------------------
+
+void testPackBlackFrame(int width, int height) {
+    const std::size_t stride = v210::rowBytesMin(width);
+    // Poisoned, not zeroed: a packBlackFrame that silently left a byte
+    // untouched would not be caught by a buffer that already read as
+    // "black" by accident.
+    std::vector<std::uint8_t> packed(stride * std::size_t(height), 0xAAu);
+    v210::packBlackFrame(width, height, packed.data());
+
+    const int cw = v210::chromaWidth(width);
+    std::vector<Sample> Y(std::size_t(width) * std::size_t(height));
+    std::vector<Sample> Cb(std::size_t(cw) * std::size_t(height));
+    std::vector<Sample> Cr(std::size_t(cw) * std::size_t(height));
+    v210::unpackImage(packed.data(), std::ptrdiff_t(stride), width, height,
+                      Y.data(), width, Cb.data(), Cr.data(), cw);
+
+    for (auto y : Y)  CHECK_ONCE(y == scatter::kBlack);
+    for (auto c : Cb) CHECK_ONCE(c == scatter::kChromaZero);
+    for (auto c : Cr) CHECK_ONCE(c == scatter::kChromaZero);
+
+    // Every row's own packed bytes must be identical -- the "pack one row,
+    // memcpy the rest" implementation packBlackFrame's own header comment
+    // promises, checked directly against the raw bytes, not only via their
+    // unpacked-domain effect above.
+    for (int row = 1; row < height; ++row) {
+        CHECK_ONCE(std::memcmp(packed.data(), packed.data() + std::size_t(row) * stride, stride) == 0);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -431,6 +466,16 @@ int main() {
     testStridePadding();
     testPlaneStride();
     testFrame576();
+
+    // A multiple of 6 (no short final group), a non-multiple (exercises
+    // packRow's own short-final-group pad path -- which happens to already
+    // write kPadLuma/kPadChroma, themselves equal to kCode10Black/
+    // kCode10ChromaZero, so this is a real structural check, not a repeat of
+    // the width=12 case under another name), and the project's own real
+    // 576p25 width.
+    testPackBlackFrame(12, 3);
+    testPackBlackFrame(14, 3);
+    testPackBlackFrame(720, 3);
 
     return scatter::test::summary("test_v210");
 }
