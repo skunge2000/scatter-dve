@@ -147,12 +147,21 @@ SubPos encodeTileLocal(double relativePixels) noexcept {
     return SubPos(r);
 }
 
-}  // namespace
-
-BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
-                                    double maxK, const SupersampleConfig& ss,
-                                    std::uint8_t tag, int rowStart, int rowEnd,
-                                    TileBins& outBins) {
+// WU-28c (DECISIONS.md ADR-065): the shared per-sample loop, tag policy
+// templated so generateFragmentsRowRange()'s own plain-scalar behaviour
+// costs nothing extra (TagFn is a captureless-except-tag lambda, inlined at
+// compile time — no indirection, no extra Jacobian evaluation versus the
+// pre-WU-28c code below) while generateFragmentsRowRangeTagByFacing() reuses
+// the identical loop with a facing-based TagFn instead. tagFor receives the
+// same raw lattice.jacobian() output (before pixelJacobian()'s conversion)
+// the loop already computes for the supersampling decision — see
+// core/binner.hpp's own comment on generateFragmentsRowRangeTagByFacing()
+// for why that matters (ADR-063's dz/du, dz/dv-loss warning).
+template <typename TagFn>
+BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaster& src,
+                                        double maxK, const SupersampleConfig& ss,
+                                        TagFn&& tagFor, int rowStart, int rowEnd,
+                                        TileBins& outBins) {
     BinStats stats;
 
     // WU-16b (ADR-041): the loop bound is the caller's own row band
@@ -171,8 +180,9 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
         for (int px = 0; px < src.width; ++px) {
             const double u0 = pixelToLattice(double(px), src.width);
             const double v0 = pixelToLattice(double(py), src.height);
+            const Jacobian rawCentreJ = lattice.jacobian(u0, v0);
             const Jacobian centreJ =
-                pixelJacobian(lattice.jacobian(u0, v0), src.width, src.height);
+                pixelJacobian(rawCentreJ, src.width, src.height);
             const double centreDet =
                 centreJ.dxdu * centreJ.dydv - centreJ.dxdv * centreJ.dydu;
             const int n = chooseSupersample(centreDet, ss);
@@ -200,14 +210,20 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
                         continue;
                     }
 
-                    // n == 1: reuse centreJ, the same Jacobian that chose
-                    // it, rather than evaluating jacobian() twice at an
-                    // identical (u, v). n > 1: each sub-sample gets its
-                    // own local pixel-space Jacobian for K, since it is no
-                    // longer representative of the whole source pixel.
+                    // n == 1: reuse rawCentreJ/centreJ, the same Jacobian
+                    // that chose it, rather than evaluating jacobian() twice
+                    // at an identical (u, v) -- unchanged from pre-WU-28c.
+                    // n > 1: each sub-sample gets its own local pixel-space
+                    // Jacobian for K (no longer representative of the whole
+                    // source pixel) and, via rawJ, its own facing -- WU-28c
+                    // does not special-case this against rawCentreJ, since a
+                    // self-fold can in principle fall within one magnified
+                    // source pixel's own sub-samples, not only between
+                    // whole source pixels.
+                    const Jacobian rawJ = (n == 1) ? rawCentreJ : lattice.jacobian(u, v);
                     const Jacobian J = (n == 1)
                         ? centreJ
-                        : pixelJacobian(lattice.jacobian(u, v), src.width, src.height);
+                        : pixelJacobian(rawJ, src.width, src.height);
                     const double k = densityCompensation(J, maxK);
                     const double weight = k * invN2;
 
@@ -240,7 +256,7 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
                     frag.Cr = toSample(c.cr);
                     frag.w = toWeight(weight);
                     frag.z = toDepth(dest.z);
-                    frag.tag = tag;
+                    frag.tag = tagFor(rawJ);
                     frag.reserved = 0;
 
                     const int dtyMax = straddleY ? 1 : 0;
@@ -268,6 +284,18 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
     return stats;
 }
 
+}  // namespace
+
+BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
+                                    double maxK, const SupersampleConfig& ss,
+                                    std::uint8_t tag, int rowStart, int rowEnd,
+                                    TileBins& outBins) {
+    return generateFragmentsRowRangeImpl(
+        lattice, src, maxK, ss,
+        [tag](const Jacobian&) noexcept { return tag; },
+        rowStart, rowEnd, outBins);
+}
+
 // WU-16b: a thin wrapper — the whole raster is exactly the row range
 // [0, src.height). Signature and behaviour are exactly WU-08's frozen
 // ones, unchanged; see ADR-041.
@@ -275,6 +303,32 @@ BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins) {
     return generateFragmentsRowRange(lattice, src, maxK, ss, tag, 0, src.height, outBins);
+}
+
+// WU-28c (DECISIONS.md ADR-065): see core/binner.hpp's own comment.
+// surfaceNormal() is core/jacobian.hpp's, reached via core/binner.hpp's
+// existing #include "core/jacobian.hpp" -- no new include needed.
+BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                               double maxK, const SupersampleConfig& ss,
+                                               std::uint8_t frontTag, std::uint8_t backTag,
+                                               int rowStart, int rowEnd, TileBins& outBins) {
+    return generateFragmentsRowRangeImpl(
+        lattice, src, maxK, ss,
+        [frontTag, backTag](const Jacobian& rawJ) noexcept {
+            // ADR-027/ADR-063: front-facing means normal.z < 0.
+            return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
+        },
+        rowStart, rowEnd, outBins);
+}
+
+// WU-28c: a thin wrapper, exactly generateFragments()'s own relationship to
+// generateFragmentsRowRange() (WU-16b, ADR-041).
+BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                       double maxK, const SupersampleConfig& ss,
+                                       std::uint8_t frontTag, std::uint8_t backTag,
+                                       TileBins& outBins) {
+    return generateFragmentsRowRangeTagByFacing(lattice, src, maxK, ss, frontTag, backTag,
+                                                 0, src.height, outBins);
 }
 
 }  // namespace scatter

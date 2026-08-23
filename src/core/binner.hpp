@@ -185,4 +185,42 @@ BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins);
 
+// WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, row-range
+// variant. New, additive tag mode alongside generateFragmentsRowRange()
+// above — that function's own signature and behaviour are unchanged, the
+// same "new sibling entry point, not a changed one" pattern WU-16b already
+// established for generateFragments() itself (see its own comment). Every
+// parameter has the same meaning as generateFragmentsRowRange()'s own,
+// except tag is split into frontTag and backTag: each emitted Frag's own
+// tag is frontTag if its source sample is front-facing (core/jacobian.hpp's
+// surfaceNormal().z < 0, this project's own convention, ADR-027/ADR-063) or
+// backTag otherwise. This is what closes the gap ADR-062/C-020 found —
+// WU-28a's k-buffer keys its slots by Frag::tag, so a self-folding surface's
+// front and back need different tag values to ever land in different slots
+// at all; before this, every fragment from one generateFragments() call
+// carried the identical scalar tag regardless of facing.
+//
+// Facing is computed once per source pixel, from the same lattice.jacobian()
+// call the supersampling decision (chooseSupersample()) already makes at
+// that pixel's own centre (u0, v0), and reused for every one of that
+// pixel's sub-samples when supersampled (n > 1) — no extra lattice
+// evaluation, the same reuse-not-duplicate reasoning ADR-062/ADR-063 already
+// applied to dz/du, dz/dv. surfaceNormal() is called on lattice.jacobian()'s
+// own direct output, before pixelJacobian()'s conversion strips dz/du,
+// dz/dv — ADR-063's own explicit warning about the one trap a future WU-28c
+// session could otherwise rediscover by a wrong result.
+BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                               double maxK, const SupersampleConfig& ss,
+                                               std::uint8_t frontTag, std::uint8_t backTag,
+                                               int rowStart, int rowEnd, TileBins& outBins);
+
+// WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, whole-raster
+// variant. A thin wrapper around generateFragmentsRowRangeTagByFacing()
+// above, exactly the relationship generateFragments() already has to
+// generateFragmentsRowRange() (WU-16b, ADR-041).
+BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                       double maxK, const SupersampleConfig& ss,
+                                       std::uint8_t frontTag, std::uint8_t backTag,
+                                       TileBins& outBins);
+
 }  // namespace scatter

@@ -22,8 +22,18 @@
 // 4x4, the boundary values at exactly the configured thresholds, and the
 // hard cap), and that a destination-raster-crossing map drops samples
 // rather than emitting an out-of-range fragment.
+//
+// WU-28c (DECISIONS.md ADR-065) adds one more: generateFragmentsTagByFacing()
+// gives a self-folding surface's front and back different Frag::tag values,
+// checked against a real buildSphereLattice() self-fold (angleSpanH ==
+// 2*pi) at the same two control vertices DECISIONS.md ADR-063 and
+// tests/test_jacobian.cpp's own test_surface_normal_sign_matches_facing_
+// convention() already hand-derive and check the *sign* of -- this test
+// checks the *tag* generateFragmentsTagByFacing() assigns at those same two
+// points instead.
 
 #include "core/binner.hpp"
+#include "core/shapes/shapes.hpp"
 #include "harness.hpp"
 
 #include <cmath>
@@ -329,10 +339,90 @@ static void test_off_raster_samples_are_dropped() {
     CHECK(totalBinned == stats.primaryFragments + stats.replicaFragments);
 }
 
+// --- WU-28c: self-fold facing tag ---------------------------------------
+
+static void test_self_fold_front_and_back_get_different_tags() {
+    constexpr double kPi = 3.14159265358979323846;
+    using scatter::shapes::SphereParams;
+    using scatter::shapes::buildSphereLattice;
+
+    // Same self-folding sphere DECISIONS.md ADR-063 and test_jacobian.cpp's
+    // own test_surface_normal_sign_matches_facing_convention() already use:
+    // angleSpanH widened to a full 2*pi wrap, everything else default
+    // except centerX/centerY, offset here (unlike test_jacobian.cpp, which
+    // only ever reads Jacobian, never destination position) so the sphere's
+    // whole projected extent -- centered on (centerX, centerY), radius 200
+    // in every direction the orthographic projection touches (ADR-027) --
+    // lands inside a destination raster's non-negative bounds instead of
+    // straddling x == 0 / y == 0.
+    SphereParams p;
+    p.angleSpanH = 2.0 * kPi;
+    p.centerX = 300.0;
+    p.centerY = 300.0;
+    const Lattice lat = buildSphereLattice(p);
+
+    // W - 1 == 2 and H - 1 == 2 both divide kLatticeMax (128) exactly, the
+    // same bit-exactness reason every other test in this file picks its own
+    // raster size: pixel (px, py) == (1, 1) lands exactly on (u, v) ==
+    // (64, 64) -- phi == psi == 0, the front-most control vertex -- and
+    // (0, 1) lands exactly on (u, v) == (0, 64) -- phi == -pi, psi == 0,
+    // the antipodal fold-boundary vertex. Both are exactly the two points
+    // DECISIONS.md ADR-063 derives by hand (front: Tv x Tu == (0, 0,
+    // -radius^2); back: Tv x Tu == (0, 0, +radius^2)).
+    const int W = 3, H = 3;
+    SignatureRaster src(W, H);
+
+    TileBins bins(700, 700);
+    SupersampleConfig ss;
+    constexpr std::uint8_t kFrontTag = 7, kBackTag = 13;
+    const BinStats stats = generateFragmentsTagByFacing(
+        lat, src.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag, bins);
+
+    CHECK(stats.droppedOffRaster == 0);
+
+    // Gather every fragment decoding back to the front-most source pixel
+    // (1, 1) and to the antipodal fold-boundary source pixel (0, 1) --
+    // there may be more than one of either if chooseSupersample() (4.6)
+    // subdivided that source pixel, since this sphere's own Jacobian is far
+    // from affine at this scale; every one of them must carry the same tag,
+    // since facing is computed once per source pixel and reused across its
+    // own sub-samples (core/binner.cpp's own comment on rawCentreJ/rawJ).
+    int frontCount = 0, backCount = 0;
+    for (int ty = 0; ty < bins.tilesY(); ++ty) {
+        for (int tx = 0; tx < bins.tilesX(); ++tx) {
+            for (const Frag& f : bins.tile(tx, ty)) {
+                const auto sig = decode(f);
+                if (sig == std::pair{1, 1}) {
+                    CHECK_ONCE(f.tag == kFrontTag);
+                    ++frontCount;
+                } else if (sig == std::pair{0, 1}) {
+                    CHECK_ONCE(f.tag == kBackTag);
+                    ++backCount;
+                }
+            }
+        }
+    }
+    CHECK(frontCount > 0);
+    CHECK(backCount > 0);
+
+    // generateFragmentsRowRangeTagByFacing() covering the same two rows in
+    // one call must agree exactly with the whole-raster wrapper above (the
+    // same row-range/whole-raster equivalence WU-16b/ADR-041 already
+    // established for the plain-tag functions).
+    TileBins rowRangeBins(700, 700);
+    const BinStats rowRangeStats = generateFragmentsRowRangeTagByFacing(
+        lat, src.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag, 0, H, rowRangeBins);
+    CHECK(rowRangeStats.sourceSamples == stats.sourceSamples);
+    CHECK(rowRangeStats.primaryFragments == stats.primaryFragments);
+    CHECK(rowRangeStats.replicaFragments == stats.replicaFragments);
+    CHECK(rowRangeStats.droppedOffRaster == stats.droppedOffRaster);
+}
+
 int main() {
     test_fragment_count_matches_source_samples_under_compression();
     test_boundary_straddling_replicates_into_right_neighbours();
     test_supersampling_thresholds_and_cap();
     test_off_raster_samples_are_dropped();
+    test_self_fold_front_and_back_get_different_tags();
     return scatter::test::summary("test_binner");
 }

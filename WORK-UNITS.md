@@ -1719,8 +1719,8 @@ a front-facing point's normal to read `normal.z < 0`, and `Tv x Tu` is the
 order that gives that sign, checked against a real `buildSphereLattice()`
 lattice at its front-most and (fully self-folded, `angleSpanH == 2*pi`)
 antipodal control vertices — see ADR-063 for the derivation. Not normalised
-to unit length: the one consumer scoped so far (WU-28c, not yet built)
-needs only the sign of `normal.z`.
+to unit length: the one consumer scoped so far (WU-28c, now `green`) needs
+only the sign of `normal.z`.
 
 **Files:** `src/core/lattice.hpp` (two new, additive `Jacobian` fields),
 `src/core/lattice.cpp` (`jacobian()` stores what it already computes rather
@@ -1930,7 +1930,7 @@ buildable, runnable and testable directly in the cloud sandbox once someone
 actually writes them, unlike every DeckLink/Cocoa-touching unit before
 them.
 
-### WU-28c — self-fold facing tag: per-fragment tag from surface normals `wip`
+### WU-28c — self-fold facing tag: per-fragment tag from surface normals `green`
 See `DECISIONS.md` ADR-062 for the original real-content gap this unit
 closes and ADR-065 for this session's own scoping and build. Closes the
 real-content gap flagged on WU-28b above: gives a self-folding surface's
@@ -1987,13 +1987,24 @@ thresholds, off-raster dropping) still passes unchanged, confirming
 `generateFragmentsRowRangeImpl()`'s refactor did not alter the plain-tag
 path's own behaviour.
 
-*Status:* `wip` — green in the cloud sandbox this session — fresh clone of
+*Status:* `green`. Built and cloud-sandbox-tested Session 39: fresh clone of
 `origin/main` confirmed at `wu-21d-green`/`bba3634` before any file was
 touched; full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3, Release/
 Debug, tile 2^4/2^5) clean, zero warnings, plus GCC+ASan/UBSan clean; full
 portable `ctest` suite 22/22 passing in every configuration, no
-regressions; `test_binner` itself 38401 checks passing. Not yet Steve's own
-real-terminal `build`/`ctest`/tag (`wu-28c-green`)/push — see `HANDOFF.md`.
+regressions; `test_binner` itself 38401 checks passing. **Confirmed at
+Steve's own real-terminal, Session 41:** `cmake --build build` clean on
+AppleClang/ARM64; `ctest --test-dir build --output-on-failure` 30 of 31
+passing, the sole failure `test_decklink_device`'s own `foundDuplexDevice`
+check, ADR-035's already-accepted exception, unrelated to this unit.
+Independently re-verified this same session in the cloud sandbox against a
+fresh clone of `origin/main` at `wu-32-green`/`3798a5f` with these three
+files overlaid: GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and
+2^5, plus GCC+ASan/UBSan — all clean, `test_binner` 38401 checks passing on
+every GCC/Clang Release/tile-2^5 run (10177 on Debug/tile-2^4, a real and
+expected count difference by tile size, not a discrepancy), no sanitizer
+report. `wu-28c-green` tagged and pushed at Steve's own real terminal this
+session — see `HANDOFF.md`.
 
 ### WU-28d — wire self-fold occlusion into the live sphere demo `todo`
 See `DECISIONS.md` ADR-062. Once WU-28c exists, turns the feature on where
