@@ -120,6 +120,13 @@ endif()
 # platform dependency at all, so it belongs in scatter-core rather than
 # waiting on scatter-decklink below. WU-20b -- the DeckLink-specific
 # capture object that actually uses it -- is not built this session.
+#
+# WU-23b1 adds src/video/deinterlace.cpp: the Weston 3-field de-interlace
+# filter core, video::Deinterlacer (DECISIONS.md ADR-078/ADR-079,
+# CORRECTIONS.md C-025). Portable, zero DeckLink dependency -- video-format-
+# level processing on Raster444 planes, the same kind of thing
+# video/interlace.cpp and video/chroma.cpp already are, so scatter-core
+# again, not scatter-decklink.
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -127,6 +134,7 @@ add_library(scatter-core STATIC
     src/video/v210.cpp
     src/video/chroma.cpp
     src/video/interlace.cpp
+    src/video/deinterlace.cpp
     src/io/file_source.cpp
     src/io/file_sink.cpp
     src/core/lattice.cpp
@@ -260,6 +268,14 @@ scatter_test(test_scan_order_invariance)
 # affine lattices directly, no tools/testpat.hpp needed (same pattern as
 # test_kbuffer_storage/test_scan_order_invariance above).
 scatter_test(test_field_pipeline)
+
+# WU-23b1 -- Weston 3-field de-interlace filter core, video::Deinterlacer
+# (DECISIONS.md ADR-078/ADR-079, CORRECTIONS.md C-025). Portable, zero
+# DeckLink dependency, no new scatter-core source file beyond
+# src/video/deinterlace.cpp (already added above) -- builds its own marked
+# weave frames directly, no tools/testpat.hpp needed (same pattern as
+# test_field_pipeline above).
+scatter_test(test_deinterlace)
 
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared

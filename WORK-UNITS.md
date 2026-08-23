@@ -1896,69 +1896,94 @@ real-terminal build/`ctest` and manual tag/push are the remaining steps —
 see `HANDOFF.md`, and see `CORRECTIONS.md` C-024 for why this is a manual
 tag, not `./tools/close.sh 23a2b`.
 
-**Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is now
-complete.** WU-23b has been scoped this session (`DECISIONS.md` ADR-078)
-and splits into WU-23b1 (filter core, `video::Deinterlacer`, ready to
-build) and WU-23b2 (live-capture wiring, not yet scoped, gated on
-WU-23b1).
+**Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
+complete.** WU-23b split into WU-23b1 (filter core, `video::Deinterlacer`,
+scoped `DECISIONS.md` ADR-078, built `DECISIONS.md` ADR-079 — unverified,
+needs a real build/`ctest` run) and WU-23b2 (live-capture wiring, not yet
+scoped, gated on WU-23b1's own actual interface, now built).
 
-### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `todo`
-Not started. Scoped this session (`DECISIONS.md` ADR-078) after
-confirming the real source (`libavfilter/vf_w3fdif.c`, BBC R&D's Weston
-3-field algorithm — Jim Easterbrook's implementation of Martin Weston's
-process, not `vf_bwdif.c`, a materially more complex, later filter
-Steve confirmed is out of scope) and resolving the multi-frame-history
-question ADR-075/`HANDOFF.md`'s own Session-45 entry left open: no
-persistent cross-frame state exists anywhere in this project today
+### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `built, unverified`
+Built this session (`DECISIONS.md` ADR-079). Scoped in the immediately
+preceding session (`DECISIONS.md` ADR-078) after confirming the real
+source (`libavfilter/vf_w3fdif.c`, BBC R&D's Weston 3-field algorithm —
+Jim Easterbrook's implementation of Martin Weston's process, not
+`vf_bwdif.c`, a materially more complex, later filter Steve confirmed is
+out of scope) and resolving the multi-frame-history question
+ADR-075/`HANDOFF.md`'s own Session-45 entry left open: no persistent
+cross-frame state exists anywhere in this project today
 (`io/decklink_capture_consumer.cpp`'s `processOne()` and every
 `core/resolve.hpp` entry point are stateless per call), so this unit is
 a new, standalone, DeckLink-independent component owning its own
-three-field (`prev`/`cur`/`next`) history internally, fed one
-field-native frame at a time.
+three-frame (`prev`/`cur`/`next`) history internally.
 
-Design, per ADR-078: a line already present in `cur` (matching the
-output's own field parity) is copied through unchanged; a missing line
-is reconstructed as a spatial low-pass over `cur`'s own nearby existing
-lines plus a temporal high-pass combining `cur` with whichever of
-`prev`/`next` matches that line's parity — both coefficient sets
-(simple: 2 low-pass + 3 high-pass taps; complex: 4 low-pass + 5
-high-pass taps) scaled 2^15 per the real source, descaled by a
-round-half-up 15-bit shift (this project's own `toCode10()` rounding
-idiom, `core/types.hpp`); accumulation in a signed 64-bit accumulator
-per I4/I6. Edge handling: out-of-range field-native row indices
-reflected back into range (repeatedly ±2, the field's own row stride),
+**Design, corrected this session against the real source
+(`CORRECTIONS.md` C-025, `DECISIONS.md` ADR-079) from the immediately
+preceding session's own scoping, which described a field-native,
+single-parity input that could not actually implement the algorithm:**
+`push()` takes one full-height ("weave") interlaced `Raster444` per call
+— the same shape `video::extractField()`'s own `frame` parameter already
+uses, both parities' rows genuinely present, not a half-height
+already-split field. A row already at the output's own fixed anchor
+parity (`FieldParity`, chosen at construction) is copied through
+unchanged; a missing-parity row is reconstructed as a spatial low-pass
+over `cur`'s own nearby anchor-parity rows plus a temporal high-pass
+summing `cur`'s and `prev`'s own missing-parity rows at the same
+positions — always `prev`, never `next`, in this project's frame-rate-only
+mode (`next` is buffered only to become `cur` on the following push) —
+both coefficient sets (simple: 2 low-pass + 3 high-pass taps; complex: 4
+low-pass + 5 high-pass taps) scaled 2^15 per the real source, descaled by
+a round-half-up 15-bit shift (the same idiom `core/types.hpp`'s
+`toCode10()` and `video/chroma.cpp`'s `roundShift()` already use, and the
+same "narrow, do not clamp" I2-compliant handling `video/chroma.hpp`
+already documents for a negative-lobe integer filter); accumulation in a
+signed 64-bit accumulator per I4/I6. Edge handling: out-of-range
+full-frame row indices reflected back into range (repeatedly ±2),
 adopted as-is, scoped to this filter alone — not reconciled with
 ADR-018/020/022's own different conventions, which govern different
 subsystems. All three planes (Y, Cb, Cr) treated identically, matching
 the real source. Frame-rate output (one reconstructed full-height
-`Raster444` per input field-native frame, once two frames' worth of
-history exist), not field-rate — confirmed against
-`docs/architecture.md` section 3's own signal-path diagram.
+`Raster444` per input weave frame, once two frames' worth of history
+exist, `push()`'s own `bool` return signalling whether `outFrame` was
+written), not field-rate — confirmed against `docs/architecture.md`
+section 3's own signal-path diagram.
 
 **Files:** `video/deinterlace.hpp` (new), `video/deinterlace.cpp` (new),
 `tests/test_deinterlace.cpp` (new); plus `CMakeLists.txt`
 (`scatter_test(test_deinterlace)` registered — not counted against the
 file cap).
 
-**Accept:** the coefficient sets, the low-pass/high-pass line-offset
+**Accept:** the coefficient sets, the low-pass/high-pass row-offset
 structure and the edge-reflection logic all re-verified directly
 against the real `libavfilter/vf_w3fdif.c` source at build time (not
 taken from ADR-078's own paraphrase alone) before being frozen in
-committed code. A synthetic field-triple test constructed independently
-of `video::Deinterlacer`'s own implementation (hand-computed or
-independently recomputed expected output for at least one reconstructed
-line under each coefficient set) matches exactly. The three-history-
-frame state machine is checked directly: the first field pushed
-produces no output; the second produces one reconstructed frame; a
-short synthetic sequence (5+ fields) produces exactly one output per
-input from the second onward, with `prev`/`cur`/`next` verified (via a
-distinguishing per-frame marker in the synthetic content) to hold the
-correct three frames at each step, not just plausible-looking output.
-Edge rows (top and bottom of a field) reflect correctly, checked
-against a directly-computed expected value for at least one edge case
-per coefficient set.
+committed code — done this session, `DECISIONS.md` ADR-079, with the
+coefficient sum properties (low-pass taps sum to unity, high-pass taps
+sum to zero) additionally encoded as `static_assert`s in
+`video/deinterlace.cpp` itself. A synthetic weave-frame-sequence test
+constructed independently of `video::Deinterlacer`'s own implementation
+(a separately-written reference function in `tests/test_deinterlace.cpp`,
+not calling into `video/deinterlace.cpp`) matches its full-frame output
+exactly, for both coefficient sets, over a 5+-push sequence. The
+three-history-frame state machine is checked directly: the first frame
+pushed produces no output; the second produces one reconstructed frame;
+the same 5+-frame sequence produces exactly one output per input from
+the second onward, with `prev`/`cur`/`next` verified (via a
+distinguishing per-frame marker baked into each pushed frame's own
+content) to hold the correct three frames at each step — `cur`/`prev`
+directly, since both are read into every output; `next` indirectly, by
+confirming it becomes `cur` (visible via that push's own anchor-row
+output) on the following call, since it is never read directly into any
+single call's own result (`CORRECTIONS.md` C-025) — not just
+plausible-looking output. Edge rows (top and bottom of a frame) reflect
+correctly, checked against a directly-computed expected value for at
+least one edge case per coefficient set, both as part of the full-frame
+independent-reference comparison above and as an explicit standalone
+check.
 
-*Status:* not started.
+*Status:* built this session, unverified — needs a real build/`ctest`
+run (GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and 2^5,
+plus GCC 13 ASan/UBSan at both tile sizes, this project's own standard
+portable-unit matrix) before `wu-23b1-green`. See `HANDOFF.md`.
 
 ### WU-23b2 — Weston 3-field de-interlace: live-capture wiring and output re-interlace decimate `todo`
 Not started, not yet scoped with `Files:`/`Accept:` (ADR-078) —

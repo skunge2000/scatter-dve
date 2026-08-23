@@ -7736,3 +7736,162 @@ ADR — `core/resolve.hpp`, `core/pipeline.cpp` and `video/interlace.hpp`
 are all confirmed unchanged by this session; this settles new-ground
 design work for a feature that has never been scoped before (ADR-075's
 own WU-23b line), not a correction to anything already built.
+
+**ADR-079 — WU-23b1 build: `video::Deinterlacer`'s exact interface, frozen;
+corrected data-flow design (`CORRECTIONS.md` C-025) carried forward;
+`video/deinterlace.hpp`/`.cpp`, `tests/test_deinterlace.cpp`.**
+
+Re-fetched and re-read `libavfilter/vf_w3fdif.c` directly this session
+(not from ADR-078's own paraphrase — `SESSION-PROTOCOL.md` rule 6), per
+the continuation prompt's own instruction. Coefficients, scale, the
+reflect-by-±2 edge convention, uniform plane treatment and the frame-rate
+(not field-rate) mode choice all confirmed exactly as ADR-078 stated. The
+input shape and the `prev`/`cur`/`next` data flow did not — see
+`CORRECTIONS.md` C-025 for the full account. This entry freezes the
+corrected interface and records the coefficient/reflect confirmation
+directly against the source, as `WORK-UNITS.md`'s own Accept line
+requires "at build time."
+
+**Coefficients, confirmed against `vf_w3fdif.c` lines ~350-355 directly:**
+
+| | low-pass taps | high-pass taps |
+|---|---|---|
+| simple | `{16384, 16384}` | `{-2048, 4096, -2048}` |
+| complex | `{-852, 17236, 17236, -852}` | `{1016, -3801, 5570, -3801, 1016}` |
+
+All scaled by `256*128 = 2^15`. Low-pass taps each sum to exactly 32768
+(unity gain, a spatial average); high-pass taps each sum to exactly 0
+(a genuine high-pass/differencer, no DC contribution) — both properties
+checked directly against the coefficient values above, not assumed, and
+encoded as `static_assert`s in `video/deinterlace.cpp` itself so a future
+change to these constants cannot silently drift from either property.
+`n_coef_lf` (2, 4) even and `n_coef_hf` (3, 5) odd, matching the source's
+own comment on why ("It is important for later that n_coef_lf[] is even
+and n_coef_hf[] is odd").
+
+**Row-offset structure, re-derived directly from
+`deinterlace_plane_slice()` (lines ~389-464), not assumed:** for a
+to-be-reconstructed row at (full-frame) index `r` of the missing parity,
+low-pass tap `j` (of `nLow`) reads `cur` at row `reflect((r+1) + 2j -
+nLow)`; high-pass tap `j` (of `nHigh`) reads **both** `cur` and `adj` at
+row `reflect((r+1) + 2j - nHigh)`, where `reflect(y)` repeatedly adds or
+subtracts 2 until `y` is in `[0, height)`. Every low-pass tap offset is
+odd relative to `r`, so it always lands on an anchor-parity row (real
+data in `cur`, unaffected by reflection, since ±2 preserves parity);
+every high-pass tap offset is even relative to `r`, so it always lands on
+a missing-parity row (real data in *both* `cur` and `adj` — see C-025 for
+why `cur` has real data at the missing parity too: `cur` is a full weave
+frame, not a field-native one).
+
+**Interface, frozen:**
+
+```cpp
+namespace scatter::video {
+
+enum class DeinterlaceCoefficients { Simple, Complex };
+
+class Deinterlacer {
+public:
+    Deinterlacer(FieldParity anchorParity, DeinterlaceCoefficients coeffs) noexcept;
+
+    bool push(const Raster444& weaveFrame, Raster444& outFrame);
+
+private:
+    FieldParity anchorParity_;
+    DeinterlaceCoefficients coeffs_;
+    std::optional<Raster444> prev_, cur_, next_;
+};
+
+}  // namespace scatter::video
+```
+
+Answering the continuation prompt's own open questions directly:
+
+- **Takes `FieldParity` at construction, fixing which stream it serves —
+  yes.** One instance always treats the same parity as anchor (copied
+  verbatim; the other reconstructed) for its whole lifetime, matching
+  this project's broadcast-standard assumption of a fixed field order
+  (ADR-032/033's own `bmdModePAL` choice implies a fixed field dominance,
+  not one that varies frame to frame the way FFmpeg's own `auto` parity
+  detection supports and this project has no use for).
+- **Takes the simple-vs-complex coefficient choice as a parameter — yes**,
+  `DeinterlaceCoefficients`, also fixed at construction; no accept
+  criterion or caller in this project needs it to vary mid-stream.
+- **`push()`'s own signature: `bool` + out-parameter, not
+  `std::optional<Raster444>`.** `Raster444` has no default constructor
+  (`raster.hpp`'s own `Raster444(int w, int h)` is the only one), and
+  every existing Raster444-producing function in this codebase
+  (`extractField()`, `interleaveFields()`, `runFrame()`,
+  `runFrameField()`) takes an already-sized, caller-owned destination by
+  reference rather than constructing and returning a new one —
+  `push()` follows that same, already-established convention rather than
+  introducing a second one. `runFrameFile()`'s own `bool` return ("false,
+  writing nothing durable, if...") is the direct precedent for the
+  success/failure signal. `core/ring_buffer.hpp`'s own `tryPop()` returns
+  `std::optional<T>` instead, but for a cheap-to-move handle type in a
+  lock-free single-producer/single-consumer context with no pre-existing
+  "caller already owns a same-shaped destination" convention to match —
+  a different situation, not a competing precedent for this one. Internal
+  storage (`prev_`/`cur_`/`next_`) is a different question from the
+  public return type: `Raster444`'s missing default constructor still
+  needs *some* "not yet holding a frame" representation for those three
+  members, and `std::optional<Raster444>` is exactly `RingBuffer`'s own
+  tool for that — used here for internal state, not as the return type.
+
+**Data flow, corrected per C-025.** `push()` takes one full-height
+("weave") interlaced `Raster444` — the same shape `extractField()`'s own
+`frame` parameter already documents ("a full-height interlaced frame"),
+*not* its half-height `outField`. Internally:
+
+```
+prev_ = move(cur_)
+cur_  = move(next_)
+next_ = weaveFrame                      // copy; caller's own weaveFrame is untouched
+if (!cur_) cur_ = next_                 // stream-start: first frame is its own "prev" too
+if (!prev_) return false                // no prev yet — first push only
+reconstruct(*cur_, *prev_, anchorParity_, coeffs_, outFrame)
+return true
+```
+
+This reproduces `filter_frame()`'s own shift and its
+`av_frame_clone`-on-null-`cur` stream-start convention exactly (traced
+against three real pushes in C-025), which is what makes
+`WORK-UNITS.md`'s own already-frozen "first field pushed produces no
+output; the second produces one reconstructed frame" line true of this
+design without inventing new behaviour for it. `next_` is written on
+every push and is never read by `reconstruct()` — it exists solely to be
+shifted into `cur_` on the *following* call, exactly as in the real
+filter (C-025). `reconstruct()` copies anchor-parity rows from `cur_`
+verbatim and computes each missing-parity row from `cur_`'s own low-pass
+taps plus `cur_`+`prev_`'s shared high-pass taps, per the row-offset
+structure above, one signed 64-bit accumulator per sample (I4/I6 — a
+single term's worst case, `65535 * 17236 ≈ 1.13e9`, already needs more
+than one term's worth of int32 headroom for the 4/5-tap complex sets, so
+int64 is not merely this codebase's own "when in doubt" convention here
+but genuinely required), descaled by a 15-bit round-half-up shift
+(`(sum + (1ll << 14)) >> 15`, C++20's guaranteed-arithmetic signed right
+shift — the exact "add half the divisor, then shift" idiom
+`core/types.hpp`'s `toCode10()` and `video/chroma.cpp`'s `roundShift()`
+already use, extended to a signed 64-bit sum since a high-pass tap set
+can legitimately go negative), narrowed to `Sample` by plain conversion
+— wrapping modulo 65536 for an out-of-range result, not a clamp, exactly
+`video/chroma.hpp`'s own documented precedent ("converting a negative or
+over-65535 mathematical result to Sample wraps... well-defined, not
+undefined behaviour, and not a clamp") for the identical situation a
+negative-lobe integer filter creates, honouring I2 ("no clipping...
+filter ringing... passes through untouched") the same way chroma
+resampling already does. All three planes (Y, Cb, Cr) run through the
+same `reconstruct()` logic independently, per the source's own uniform
+treatment (confirmed again this session).
+
+Not reopening ADR-078's own placement decision (`video/`, new sibling
+file, no lattice/warp/DeckLink dependency) or its multi-frame-history
+finding — both stand. Does not reopen `INVARIANTS.md`; I2/I4/I6 are
+applied, not amended. `WORK-UNITS.md`'s WU-23b1 entry is edited (not
+append-only, per `SESSION-PROTOCOL.md`'s own table) to describe this
+corrected data flow directly, so a future reader does not need to
+cross-reference C-025 just to know what the class actually does; its own
+`Accept:` line is unchanged in substance (see C-025's own closing
+paragraph for why the "prev/cur/next hold the correct three frames"
+wording is still satisfied, verified through output content since `next`
+is never read directly).

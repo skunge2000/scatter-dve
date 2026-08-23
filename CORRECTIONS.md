@@ -745,3 +745,93 @@ hand once nothing *other* than this named exception fails, and push
 explicitly (`git push origin main` / `git push origin --tags`) — the
 manual-tag path does not push on its own, `SESSION-PROTOCOL.md`'s own
 anti-drift rule 9.
+
+**C-025 — ADR-078's own description of `video::Deinterlacer`'s input shape
+("fed one field-native Raster444 at a time... one field parity's own
+temporal sequence per instance") does not match what `libavfilter/vf_w3fdif.c`
+actually reads, and could not implement the real algorithm as stated.**
+*Claimed (`DECISIONS.md` ADR-078, `WORK-UNITS.md`'s WU-23b1 entry):*
+`video::Deinterlacer` is fed one already-field-split, half-height Raster444
+per call — the caller's own choice of a single parity's temporal sequence,
+"the direct analogue of FFmpeg's own single input stream" — and reconstructs
+the missing rows from that one stream's own history plus "whichever of
+prev/next is the correct adjacent field for that parity."
+*Correct:* re-fetched and re-read `libavfilter/vf_w3fdif.c` directly this
+session (`deinterlace_plane_slice()`, lines ~361-467) rather than trusting
+ADR-078's paraphrase, per `SESSION-PROTOCOL.md` rule 6. Two things ADR-078
+got wrong:
+
+1. **`cur` and `adj` are full-height, both-parities-present ("weave")
+   frames, not field-native ones.** The low-pass taps read `cur_data` at
+   *anchor*-parity row offsets only (`in_lines_cur[j] = cur_data + y_in *
+   stride`, `y_in` always same parity as the *other* field per the ±odd
+   offset arithmetic) — that much is a real single-field read. But the
+   high-pass taps read **both** `cur_data` and `adj_data` at *missing*-parity
+   row offsets (`in_lines_cur[j] = cur_data + y_in*stride; in_lines_adj[j] =
+   adj_data + y_in*stride`, then `filter_simple_high`/`filter_complex_high`
+   sum both into `work_line`) — i.e. `cur`'s own frame is read a *second*
+   time, at the *other* parity's rows, supplying one of the filter's three
+   real field inputs itself. A field-native, single-parity `cur` (as
+   ADR-078 described) has no missing-parity rows to read at all; the real
+   algorithm is not expressible against one. Confirmed independently by the
+   filter's own name: three distinct field acquisitions combine per output
+   — the anchor field and the missing field, both from `cur`'s own weave
+   frame, plus the missing field's own temporal neighbour from `adj` — not
+   three frame-level history slots each contributing one field. `cur`/`adj`
+   must therefore be full-height frames, video/interlace.hpp's own
+   "full-height interlaced frame" shape (`extractField()`'s own precondition
+   vocabulary), the same shape WU-23a's `extractField()` already consumes —
+   not its half-height output.
+2. **In frame-rate mode, `adj` is unconditionally `prev`, never `next`.**
+   `adj = s->field ? s->next : s->prev`, and `s->field` only toggles inside
+   `filter()` when `s->mode` (field-rate mode) is set; frame mode
+   (`s->mode == 0`, the mode WU-23b needs — ADR-078 correctly picked this
+   part) calls `filter()` once per input frame with `s->field` fixed at its
+   initial `0`, so `adj` is always `prev`. Traced the actual `prev`/`cur`/
+   `next` shift in `filter_frame()` against three pushed frames directly
+   (not inferred): pushing frame 0 produces no output (`prev` still null);
+   pushing frame 1 produces the *first* output, `cur` = frame 0, `adj` =
+   `prev` = a *clone of frame 0 itself* (FFmpeg's own stream-start
+   convention: `s->cur = av_frame_clone(s->next)` when `cur` was null,
+   giving frame 0 its own duplicate as a startup `prev`); pushing frame 2
+   produces `cur` = frame 1, `adj` = `prev` = frame 0 (now a real, distinct
+   previous frame). `next` is set on every push (needed so the shift has
+   something to promote into `cur` on the *following* call) but is never
+   read by any single call's own reconstruction math in frame-rate mode —
+   confirmed by `filter_simple_high`/`filter_complex_high`'s own parameter
+   list (`in_lines_cur`, `in_lines_adj` only).
+
+Not a coefficient or edge-handling error — those parts of ADR-078 (values,
+scale, reflect-by-±2, uniform plane treatment, frame-rate-mode choice) all
+checked out exactly against the real source, re-confirmed this session.
+This corrects the *data-flow* half of ADR-078's design only. `DECISIONS.md`
+ADR-079 (this session) carries the corrected design forward: `push()` takes
+a full-height weave `Raster444` (matching `extractField()`'s own input
+shape); internally holds `prev`/`cur`/`next` (three `std::optional<Raster444>`
+slots, shifted the same way `filter_frame()` shifts, including the
+duplicate-first-frame startup convention above — this reproduces
+`WORK-UNITS.md`'s own already-frozen push-count/output-count Accept line,
+"first field pushed produces no output; the second produces one
+reconstructed frame," exactly, and is not itself in question); the
+reconstruction reads `cur`+`prev` only, `next` existing solely to be shifted
+into `cur` on the following call. `WORK-UNITS.md`'s WU-23b1 entry is edited
+this session to describe the corrected shape directly (that file is
+"edited as scope firms up," not append-only, per `SESSION-PROTOCOL.md`'s own
+table) — its `Accept:` line's own "prev/cur/next... hold the correct three
+frames at each step" wording is unaffected by this correction and is
+honoured by the corrected design exactly as written, verified indirectly
+through output content (`next`'s own identity is checked by confirming it
+becomes `cur` — and therefore the next call's own anchor-row output — on the
+following push, since it is never read directly into any single call's own
+result). Does not reopen `INVARIANTS.md` or any earlier ADR; ADR-078's own
+source-confirmation and multi-frame-history findings (nothing persists
+outside this new component) are unaffected. **General lesson for future
+units:** ADR-078's own error came from reading FFmpeg's coefficient tables
+and edge-handling loop closely but reasoning about the surrounding
+`prev`/`cur`/`next` plumbing from the algorithm's name and a paraphrase
+rather than tracing the actual pointer/array arguments each filter function
+receives — the same class of gap rule 6 exists to catch, but this time in
+a *design* session's own findings, not a *build* session's recall of them;
+confirming "which buffer does this parameter actually point into" line by
+line is the only way to catch a wiring error like this, prose summaries
+(including this project's own ADRs) are not a substitute for it.
