@@ -1780,17 +1780,83 @@ unaffected, plus this unit's own new `test_interlace`). `test_interlace`
 alone: 302 checks passing. Steve's own real-terminal build/`ctest` and
 `./tools/close.sh 23a` are the remaining steps — see `HANDOFF.md`.
 
-### WU-23a2 — Field mode: lattice-aware per-field fragment generation `todo`
-Not started. The real warp half of field mode: a new `core/binner.hpp`/`.cpp`
-sibling entry point (the same "new sibling, not a changed one" shape
-WU-16b/WU-28c already established for this file) that generates fragments
-for one field's own rows while keeping the v-parameter's denominator at the
-*full frame* height, not the field's own height — see `DECISIONS.md`
-ADR-075 and `video/interlace.hpp`'s own file comment for the full reasoning
-already worked out this session. Needs its own `Files:`/`Accept:` scoping
-session (this session's own scoping pass stopped at naming the problem, per
-`SESSION-PROTOCOL.md`'s "one session, one work unit" — WU-23a's own build
-already spent this session's file/line budget).
+### WU-23a2 — Field mode: lattice-aware per-field fragment generation
+This session's own scoping pass (continuing straight from WU-23a) found
+that the real warp half of field mode needs two things that together
+exceed `SESSION-PROTOCOL.md`'s 3-source-file cap for one unit: a new
+`core/binner.hpp`/`.cpp` sibling entry point (2 files), and a new
+orchestration entry point declared in `core/resolve.hpp` and implemented
+in `core/pipeline.cpp` (2 more files, per that header's own comment on
+why `runFrame()`/`runFrameFile()` live there and not in a `pipeline.hpp`
+of their own) — the same "exceeds the cap, split it" shape that already
+separated WU-23a from WU-23a2 itself. Split into WU-23a2a/WU-23a2b below,
+confirmed with Steve directly before either was scoped in detail. See
+`DECISIONS.md` ADR-076 for the full reasoning, including the
+`extractField()`-usage question this split settles.
+
+### WU-23a2a — Field mode: field-parity row visitation in core/binner.hpp/.cpp `green` (`wu-23a2a-green`, pending Steve's manual tag)
+See `DECISIONS.md` ADR-076 for the full design. New `core/binner.hpp`/`.cpp`
+sibling entry point, `generateFragmentsFieldRows()`, generating fragments
+for one field's own rows (stride 2, offset 0 or 1) while keeping the
+v-parameter's denominator at the *full frame* height — the fix
+`DECISIONS.md` ADR-075 named and left for this unit. Settles this unit's
+own open design question (was `extractField()` needed on the input side?
+no — see ADR-076) from the real code, not assumed.
+
+**Files:** `core/binner.hpp` (new `generateFragmentsFieldRows()`
+declaration), `core/binner.cpp` (new `generateFragmentsFieldRows()`
+definition; `rowStep` added to the shared, private
+`generateFragmentsRowRangeImpl()`, all three existing call sites updated
+to pass it explicitly, unchanged behaviour), `tests/test_binner.cpp`
+(two new test functions plus three small helpers). No `CMakeLists.txt`
+change — `test_binner` is already registered.
+
+**Accept:** one `generateFragmentsRowRange()` call per row of a field's
+own parity, accumulated into one `TileBins`, equals one
+`generateFragmentsFieldRows()` call byte-for-byte, tile by tile,
+fragment by fragment, in the same order (not merely as a multiset), for
+both parities; separately, `extractField()`-then-`generateFragments()`
+(the naive plan ADR-075 already rejected) is shown to reproduce frame
+row 0's own destination for *both* fields' own row 0 — Bottom's own row
+0 is actually frame row 1 — where `generateFragmentsFieldRows()` places
+the two one pixel apart, the correct half-line phase, demonstrating the
+fix's necessity directly rather than only by equivalence to row-range
+calls.
+
+**Status:** built and tested in this session's own Linux cloud sandbox
+(Ubuntu 24.04), a fresh clone of `origin/main` at `wu-23a-green`/`46e9240`,
+confirmed clean before any file was touched. Full 8-configuration matrix
+(GCC 13.3.0 / Clang 18.1.3, Release/Debug, `SCATTER_TILE_LOG2` 4/5) all
+green, zero warnings under this project's full `-Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Werror` set, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes, clean. No AArch64 cross-compile — this unit touches no
+platform-specific surface, the same scope WU-16a/WU-19a/WU-26/WU-28c's
+own portable-only units already used. `ctest`: 24 of 24 (unchanged count
+— `test_binner` is extended, not new). `test_binner` alone: 38 727
+checks passing. Steve's own real-terminal build/`ctest` and manual
+tag/push are the remaining steps — see `HANDOFF.md`.
+
+### WU-23a2b — Field mode: runFrame()-level driver `todo`
+Not started. Wires `generateFragmentsFieldRows()` (WU-23a2a) and
+`video/interlace.hpp`'s `extractField()`/`interleaveFields()` (WU-23a)
+together into an actual field-mode entry point: run the field-aware
+binner/splat/resolve once per parity into a full-resolution destination
+raster, `extractField()` each down to its own parity rows, then
+`interleaveFields()` to recombine into the final interlaced frame — see
+`DECISIONS.md` ADR-076 for why both functions are needed on the output
+side. Declared in `core/resolve.hpp`, implemented in `core/pipeline.cpp`,
+per ADR-026's own precedent for new orchestration entry points. Needs its
+own `Files:`/`Accept:` scoping session — likely just those two files plus
+a new test (no shared identity-lattice test helper exists to reuse;
+`tests/test_binner.cpp` and `tests/test_zoneplate.cpp` each duplicate
+their own locally, `test_zoneplate.cpp`'s own comment says this is
+deliberate). The Accept: criterion this unit should carry is the one
+WU-23a's own first Accept: criterion deliberately deferred (ADR-075,
+`HANDOFF.md`'s Session-43 entry): an interlaced test frame with a
+per-row marker, warped through field mode under the identity lattice,
+reproduces the original frame bit-exactly once both fields' outputs are
+combined.
 
 ### WU-23b — De-interlace to frame (Weston 3-field), then re-interlace `todo`
 Not started. Steve's own stated preference, unchanged from this unit's

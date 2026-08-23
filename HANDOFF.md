@@ -3,186 +3,191 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 43 (WU-23 scoping + WU-23a build — Phase 6 opens; field mode's
-own field-split/interleave half; no DeckLink, no hardware).
+**Session:** 44 (WU-23a2 scoping + WU-23a2a build — field mode's own
+lattice-aware per-field fragment generation, split further; no DeckLink,
+no hardware).
 
-**Tag:** none yet — `wu-23a-green` is Steve's own next action; see "Steve's
-own next steps" below.
+**Tag:** none yet — `wu-23a2a-green` is Steve's own next action; see
+"Steve's own next steps" below.
 
 ## Before doing anything else in the next session
 
-Run `git tag`, `git log --oneline -10`, `git status --short` and `git status
--sb` directly against `~/src/scatter-dve` via the device bridge, the same as
-every session before this one — do not trust this file's own account of
-tag/commit state without checking it against the real repository first.
+Run `git tag --sort=creatordate`, `git log --oneline -10`, `git status
+--short` and `git status -sb` directly against `~/src/scatter-dve` via the
+device bridge, the same as every session before this one — do not trust
+this file's own account of tag/commit state without checking it against
+the real repository first.
 
 ## This session in full
 
-Opened by verifying real repository state three ways, not just one: `git
-tag --sort=creatordate`, `git log --oneline -10` and `git status -sb`
-against a fresh GitHub clone; then diffing that clone byte-for-byte against
-the same files staged live off `~/src/scatter-dve` via the device bridge.
-Identical. `HEAD` was `0dc2247` ("WORK-UNITS.md: correct six stale status
-lines..."), one commit past the `wu-36-green` tag (`d32131b`); tree clean,
-`## main...origin/main`, no ahead/behind. Worth flagging, not fixing:
-`HANDOFF.md`'s own Session-42 account never mentioned `0dc2247` — a small,
-harmless second instance of the exact "status word lagging the real
-repository" problem the continuation prompt that opened this session warned
-about, this time in `HANDOFF.md` itself rather than `WORK-UNITS.md`. Nothing
-to correct (no claim was wrong, `0dc2247` is documentation-only and the tree
-was clean) — noted for whoever next feels surprised by it.
+Opened with a continuation prompt (`CORRECTIONS.md` C-024, from the
+session before this one) whose own job was two-fold: confirm real
+repository state, then give a real scoping proposal for WU-23a2 —
+including the prompt's own open question (is `extractField()` needed by
+the honest fix?) worked out from the real code — *before* writing any
+code, and only build once that scoping was actually confirmed with Steve.
 
-This was a continuation prompt's own two-part job: real scoping for WU-23
-("Interlace and field mode," Phase 6's own opening bare line, untouched
-since it was written) before any code, then build and verify whatever the
-first split piece turned out to be.
+**Repository state, confirmed three ways before reading anything else:**
+`git tag --sort=creatordate` (newest: `wu-23a-green`), `git log --oneline
+-10` (`HEAD` = `46e9240`, "WU-23a: field split and interleave
+(ADR-075)"), `git status -sb` (`## main...origin/main`, clean, no
+ahead/behind) — all run directly against `~/src/scatter-dve` via the
+device bridge. Matches `HANDOFF.md`'s own prior account exactly; nothing
+to correct.
 
-**Scoping.** Read `docs/architecture.md` section 5's own "Interlace" note
-and section 10's Phase 6 "done when" line (which, read directly, does not
-actually mention interlace — flagged, not fixed, see ADR-075), the current
-`core/pipeline.cpp`/`resolve.hpp`/`binner.hpp`/`.cpp`/`lattice.hpp`/
-`types.hpp` and `video/raster.hpp` directly (not assumed from the
-architecture doc's own diagram), and grepped `src/`/`tests/`/`DECISIONS.md`
-for any existing interlace/field scaffolding — none, confirming WU-36's own
-audit. Confirmed de-interlace-to-frame and field mode are genuinely
-different code paths (one a real temporal reconstruction filter, Steve's
-own Weston-3-field preference; the other no reconstruction at all, just an
-independent per-field warp) and split them: **WU-23a**/**WU-23a2** (field
-mode's own two halves) and **WU-23b** (de-interlace-to-frame, gated on
-working out Weston 3-field itself first). Full reasoning in `DECISIONS.md`
-ADR-075.
+**Scoping.** Read `SESSION-PROTOCOL.md`, `INVARIANTS.md`, `DECISIONS.md`
+ADR-075/ADR-034/ADR-035/ADR-037, `CORRECTIONS.md` C-024, `WORK-UNITS.md`'s
+own WU-23a2 entry, and the real code directly: `core/binner.hpp`/`.cpp`
+(`generateFragmentsRowRangeImpl()`'s own row-range/full-height-denominator
+split, ADR-041), `core/resolve.hpp`/`core/pipeline.cpp` (ADR-026's own
+precedent for where new orchestration entry points get declared), and
+`video/interlace.hpp`/`.cpp` (WU-23a, unmodified this session). Two real
+findings, both in `DECISIONS.md` ADR-076:
 
-**A further split, found while building, not before.** The scoping
-session's own first-cut plan for field mode — extract each field as its own
-half-height `SourceRaster`, run today's unchanged `generateFragments()` on
-each independently — turned out to silently discard the half-line vertical
-phase between the two fields, because `core/binner.hpp`'s v-parameter
-normalises across *whatever height is passed in*, not the true frame
-height. Fixing that honestly needs a new `core/binner.hpp`/`.cpp` sibling
-entry point, which together with the two new `video/interlace.*` files
-would exceed `SESSION-PROTOCOL.md`'s 3-source-file cap — so field mode
-itself split again: WU-23a is the pure data-layout half (field split and
-interleave, no lattice/warp involvement at all), WU-23a2 is the
-lattice-aware half, not started. See ADR-075 and `video/interlace.hpp`'s
-own file comment for the complete reasoning.
+1. **The `extractField()`-usage question, settled.** Not needed on the
+   input side — a new binner sibling entry point strides the *full*
+   `SourceRaster` directly (offset 0 or 1, step 2), keeping the
+   v-parameter's denominator at `src.height` the whole time, the same
+   mechanism WU-16b's own row-range entry point already established,
+   generalised from a contiguous range to a strided one. Needed on the
+   output side, though — correcting the continuation prompt's own
+   imprecise phrasing there: `interleaveFields()` cannot do "even/odd row
+   selection" out of two full-resolution per-field warp outputs by
+   itself (its own precondition requires two *already field-sized*
+   rasters); the real sequence is `extractField()` down to each field's
+   own parity rows first, *then* `interleaveFields()` to recombine.
+2. **File budget.** The binner sibling (2 files) plus the driver (2 more,
+   per ADR-026's precedent — `core/resolve.hpp`/`core/pipeline.cpp`)
+   together exceed `SESSION-PROTOCOL.md`'s 3-file cap for one unit, the
+   same shape that already split WU-23a from WU-23a2. Split into
+   **WU-23a2a** (binner sibling alone) and **WU-23a2b** (the driver, not
+   started).
 
-**WU-23a build.** New `src/video/interlace.hpp`/`.cpp`: `FieldParity`
-(`Top`/`Bottom`), `fieldRowCount()` (a `constexpr` sizing helper, same
-spirit as `core/binner.hpp`'s own `tileCount()`), `extractField()` (frame
-→ one field's own rows, a pure row copy), `interleaveFields()` (two fields
-→ one frame, its own exact inverse). New `tests/test_interlace.cpp`:
-`fieldRowCount()` accounts for every row of a frame exactly once between
-the two parities (checked directly); `extractField()` reproduces each
-field's own source rows bit-exactly, both parities, even and odd frame
-height; `interleaveFields()` round-trips a marked test frame bit-for-bit,
-every plane, every row, for even and odd frame height and for this
-project's own two real geometries (720×576, 1920×1080) — this unit's own
-first Accept: criterion. `CMakeLists.txt`: `src/video/interlace.cpp` added
-to `scatter-core`'s source list, `scatter_test(test_interlace)` added.
-+297/-0 across the four files.
+Confirmed directly with Steve, before any code: the WU-23a2a/WU-23a2b
+split; `rowOffset` as a plain `int` rather than `video::FieldParity` (so
+`core/binner.hpp` keeps its existing zero dependency on `video/`); and
+building WU-23a2a alone this session, WU-23a2b left for next time. All
+three the recommended option.
 
-Built and tested in this session's own Linux cloud sandbox (Ubuntu 24.04):
-full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3 × Release/Debug ×
-`SCATTER_TILE_LOG2` 4/5), all green, zero warnings under this project's
-full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` set,
-plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at
-both tile sizes, clean. No AArch64 cross-compile run — this unit touches no
-platform-specific surface at all (no NEON, no Apple-only API), the same
-scope WU-16a/WU-19a/WU-26/WU-28c's own portable-only units already used.
-`ctest`: 24 of 24 in every configuration (23 pre-existing, unaffected, plus
-`test_interlace`). `test_interlace` alone: 302 checks passing.
+**WU-23a2a build.** `core/binner.hpp`/`.cpp`: new
+`generateFragmentsFieldRows()`; the shared private
+`generateFragmentsRowRangeImpl()` gains a `rowStep` parameter (all three
+existing call sites pass 1 explicitly, unchanged behaviour byte for
+byte). `tests/test_binner.cpp`: two new test functions —
+`test_field_rows_match_row_range_ground_truth()` (per-row
+`generateFragmentsRowRange()` calls, accumulated, equal one
+`generateFragmentsFieldRows()` call byte-for-byte, not merely as a
+multiset) and
+`test_field_rows_reject_naive_half_height_extraction_bug()` (the naive
+`extractField()`-then-`generateFragments()` plan ADR-075 already rejected
+is shown, directly, to collapse Bottom field's own row 0 onto Top field's
+own row 0's destination, where the honest fix correctly keeps them one
+pixel apart) — plus three small helpers (`sameFrag()`, `samePosition()`,
+`findFrags()`). No `CMakeLists.txt` change — `test_binner` was already
+registered.
 
-Delivered `src/video/interlace.hpp`, `src/video/interlace.cpp`,
-`tests/test_interlace.cpp`, `CMakeLists.txt`, `WORK-UNITS.md`,
-`DECISIONS.md` (ADR-075) and this file to the real repository via
-`SendUserFile` + `device_commit_files`, then re-staged all of them from the
-device and diffed against this session's own edited copies before writing
-this sentence — `SESSION-PROTOCOL.md`'s own rule 8.
+Built and tested in this session's own Linux cloud sandbox (Ubuntu
+24.04): full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3,
+Release/Debug, `SCATTER_TILE_LOG2` 4/5), all green, zero warnings under
+this project's full `-Wall -Wextra -Wpedantic -Wconversion
+-Wsign-conversion -Werror` set, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes, clean. No AArch64 cross-compile — this unit touches no
+platform-specific surface. `ctest`: 24 of 24 in every configuration
+(unchanged count — `test_binner` is extended, not new). `test_binner`
+alone: 38 727 checks passing.
+
+Delivered `core/binner.hpp`, `core/binner.cpp`, `tests/test_binner.cpp`,
+`WORK-UNITS.md`, `DECISIONS.md` (ADR-076) and this file to the real
+repository via `SendUserFile` + `device_commit_files`, then re-staged all
+of them from the device and diffed against this session's own edited
+copies before writing this sentence — `SESSION-PROTOCOL.md`'s own rule 8.
 
 ## Where we are
 
-`WU-23` (bare `todo`) is now three real units: **WU-23a** built and
+`WU-23a2` is now two real units: **WU-23a2a** built and
 cloud-sandbox-green this session, pending Steve's own real-terminal
-confirmation and tag; **WU-23a2** (lattice-aware per-field fragment
-generation) and **WU-23b** (de-interlace-to-frame, Weston 3-field) both
-scoped-in-name-only, `todo`, not started. `WU-24`/`WU-25` untouched.
-`DECISIONS.md` now runs through ADR-075; `INVARIANTS.md` unchanged through
-I11; `CORRECTIONS.md` unchanged through C-023 (nothing this session rose to
-a correction — see "Append to CORRECTIONS.md" below).
+confirmation and tag; **WU-23a2b** (the `runFrame()`-level driver) scoped
+in outline (see `DECISIONS.md` ADR-076 and `WORK-UNITS.md`'s own entry)
+but not yet given real `Files:`/`Accept:` lines — that is next session's
+first job if it picks this thread up. `WU-23b`/`WU-24`/`WU-25` untouched.
+`DECISIONS.md` now runs through ADR-076; `INVARIANTS.md` unchanged
+through I11; `CORRECTIONS.md` unchanged through C-024 (nothing this
+session rose to a correction — see "Append to CORRECTIONS.md" below).
 
 ## Next work unit
 
-**WU-23a2** is the natural next pick if continuing straight down Phase 6's
-own field-mode thread: real `Files:`/`Accept:` scoping for the
-`core/binner.hpp`/`.cpp` sibling entry point ADR-075 already names (field-
-parity-aware fragment generation, v-parameter denominator kept at full
-frame height), then wiring it together with this session's own
-`video/interlace.*` into an actual `runFrame()`-level field-mode entry
-point. **WU-23b** (de-interlace-to-frame) is not a real pick yet — it needs
-its own research/design pass on the actual Weston 3-field algorithm before
-any `Files:`/`Accept:` scoping is possible, let alone code. Everything
-named in Session 42's own "Next work unit" section (WU-28d, WU-27, WU-33,
-WU-35, WU-37) is unchanged and still pickable — this session did not touch
-Phase 7 at all.
+**WU-23a2b** is the natural next pick if continuing straight down Phase
+6's own field-mode thread: real `Files:`/`Accept:` scoping for the
+`core/resolve.hpp`/`core/pipeline.cpp` driver `DECISIONS.md` ADR-076
+already outlines (call `generateFragmentsFieldRows()` twice, once per
+parity, into two full-resolution rasters; `extractField()` each down to
+its own parity rows; `interleaveFields()` to recombine), then building
+it — including the identity-lattice round-trip Accept: criterion WU-23a's
+own first Accept: criterion deliberately deferred (ADR-075, `HANDOFF.md`'s
+Session-43 entry). No shared identity-lattice test helper exists yet to
+reuse — `tests/test_binner.cpp` and `tests/test_zoneplate.cpp` each
+duplicate their own locally; WU-23a2b's own test does the same.
+Everything named in Session 43's own "Next work unit" section (WU-28d,
+WU-27, WU-33, WU-35, WU-37) is unchanged and still pickable — this
+session did not touch Phase 7 at all.
 
 ## Open questions
 
-Unchanged from Session 42's own list (`kCaptureRingCapacity`, Q3, Q4, Task
-A1, Task D6, ADR-070's open question, WU-35's `compositeLayered()`
-question), plus one addition: the real Weston 3-field algorithm itself is
-not yet worked out anywhere in this repository — WU-23b is blocked on that
-research, not on any code decision.
+Unchanged from Session 42/43's own list (`kCaptureRingCapacity`, Q3, Q4,
+Task A1, Task D6, ADR-070's open question, WU-35's `compositeLayered()`
+question, the real Weston 3-field algorithm for WU-23b) — this session
+did not touch any of them.
 
 ## Blocked / red
 
-Nothing red. WU-23b is named-but-blocked (see above), not red — no code has
-been attempted for it to fail.
+Nothing red. WU-23b remains named-but-blocked (Session 43's own note,
+unchanged), not red.
 
 ## Environment check
 
 This session's own build/test verification is the Linux cloud sandbox
-matrix described above, not a real-terminal run. `docs/wu-audit-2026-08.md`
-and everything else from Session 42 is unaffected — this session added
-files, it did not touch anything Session 42 touched.
+matrix described above, not a real-terminal run.
 
-**Standing condition, not new this session, but corrected in how a session
-should act on it (C-024, this session): `tools/close.sh` cannot currently
-succeed at all, for any unit, on Steve's real terminal.** The 4K Mini's PSU
-is out (no full-duplex device attached); the going-forward hardware is a
-Monitor 3G (output-only) and a Recorder 3G (capture-only), two separate
-non-duplex devices — and per ADR-034, `test_decklink_device`'s
-`test_at_least_one_device_is_full_duplex` check will keep failing even once
-the PSU itself is fixed, because the real architecture is now two devices,
-not one full-duplex one. `close.sh` treats any `ctest` failure as blocking
-and refuses to tag, so **every future session's own close-out must build
-and test manually, confirm no failure *other than* this one named check,
+**Standing condition, unchanged from Session 43, C-024: `tools/close.sh`
+cannot currently succeed at all, for any unit, on Steve's real
+terminal.** The 4K Mini's PSU is still out; the going-forward hardware is
+a Monitor 3G (output-only) and a Recorder 3G (capture-only), and per
+ADR-034/ADR-035, `test_decklink_device`'s own
+`test_at_least_one_device_is_full_duplex` check will keep failing even
+once the PSU is fixed, because the real architecture is two devices now,
+not one full-duplex one. `close.sh` treats any `ctest` failure as
+blocking and refuses to tag — **this session's own close-out is manual
+build, manual test, confirm no failure other than that one named check,
 then tag by hand and push explicitly** (`git push origin main`; `git push
-origin --tags` — the manual-tag path never pushes on its own,
-`SESSION-PROTOCOL.md`'s own anti-drift rule 9). Do not hand Steve a
-`./tools/close.sh NN` instruction as the close-out step until ADR-034's own
-still-open follow-up (retire or rescope `test_at_least_one_device_is_full_
-duplex` for a two-device architecture) is actually done.
+origin --tags`), the same as Session 43's own close-out. This unit has no
+DeckLink dependency of its own (it never links `scatter-decklink`, and
+this cloud sandbox has no Blackmagic SDK configured at all — the check
+does not even run here), but the check still runs on Steve's own real
+terminal, where the SDK *is* configured, on every close-out regardless of
+which unit is being closed — C-024's own point, still true.
 
 ## Append to DECISIONS.md
 
-**ADR-075** — already appended in full this session (WU-23 scoping split;
-field mode's own v-parameter finding; WU-23a build). See `DECISIONS.md`.
+**ADR-076** — already appended in full this session (WU-23a2
+scoping/split; the `extractField()`-usage question settled; WU-23a2a
+build). See `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session. The `HANDOFF.md`-lags-`HEAD`-by-one-commit
-observation and the architecture.md-Phase-6-doesn't-mention-interlace
-observation are both documentation gaps noticed, not claims that were made
-and later found wrong — recorded in this file and in ADR-075 respectively,
-the same "worth a look, not a correction" framing WU-36's own audit used
-for its own two similar cosmetic findings.
+Nothing this session. The continuation prompt's own imprecise phrasing
+about what `interleaveFields()` does (see ADR-076) is a gap in the
+prompt, not a claim this project's own state files made and later found
+wrong — recorded in ADR-076's own text, the same "worth a look, not a
+correction" framing prior sessions have used for similar cosmetic
+findings outside this project's own prior claims.
 
 ## Closed out this session
 
-**WU-23 scoping** (three-way split, ADR-075) **and WU-23a build** (field
-split and interleave). Cloud-sandbox green, full matrix, zero warnings,
-clean sanitizers. Ready for Steve's own real-terminal build, commit, tag
-and push.
+**WU-23a2 scoping** (two-way split, ADR-076) **and WU-23a2a build**
+(field-parity row visitation in `core/binner.hpp`/`.cpp`). Cloud-sandbox
+green, full matrix, zero warnings, clean sanitizers. Ready for Steve's
+own real-terminal build, commit, tag and push.
 
 ## Steve's own next steps
 
@@ -193,12 +198,11 @@ cd ~/src/scatter-dve
 git status --short
 ```
 
-Expected: `src/video/interlace.hpp` and `src/video/interlace.cpp`
-untracked (new files); `tests/test_interlace.cpp` untracked (new file);
-`CMakeLists.txt`, `WORK-UNITS.md`, `DECISIONS.md` and `HANDOFF.md`
-modified. Nothing else.
+Expected: `core/binner.hpp`, `core/binner.cpp`, `tests/test_binner.cpp`,
+`WORK-UNITS.md`, `DECISIONS.md` and `HANDOFF.md` modified. Nothing else —
+no new (untracked) files this session, unlike WU-23a.
 
-**2. Build and test — manually, not via `tools/close.sh` (see below).**
+**2. Build and test — manually, not via `tools/close.sh` (see above).**
 
 ```
 cd ~/src/scatter-dve
@@ -206,26 +210,24 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Expected: every previously-passing test still passes, plus a new
-`test_interlace` (302 checks, per this session's own cloud-sandbox run) —
-**except** `test_decklink_device`'s own
-`test_at_least_one_device_is_full_duplex` check, which is expected to keep
-failing until either the hardware or the check itself changes (see
-"Environment check" above and C-024 in `CORRECTIONS.md`, this session).
-That one named failure is not a regression from this unit; anything else
-failing is.
+Expected: every previously-passing test still passes, `test_binner`'s own
+check count is up (38 727 in this session's own cloud-sandbox run,
+against the prior count before WU-23a2a) — **except**
+`test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
+check, which is expected to keep failing until either the hardware or the
+check itself changes (see "Environment check" above and C-024 in
+`CORRECTIONS.md`). That one named failure is not a regression from this
+unit; anything else failing is.
 
 **3. Commit, then tag and push by hand — `tools/close.sh` cannot succeed
-right now (see above), so do not run it; it will refuse to tag because of
-the one already-known failure and this step would otherwise silently never
-happen.**
+right now (see above), so do not run it.**
 
 ```
 cd ~/src/scatter-dve
-git add CMakeLists.txt src/video/interlace.hpp src/video/interlace.cpp \
-        tests/test_interlace.cpp WORK-UNITS.md DECISIONS.md HANDOFF.md CORRECTIONS.md
-git commit -m "WU-23a: field split and interleave (ADR-075)"
-git tag -a wu-23a-green -m "WU-23a: field split and interleave, green except the already-accepted ADR-035/ADR-034 duplex-check exception"
+git add core/binner.hpp core/binner.cpp tests/test_binner.cpp \
+        WORK-UNITS.md DECISIONS.md HANDOFF.md
+git commit -m "WU-23a2a: field-parity row visitation in core/binner.hpp/.cpp (ADR-076)"
+git tag -a wu-23a2a-green -m "WU-23a2a: field-parity row visitation, green except the already-accepted ADR-035/ADR-034 duplex-check exception"
 git push origin main
 git push origin --tags
 ```
@@ -239,7 +241,7 @@ git tag | tail -5
 git status -sb
 ```
 
-`git log --oneline -3` should show your own new commit at `HEAD`, carrying
-`wu-23a-green`; `git tag | tail -5` should include `wu-23a-green`;
-`git status -sb` should read `## main...origin/main` with no ahead marker
-and no modified files listed at all.
+`git log --oneline -3` should show your own new commit at `HEAD`,
+carrying `wu-23a2a-green`; `git tag | tail -5` should include
+`wu-23a2a-green`; `git status -sb` should read `## main...origin/main`
+with no ahead marker and no modified files listed at all.

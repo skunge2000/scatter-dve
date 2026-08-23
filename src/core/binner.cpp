@@ -161,7 +161,7 @@ template <typename TagFn>
 BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaster& src,
                                         double maxK, const SupersampleConfig& ss,
                                         TagFn&& tagFor, int rowStart, int rowEnd,
-                                        TileBins& outBins) {
+                                        int rowStep, TileBins& outBins) {
     BinStats stats;
 
     // WU-16b (ADR-041): the loop bound is the caller's own row band
@@ -176,7 +176,16 @@ BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaste
     // controllable things here, not the same field, unlike the naive
     // "call generateFragments() once per band against a shortened
     // SourceRaster::height" alternative ADR-040 already ruled out.
-    for (int py = rowStart; py < rowEnd; ++py) {
+    //
+    // WU-23a2a (ADR-076): rowStep generalises the same independence one
+    // step further, from "which contiguous band of rows" to "which rows at
+    // all". generateFragmentsRowRange()/generateFragmentsRowRangeTagByFacing()
+    // below both pass 1 (every row in [rowStart, rowEnd), unchanged
+    // behaviour); generateFragmentsFieldRows() (core/binner.hpp) passes 2,
+    // visiting only one field's own parity rows while rowEnd stays
+    // src.height and every u/v calculation below stays completely unaware
+    // that any row was ever skipped.
+    for (int py = rowStart; py < rowEnd; py += rowStep) {
         for (int px = 0; px < src.width; ++px) {
             const double u0 = pixelToLattice(double(px), src.width);
             const double v0 = pixelToLattice(double(py), src.height);
@@ -293,7 +302,7 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [tag](const Jacobian&) noexcept { return tag; },
-        rowStart, rowEnd, outBins);
+        rowStart, rowEnd, /*rowStep=*/1, outBins);
 }
 
 // WU-16b: a thin wrapper — the whole raster is exactly the row range
@@ -318,7 +327,7 @@ BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const Sour
             // ADR-027/ADR-063: front-facing means normal.z < 0.
             return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
         },
-        rowStart, rowEnd, outBins);
+        rowStart, rowEnd, /*rowStep=*/1, outBins);
 }
 
 // WU-28c: a thin wrapper, exactly generateFragments()'s own relationship to
@@ -329,6 +338,20 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
                                        TileBins& outBins) {
     return generateFragmentsRowRangeTagByFacing(lattice, src, maxK, ss, frontTag, backTag,
                                                  0, src.height, outBins);
+}
+
+// WU-23a2a (DECISIONS.md ADR-076): see core/binner.hpp's own comment.
+// rowOffset seeds rowStart directly; rowEnd stays src.height (the whole
+// frame, never rowOffset + something field-sized) and rowStep is 2 -- the
+// one call site in this file where rowStep is not 1.
+BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& src,
+                                     double maxK, const SupersampleConfig& ss,
+                                     std::uint8_t tag, int rowOffset,
+                                     TileBins& outBins) {
+    return generateFragmentsRowRangeImpl(
+        lattice, src, maxK, ss,
+        [tag](const Jacobian&) noexcept { return tag; },
+        rowOffset, src.height, /*rowStep=*/2, outBins);
 }
 
 }  // namespace scatter

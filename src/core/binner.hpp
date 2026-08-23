@@ -223,4 +223,41 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
                                        std::uint8_t frontTag, std::uint8_t backTag,
                                        TileBins& outBins);
 
+// WU-23a2a (DECISIONS.md ADR-076): field-parity row visitation, the
+// lattice-aware half of field mode (video/interlace.hpp's own file comment;
+// DECISIONS.md ADR-075's v-parameter finding). New, additive sibling entry
+// point alongside generateFragmentsRowRange() above -- that function's own
+// signature and behaviour are unchanged, the same "new sibling entry point,
+// not a changed one" pattern WU-16b/WU-28c already established for this
+// file.
+//
+// Generates and bins fragments only for src's own rows of one field's
+// parity -- row rowOffset, rowOffset + 2, rowOffset + 4, ... < src.height
+// (rowOffset 0 selects an interlaced frame's Top field rows, 1 selects
+// Bottom -- video/interlace.hpp's own FieldParity row convention, taken
+// here as a plain int rather than that enum: core/binner.hpp has never
+// depended on video/, and this one caller-visible int keeps that true. A
+// caller holding a FieldParity converts it at the call site --
+// core/pipeline.cpp's field-mode driver, WU-23a2b, is the one place that
+// needs both types in scope) -- while every u/v lattice-parameter
+// calculation stays keyed to src.width/src.height in full, exactly
+// generateFragmentsRowRange()'s own discipline (ADR-041), extended here
+// from a contiguous row range to a strided one. This is the fix ADR-075
+// named and left for this unit: a field-native SourceRaster half the
+// frame's own height would renormalise the v-parameter across only that
+// field's own extent, erasing the half-line vertical phase between the two
+// fields that makes interlace look like interlace; visiting the *full*
+// frame's own rows at stride 2 instead keeps src.height (and therefore the
+// v-parameter's denominator) exactly what generateFragments() would use for
+// a whole-frame call.
+//
+// rowOffset must be 0 or 1 (unchecked -- the same convention every other
+// row/tile index in this codebase already uses, e.g. Lattice::at()); every
+// other parameter has the same meaning as generateFragmentsRowRange()'s
+// own.
+BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& src,
+                                     double maxK, const SupersampleConfig& ss,
+                                     std::uint8_t tag, int rowOffset,
+                                     TileBins& outBins);
+
 }  // namespace scatter

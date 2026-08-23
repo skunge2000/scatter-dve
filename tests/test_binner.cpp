@@ -31,13 +31,43 @@
 // convention() already hand-derive and check the *sign* of -- this test
 // checks the *tag* generateFragmentsTagByFacing() assigns at those same two
 // points instead.
+//
+// WU-23a2a (DECISIONS.md ADR-076) adds two more, for
+// generateFragmentsFieldRows():
+//
+// 1. Equivalence to an independent ground truth: calling
+//    generateFragmentsRowRange() once per row of one field's own parity
+//    (each call covering exactly that one row, [py, py+1)) and accumulating
+//    the results into one TileBins must produce output byte-for-byte
+//    identical, tile by tile, fragment by fragment, in the same order, to
+//    one generateFragmentsFieldRows() call covering the same field -- the
+//    same "row-range/whole-raster equivalence" principle WU-16b/ADR-041
+//    already established, extended from a contiguous range to a strided
+//    one, and checked against generateFragmentsRowRange() specifically
+//    because that entry point's own row-range/whole-raster equivalence is
+//    already an accepted, tested fact, not something this test re-derives.
+// 2. The actual bug DECISIONS.md ADR-075 found, demonstrated directly: the
+//    naive alternative (extractField() a half-height field raster, then run
+//    ordinary generateFragments() on it) computes a source pixel's v with
+//    the wrong denominator (video/interlace.hpp, WU-23a -- reused here
+//    purely as a comparison baseline; this unit does not modify that file).
+//    Top field's own row 0 is frame row 0, so the naive approach happens to
+//    get it right by coincidence (see the test below for why); Bottom
+//    field's own row 0 is frame row 1, and the naive approach collapses it
+//    back to the same v row 0 would give, erasing the half-line offset that
+//    is the entire point of field mode. This test proves
+//    generateFragmentsFieldRows() does not reproduce that bug where the
+//    naive approach does.
 
 #include "core/binner.hpp"
 #include "core/shapes/shapes.hpp"
 #include "harness.hpp"
+#include "video/interlace.hpp"
+#include "video/raster.hpp"
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <set>
 #include <utility>
 #include <vector>
@@ -117,6 +147,40 @@ struct SignatureRaster {
 
 std::pair<int, int> decode(const Frag& f) noexcept {
     return {int(f.Y), int(f.Cb)};
+}
+
+// Frag is trivially copyable, standard layout (core/types.hpp's own
+// static_asserts) -- a plain memcmp is exactly "identical destination
+// position, identical colour, identical everything", the same bit-exact
+// comparison DECISIONS.md ADR-036's own checksum instrumentation used for a
+// stronger claim than any field-by-field comparison could make cheaply.
+bool sameFrag(const Frag& a, const Frag& b) noexcept {
+    return std::memcmp(&a, &b, sizeof(Frag)) == 0;
+}
+
+// Destination position alone (tile-local SubPos x/y) -- deliberately not
+// colour: WU-23a2a's own naive-extraction test below compares fragments
+// whose source content genuinely differs (a field raster's own row 0 can
+// hold a different frame row's colour than another field's row 0 does) but
+// whose *destination* is the claim under test.
+bool samePosition(const Frag& a, const Frag& b) noexcept {
+    return a.x == b.x && a.y == b.y;
+}
+
+// Every fragment whose colour signature decodes to (px, srcRow), across
+// every tile in `bins`. WU-23a2a's own tests below use this to locate one
+// specific source sample's own fragment(s) in a TileBins built one of
+// several different ways, for direct comparison.
+std::vector<Frag> findFrags(const TileBins& bins, int px, int srcRow) {
+    std::vector<Frag> found;
+    for (int ty = 0; ty < bins.tilesY(); ++ty) {
+        for (int tx = 0; tx < bins.tilesX(); ++tx) {
+            for (const Frag& f : bins.tile(tx, ty)) {
+                if (decode(f) == std::pair{px, srcRow}) found.push_back(f);
+            }
+        }
+    }
+    return found;
 }
 
 }  // namespace
@@ -418,11 +482,191 @@ static void test_self_fold_front_and_back_get_different_tags() {
     CHECK(rowRangeStats.droppedOffRaster == stats.droppedOffRaster);
 }
 
+// --- WU-23a2a: field-row visitation matches row-range ground truth ------
+
+static void test_field_rows_match_row_range_ground_truth() {
+    // Same compressive affine map and geometry as the very first test in
+    // this file (2x compression each axis, well under the 2x2 threshold) --
+    // this test's own point is checking rowStep's own plumbing, not
+    // re-deriving generateFragmentsRowRange()'s own correctness (already
+    // covered by WU-08/WU-16b's own tests above).
+    const int W = 20, H = 15;
+    SignatureRaster src(W, H);
+    Lattice lat = makePixelAffineLattice(0.5, 0.5, 5.0, 5.0, W, H);
+    SupersampleConfig ss;
+
+    for (int rowOffset = 0; rowOffset <= 1; ++rowOffset) {
+        TileBins fieldBins(64, 64);
+        const BinStats fieldStats = generateFragmentsFieldRows(
+            lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, rowOffset, fieldBins);
+
+        // Ground truth: one generateFragmentsRowRange() call per row of
+        // this field's own parity, each covering exactly [py, py + 1),
+        // accumulated into one TileBins in the same ascending row order
+        // generateFragmentsFieldRows() itself visits them in -- so if both
+        // code paths are correct, not merely consistent with each other,
+        // the two TileBins come out byte-for-byte identical, not just
+        // equal as multisets.
+        TileBins refBins(64, 64);
+        BinStats refStats;
+        for (int py = rowOffset; py < H; py += 2) {
+            const BinStats rowStats = generateFragmentsRowRange(
+                lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, py, py + 1, refBins);
+            refStats.sourceSamples += rowStats.sourceSamples;
+            refStats.primaryFragments += rowStats.primaryFragments;
+            refStats.replicaFragments += rowStats.replicaFragments;
+            refStats.droppedOffRaster += rowStats.droppedOffRaster;
+        }
+
+        CHECK(fieldStats.sourceSamples == refStats.sourceSamples);
+        CHECK(fieldStats.primaryFragments == refStats.primaryFragments);
+        CHECK(fieldStats.replicaFragments == refStats.replicaFragments);
+        CHECK(fieldStats.droppedOffRaster == refStats.droppedOffRaster);
+
+        CHECK(fieldBins.tilesX() == refBins.tilesX() && fieldBins.tilesY() == refBins.tilesY());
+        for (int ty = 0; ty < fieldBins.tilesY(); ++ty) {
+            for (int tx = 0; tx < fieldBins.tilesX(); ++tx) {
+                const std::vector<Frag>& got = fieldBins.tile(tx, ty);
+                const std::vector<Frag>& want = refBins.tile(tx, ty);
+                CHECK_ONCE(got.size() == want.size());
+                if (got.size() == want.size()) {
+                    for (std::size_t i = 0; i < got.size(); ++i) {
+                        CHECK_ONCE(sameFrag(got[i], want[i]));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- WU-23a2a: the naive per-field extraction bug, demonstrated ---------
+
+static void test_field_rows_reject_naive_half_height_extraction_bug() {
+    // W - 1 == 8 and H - 1 == 16 both divide kLatticeMax (128) exactly, the
+    // same bit-exactness reason every other test in this file picks its own
+    // geometry -- this test compares two computed destinations for exact
+    // equality or exact inequality, never against a hand-derived numeric
+    // value, but bit-exactness still matters so floating-point noise near a
+    // tile or pixel boundary cannot masquerade as either outcome.
+    const int W = 9, H = 17;
+    Lattice lat = makePixelAffineLattice(1.0, 1.0, 0.0, 0.0, W, H);
+    SupersampleConfig ss;
+    // Forced to 1: pixelJacobian() (core/binner.cpp) scales by src.height
+    // too, not only pixelToLattice() -- so the naive extraction's own wrong
+    // src.height also perturbs chooseSupersample()'s det J and would
+    // otherwise trigger a *different* N than the honest fix gets for the
+    // very same source pixel, a real but separate consequence of ADR-024's
+    // own design (K/supersampling depend on src.height by construction,
+    // documented there) that would otherwise blur this test's own point --
+    // the erased v-parameter phase, not the (already-understood) K
+    // sensitivity to src.height.
+    ss.maxSupersample = 1;
+    constexpr std::uint8_t tag = 0;
+    const int px = 4;  // an interior column, away from any tile edge
+
+    // A full interlaced frame, video::Raster444, with the same (Y = px,
+    // Cb = py, Cr = 0) signature SignatureRaster uses above -- built
+    // directly rather than through SignatureRaster, since extractField()
+    // (video/interlace.hpp, WU-23a, unmodified by this unit) operates on
+    // Raster444, not on SourceRaster's raw pointers.
+    video::Raster444 frame(W, H);
+    for (int py = 0; py < H; ++py) {
+        for (int x = 0; x < W; ++x) {
+            const std::size_t i = std::size_t(py) * std::size_t(W) + std::size_t(x);
+            frame.Y[i] = Sample(x);
+            frame.Cb[i] = Sample(py);
+            frame.Cr[i] = 0;
+        }
+    }
+
+    auto toSourceRaster = [](const video::Raster444& r) noexcept {
+        SourceRaster s;
+        s.width = r.width;
+        s.height = r.height;
+        s.y = r.Y.data();
+        s.cb = r.Cb.data();
+        s.cr = r.Cr.data();
+        return s;
+    };
+
+    // Honest fix: generateFragmentsFieldRows() on the full frame.
+    TileBins topHonestBins(64, 64), bottomHonestBins(64, 64);
+    generateFragmentsFieldRows(lat, toSourceRaster(frame), /*maxK=*/1000.0, ss, tag,
+                                /*rowOffset=*/0, topHonestBins);
+    generateFragmentsFieldRows(lat, toSourceRaster(frame), /*maxK=*/1000.0, ss, tag,
+                                /*rowOffset=*/1, bottomHonestBins);
+
+    // Naive: extractField() a half-height field raster, then run ordinary
+    // generateFragments() against it -- the exact "first-cut plan"
+    // DECISIONS.md ADR-075 found wrong.
+    video::Raster444 topField(W, video::fieldRowCount(H, video::FieldParity::Top));
+    video::Raster444 bottomField(W, video::fieldRowCount(H, video::FieldParity::Bottom));
+    video::extractField(frame, video::FieldParity::Top, topField);
+    video::extractField(frame, video::FieldParity::Bottom, bottomField);
+
+    TileBins topNaiveBins(64, 64), bottomNaiveBins(64, 64);
+    generateFragments(lat, toSourceRaster(topField), /*maxK=*/1000.0, ss, tag, topNaiveBins);
+    generateFragments(lat, toSourceRaster(bottomField), /*maxK=*/1000.0, ss, tag, bottomNaiveBins);
+
+    // Top field's own row 0 is frame row 0: pixelToLattice(0, anything) is
+    // 0 regardless of which (right or wrong) denominator is used, so the
+    // naive extraction happens to land this one field's own row 0 at the
+    // same destination by coincidence -- worth checking directly, not
+    // assumed, since it is exactly the kind of accidental agreement that
+    // could otherwise hide the real bug below. Position only, not the whole
+    // Frag: pixelJacobian()'s own K/weight computation still depends on
+    // src.height independently of pixelToLattice() (see ss.maxSupersample
+    // above), so frag.w legitimately differs between the two even at this
+    // matching position -- that is ADR-024's own documented src.height
+    // sensitivity, not this test's own concern.
+    const std::vector<Frag> topHonest = findFrags(topHonestBins, px, /*srcRow=*/0);
+    const std::vector<Frag> topNaive = findFrags(topNaiveBins, px, /*srcRow=*/0);
+    CHECK(topHonest.size() == 1);
+    CHECK(topNaive.size() == 1);
+    if (topHonest.size() == 1 && topNaive.size() == 1) {
+        CHECK(samePosition(topHonest[0], topNaive[0]));
+    }
+
+    // Bottom field's own row 0 is frame row 1, not row 0. The honest fix
+    // (full frame height kept as the v-parameter's own denominator) places
+    // it one pixel below frame row 0's own destination -- offX == offY ==
+    // 0, scaleX == scaleY == 1.0 above make this an exact pixel-space
+    // identity map (see makePixelAffineLattice's own comment), so this is
+    // the correct half-line phase between the two fields, not an
+    // approximation.
+    const std::vector<Frag> bottomHonest = findFrags(bottomHonestBins, px, /*srcRow=*/1);
+    CHECK(bottomHonest.size() == 1);
+    if (bottomHonest.size() == 1 && topHonest.size() == 1) {
+        CHECK(!samePosition(bottomHonest[0], topHonest[0]));
+    }
+
+    // The naive extraction's own half-height denominator instead maps
+    // Bottom's own row 0 back to v == 0, exactly the same v Top's own row 0
+    // gets -- both fields' fragments for "their own row 0" land at the
+    // identical destination position under the naive approach, erasing the
+    // half-line phase ADR-075 names directly.
+    const std::vector<Frag> bottomNaive = findFrags(bottomNaiveBins, px, /*srcRow=*/1);
+    CHECK(bottomNaive.size() == 1);
+    if (bottomNaive.size() == 1 && topNaive.size() == 1) {
+        CHECK(samePosition(bottomNaive[0], topNaive[0]));
+    }
+
+    // Put the two together: generateFragmentsFieldRows() does NOT reproduce
+    // the naive extraction's own bug for the Bottom field, where a
+    // hypothetical implementation built the wrong way (extract-then-
+    // generateFragments) would.
+    if (bottomHonest.size() == 1 && bottomNaive.size() == 1) {
+        CHECK(!samePosition(bottomHonest[0], bottomNaive[0]));
+    }
+}
+
 int main() {
     test_fragment_count_matches_source_samples_under_compression();
     test_boundary_straddling_replicates_into_right_neighbours();
     test_supersampling_thresholds_and_cap();
     test_off_raster_samples_are_dropped();
     test_self_fold_front_and_back_get_different_tags();
+    test_field_rows_match_row_range_ground_truth();
+    test_field_rows_reject_naive_half_height_extraction_bug();
     return scatter::test::summary("test_binner");
 }

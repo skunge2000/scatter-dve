@@ -7291,3 +7291,128 @@ ADR — `core/binner.hpp`/`.cpp`, `core/resolve.hpp` and `core/pipeline.cpp`
 are untouched by this unit; the v-parameter finding above is new-ground
 design work for a feature that has never been scoped before, not a
 correction to anything already built.
+
+**ADR-076 — WU-23a2 scoping and WU-23a2a build: field-parity row
+visitation in `core/binner.hpp`/`.cpp`; splits into WU-23a2a/WU-23a2b;
+the `extractField()`-usage question settled from the real code.**
+
+This session opened with a continuation prompt (its own scoping session
+still pending) that posed one open question directly: does the honest
+fix for field mode's own v-parameter finding (ADR-075) need
+`extractField()` (WU-23a) at all, or can it operate on the full
+interlaced frame directly? Read `core/binner.cpp`'s
+`generateFragmentsRowRangeImpl()` before answering, not assumed from the
+prompt's own hedge.
+
+**Answer, on the input side: `extractField()` is not needed.**
+`generateFragmentsRowRangeImpl()` already visits a caller-chosen
+`[rowStart, rowEnd)` while keeping every u/v calculation keyed to
+`src.width`/`src.height` in full (WU-16b, ADR-041) — exactly the
+mechanism WU-23a2 needs, generalised from a contiguous range to a
+strided one. The honest fix strides the *full* `SourceRaster` directly
+(offset 0 or 1, step 2), never pre-extracting a field-sized raster.
+
+**Answer, on the output side: both `extractField()` and
+`interleaveFields()` are needed, correcting the continuation prompt's
+own imprecise phrasing.** The prompt suggested `interleaveFields()`
+alone might do "even/odd row selection" out of two full-resolution
+per-field warp outputs. Read against `interleaveFields()`'s own
+precondition (`video/interlace.hpp`: `dest.height == topField.height +
+bottomField.height`), that is not what it does — it requires two
+*already field-sized* rasters and only interleaves them. Since a general
+warp can scatter a field's own samples to any destination row, each
+per-field run genuinely does produce a full-resolution `Raster444`. The
+correct output-side sequence is therefore: run the field-aware
+binner/splat/resolve once per parity into a full-resolution raster,
+`extractField()` each one down to its own parity rows, then
+`interleaveFields()` to recombine — not decided or built this session
+(WU-23a2b, below), but scoped precisely enough now to size it.
+
+**The new `core/binner.hpp`/`.cpp` sibling entry point:**
+`generateFragmentsFieldRows()`. `generateFragmentsRowRangeImpl()`
+(private, anonymous-namespace, not itself a frozen public entry point —
+SESSION-PROTOCOL.md rule 2 governs existing *headers'* contracts, not an
+internal helper's own signature) gains a `rowStep` parameter;
+`generateFragmentsRowRange()`/`generateFragmentsRowRangeTagByFacing()`
+both pass 1 explicitly, unchanged behaviour, byte for byte;
+`generateFragmentsFieldRows()` passes `rowOffset` as `rowStart`,
+`src.height` as `rowEnd` (never a field-shortened height), and 2 as
+`rowStep`. `rowOffset` is a plain `int` (0 or 1), not
+`video::FieldParity`: `core/binner.hpp` has never depended on `video/`
+(it takes raw `Sample*` pointers, not `Raster444`), and this keeps that
+true — the future WU-23a2b driver (`core/pipeline.cpp`, which already
+depends on both) converts `FieldParity` to `rowOffset` at the one call
+site that needs both types in scope.
+
+**Unit split, the same medicine that already split WU-23a from
+WU-23a2.** The binner sibling (`core/binner.hpp`, `core/binner.cpp`, 2
+files) plus the driver (per the file-comment precedent this project
+already uses for new orchestration entry points — declared in
+`core/resolve.hpp`, implemented in `core/pipeline.cpp`, 2 more files —
+see that header's own comment on why `runFrame()`/`runFrameFile()` live
+there and not in a `pipeline.hpp` of their own) together touch 4 source
+files, one over `SESSION-PROTOCOL.md`'s 3-file cap for a single unit.
+Split into **WU-23a2a** (binner sibling alone, this session's own build)
+and **WU-23a2b** (the driver: wiring `generateFragmentsFieldRows()` and
+`video/interlace.hpp`'s `extractField()`/`interleaveFields()` into an
+actual `runFrame()`-level field-mode entry point, not started). Confirmed
+with Steve directly before any code was written, along with the
+`rowOffset`-not-`FieldParity` choice above and building WU-23a2a alone
+this session — all three the recommended option in each case.
+
+**WU-23a2a build, tested two ways, both direct rather than only
+inferred:** (1) equivalence to an independent ground truth — one
+`generateFragmentsRowRange()` call per row of a field's own parity,
+accumulated into one `TileBins`, must equal one
+`generateFragmentsFieldRows()` call byte-for-byte, tile by tile,
+fragment by fragment, in the same order (the row-visitation order is
+identical between the two paths, so this is a stronger claim than
+multiset equality, and it is met); (2) the actual bug, demonstrated
+directly rather than only reasoned about — building a half-height field
+raster via `extractField()` and running ordinary `generateFragments()`
+on it (the naive "first-cut plan" ADR-075 already named and rejected)
+reproduces frame row 0's own destination for *both* fields' own row 0,
+including Bottom's (whose true frame row is 1), where the honest fix
+correctly places them one pixel apart. Top field's own naive extraction
+turns out to coincidentally land at the right *position* for its own row
+0 (`pixelToLattice(0, anything) == 0` regardless of denominator) — but
+not at the right *weight*: `core/binner.cpp`'s `pixelJacobian()` also
+scales by `src.height` independently of `pixelToLattice()`, so the
+naive extraction's wrong `src.height` perturbs `chooseSupersample()`'s
+det J too, a second, separate consequence of ADR-024's own documented
+`src.height` sensitivity that would have blurred this test's own point
+had `SupersampleConfig::maxSupersample` not been forced to 1 to isolate
+it — worth a future WU-23a2b test of its own if the driver's own
+Accept: criterion does not already cover it end to end.
+
+**Files:** `core/binner.hpp`, `core/binner.cpp` (new
+`generateFragmentsFieldRows()`; `rowStep` added to the shared internal
+`generateFragmentsRowRangeImpl()`, all three existing call sites updated
+to pass it explicitly); `tests/test_binner.cpp` (two new test functions,
+`findFrags()`/`sameFrag()`/`samePosition()` helpers). No `CMakeLists.txt`
+change needed — `test_binner` is already registered and already links
+`scatter-core`.
+
+**Accept:** both tests above; see `WORK-UNITS.md`'s own WU-23a2a entry.
+
+**Status:** built and tested in this session's own Linux cloud sandbox
+(Ubuntu 24.04, a fresh clone of `origin/main` at `wu-23a-green`/`46e9240`,
+confirmed clean before any file was touched). Full 8-configuration matrix
+(GCC 13.3.0 / Clang 18.1.3, Release/Debug, `SCATTER_TILE_LOG2` 4/5) all
+green, zero warnings under this project's full `-Wall -Wextra -Wpedantic
+-Wconversion -Wsign-conversion -Werror` set, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes, clean. No AArch64 cross-compile — this unit touches no
+platform-specific surface, the same scope WU-16a/WU-19a/WU-26/WU-28c's
+own portable-only units already used. `ctest`: 24 of 24 (unchanged
+count — `test_binner` is extended, not new). `test_binner` alone: 38 727
+checks passing (up from `test_binner`'s own prior count before this
+session). Steve's own real-terminal build/`ctest` and manual tag/push are
+the remaining steps — see `HANDOFF.md`, and see "Do not use
+`tools/close.sh`" there and in `CORRECTIONS.md` C-024 for why this is a
+manual tag, not `./tools/close.sh 23a2a`.
+
+Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
+ADR, including ADR-075 itself — this entry settles the question ADR-075
+explicitly left open, it does not revise anything ADR-075 already
+decided.
