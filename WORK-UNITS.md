@@ -564,7 +564,7 @@ a real failure, by design, ADR-035); Steve tagged `wu-16a-green` by hand,
 the same way he did for `wu-15a-green`.
 
 ### WU-16b — Thread pool: PASS 1 row-band parallelism, per-worker
-generation-time bin arenas `wip`
+generation-time bin arenas `green` (`wu-16b-green`)
 See `DECISIONS.md` ADR-041 for the full design. Completes architecture.md
 section 6's full two-pass design that ADR-040 (WU-16a) deliberately
 scoped down to PASS 2 alone.
@@ -605,11 +605,18 @@ both across the full suite and standalone against
 `test_threading`/`test_row_band`) — checked with particular care since
 this unit adds the project's first concurrent code inside PASS 1.
 Unlike WU-16a, this unit adds no new Apple-only surface — `setWorkerQoS()`
-is untouched — but per this project's own convention the assistant does
-not run `close.sh`; the full suite and `./tools/close.sh 16b` still need
-a real-terminal run before this can be tagged `wu-16b-green`.
+is untouched.
 
-### WU-17 — NEON v210 unpack and pack `green` (`wu-17-green`, pending Steve's manual tag)
+**Status-line correction, WU-36 (this sweep):** this header was still
+`wip`, saying a real-terminal run was still needed. `git tag` and `git log`
+against the real repository confirm `wu-16b-green` exists, on commit
+`5562cb9` ("WU-16b: record real-terminal confirmation (`test_decklink_
+device` failure is ADR-035's known exception, not a regression)") — the
+real-terminal confirmation this entry was waiting on already happened and
+was simply never reflected in this line's own status word. Not touching
+any of this unit's own source files.
+
+### WU-17 — NEON v210 unpack and pack `green` (`wu-17-green`)
 See `DECISIONS.md` ADR-042 for the full design and for this session's own
 scoping work (this line was as bare going in as WU-16's own line was
 before ADR-040 split it): the sandbox's own real cross-compile-and-run
@@ -670,7 +677,15 @@ done and verified per this entry's own text above (full suite green at
 Steve's own real terminal, `test_v210_neon` passing) — only the tag itself is
 missing. Not touching any source file; see `HANDOFF.md` for the exact
 command to close this out for real.
-### WU-18 — NEON chroma resampling `green` (`wu-18-green`, pending Steve's manual tag)
+
+**Further correction, WU-36 (this sweep):** `wu-17-green` now exists —
+confirmed via `git tag`/`git log` against the real repository, on commit
+`bba3634` ("WU-21d: cold-start black fill for `LiveFramePlayback`'s own
+pool") — landed later than this unit's own work, the same "tag lands on
+whatever `HEAD` is at close time" pattern WU-28b's own entry already
+documents. Header updated above from "pending Steve's manual tag" to plain
+`green`. Not touching any source file.
+### WU-18 — NEON chroma resampling `green` (`wu-18-green`)
 See `DECISIONS.md` ADR-043 for the full design and for this session's own
 scoping work (this line was barer going in than WU-17's own line was
 before ADR-042 — WU-17 at least already had "bit-identical to scalar
@@ -734,9 +749,15 @@ DeckLink-side mechanics this unit doesn't touch are still fine.
 cannot distinguish an accepted exception from a real failure, by design);
 Steve was given the `git tag -a wu-18-green ...` command to run by hand,
 the same way he did for
-`wu-15a-green`/`wu-16a-green`/`wu-16b-green`/`wu-17-green` — not yet
-confirmed run as of this handoff, see "Next work unit" below. Once tagged,
-**Phase 4 (Threading and NEON) is done in full** — thread pool/QoS/
+`wu-15a-green`/`wu-16a-green`/`wu-16b-green`/`wu-17-green`.
+
+**Status-line correction, WU-36 (this sweep):** `git tag` against the real
+repository confirms `wu-18-green` exists (commit `4ea23b8`, "WU-18: NEON
+chroma resampling, verified via aarch64 cross-compile + qemu in the cloud
+sandbox"). Header updated above from "pending Steve's manual tag" to plain
+`green`. Not touching any source file.
+
+Once tagged, **Phase 4 (Threading and NEON) is done in full** — thread pool/QoS/
 per-worker bin arenas (WU-16a/16b) and both NEON units (WU-17 v210, WU-18
 chroma) all green; WU-19 ("Real time at 576i25") is next and is the
 phase's only remaining unit, the first whose own job is throughput rather
@@ -745,7 +766,7 @@ full" was premature, not wrong — WU-19 had not yet been scoped, and real
 scoping the next session found it split into WU-19a/19b, below; Phase 4
 did not actually finish until both closed out. Same doc-sync slip WU-03's
 own status had at WU-04, corrected in place rather than erased.)
-### WU-19a — Persistent, caller-owned ThreadPool `wip`
+### WU-19a — Persistent, caller-owned ThreadPool `green` (`wu-19a-green`)
 See `DECISIONS.md` ADR-044 for the full design and for why this splits from
 the single bare WU-19 line above (this session's own first job, per Steve's
 own brief: real scoping before any code — architecture.md 10's own Phase 4
@@ -790,9 +811,15 @@ project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
 particular care, since this is the first unit to let a `ThreadPool` outlive
 a single `runFrame()` call). This unit touches no Apple-only surface at all
 — unlike WU-14/WU-15a/WU-17/WU-18, there is no piece of it this sandbox
-could not already fully verify. Still needs Steve's own real-terminal
-`cmake --build` + `ctest` + `./tools/close.sh 19a` run before this line can
-go `green`, the same procedural reason every other unit's line has had.
+could not already fully verify.
+
+**Status-line correction, WU-36 (this sweep):** this line still said
+real-terminal confirmation was pending. `git tag` against the real
+repository confirms `wu-19a-green` exists (commit `4886f81`, "WU-19a:
+persistent, caller-owned ThreadPool (ADR-044), verified in the cloud
+sandbox") — that confirmation already happened and was never reflected in
+this line's own status word. Header updated above from `wip` to `green`.
+Not touching any source file.
 
 ### WU-19b — Real-time measurement at 576i25 on the M1 Max `green`
 The literal, still-unmet half of architecture.md 10's own Phase 4 accept
@@ -1204,7 +1231,7 @@ and a previously unanticipated cold-start green-frame finding (named, not
 fixed). Confirmed `green` in substance; the `wu-21c-green` git tag itself is
 Steve's own next action at his own real terminal.
 
-### WU-21d — Cold-start black fill for `LiveFramePlayback`'s own pool `wip`
+### WU-21d — Cold-start black fill for `LiveFramePlayback`'s own pool `green` (`wu-21d-green`)
 See `DECISIONS.md` ADR-064 for the full design and for this session's own
 scoping work: the "confirmed DeckLink-linked before assuming either way"
 check (`CMakeLists.txt`'s own `scatter-decklink` target, `if(APPLE AND
@@ -1264,8 +1291,16 @@ DeckLink-linked half (`decklink_live_output.cpp`) is reasoned-through-only,
 written via the device bridge and re-read back to confirm the write landed
 — confirmed via this session's own cloud-sandbox `cmake -B build` output
 that it is not compiled there at all (no Blackmagic SDK, no AppleClang/
-Xcode toolchain), so it is genuinely untested until Steve's own real-
-terminal build/`ctest`/by-eye confirmation. See `HANDOFF.md`.
+Xcode toolchain), so the DeckLink-linked half was genuinely untested by
+this session.
+
+**Status-line correction, WU-36 (this sweep):** `git tag`/`git log` against
+the real repository confirm `wu-21d-green` exists, on commit `bba3634`
+("WU-21d: cold-start black fill for `LiveFramePlayback`'s own pool") —
+Steve's own real-terminal build/`ctest`/by-eye confirmation this entry was
+waiting on already happened and was never reflected in this line's own
+status word. Header updated above from `wip` to `green`. Not touching any
+source file.
 
 ### WU-21e — First live-warped-video demo: a real sphere lattice
 (`core/shapes/sphere.cpp`, WU-11/ADR-027) through the live pipeline WU-21c
@@ -1698,7 +1733,7 @@ needs turn out to be by then, same discipline as every other unit.
 
 ## Phase 7 — Starlight
 
-### WU-26 — Normals from lattice `wip`
+### WU-26 — Normals from lattice `green` (`wu-26-green`)
 Built and cloud-sandbox-tested this session (Session 37); not yet Steve's
 own real-terminal `green` — see *Status* below. See `DECISIONS.md` ADR-063
 for the full design and derivation. Hard
@@ -1743,13 +1778,21 @@ dz/du, dz/dv. Against a real `buildSphereLattice()` lattice with
 `normal.z < 0`; at the antipodal (self-folded) control vertex, `normal.z >=
 0`.
 
-*Status:* `wip` — green in the cloud sandbox this session (Session 37) —
+*Status:* `green` (`wu-26-green`) — green in the cloud sandbox Session 37 —
 fresh clone of `origin/main` confirmed at `wu-28b-green`/`5ba60b3` before any
 file was touched; `cmake --build build` clean; full portable `ctest` suite
 22/22
-passing, no regressions; `test_jacobian` itself 551 checks passing. Not yet
-Steve's own real-terminal `build`/`ctest`/`close.sh 26`/tag/push — see
-`HANDOFF.md`.
+passing, no regressions; `test_jacobian` itself 551 checks passing.
+
+**Status-line correction, WU-36 (this sweep):** this line still said
+`wip`, awaiting real-terminal confirmation. `git tag`/`git log` against the
+real repository confirm `wu-26-green` exists on commit `4381823` ("WU-26:
+normals from lattice (ADR-063); C-021 tag-before-commit correction") — the
+same commit `CORRECTIONS.md` C-021 already documents as the *corrected*
+tag target (the original tag-before-commit mistake was fixed same
+session). Session 41's own handoff already fixed a stale parenthetical
+elsewhere in this entry but did not update this header word; done here.
+Not touching any source file.
 
 **Note (WU-32, documentation-only, `docs/sources/WU-SM-02.md` §6):** the
 `∂z` this unit adds to `Jacobian` gates three separate downstream
