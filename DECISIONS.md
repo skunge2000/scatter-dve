@@ -7192,3 +7192,102 @@ WU-28b/WU-28c/WU-28d's status. Does not implement the arbitration stage —
 that remains explicitly out of scope for this documentation-only unit, per
 the continuation prompt's own instruction not to build past this open
 question.
+
+---
+
+**ADR-075 — WU-23 scoping: interlace splits into three units
+(WU-23a/WU-23a2/WU-23b); field mode's own load-bearing v-parameter
+finding.** Opened by reading `docs/architecture.md` section 5's own
+"Interlace" note (de-interlace to frames for warping, re-interlace on
+output; a field mode that warps each field independently instead, "what
+Mirage actually did") and section 10's Phase 6 "done when" line — which,
+read directly rather than assumed, turns out not to mention interlace at
+all; it names only 1080p50/tile-size/supersampling. Interlace is grouped
+under the Phase 6 heading in `WORK-UNITS.md` by backlog convenience, not by
+architecture — flagged for whoever eventually writes Phase 6's own closing
+note, not fixed here. Then the actual current pipeline
+(`core/pipeline.cpp`/`resolve.hpp`, `core/binner.hpp`/`.cpp`) and `tests/`
+directly, confirming WU-36's own audit finding that no interlace/field
+scaffolding exists anywhere in `src/` or `tests/` — genuinely new ground.
+
+**De-interlace-to-frame and field mode are confirmed genuinely different
+code paths, not two names for one job.** De-interlace-to-frame is a real
+temporal reconstruction filter (Steve's own stated preference: Weston
+3-field, for period accuracy) run once before the existing warp, plus a
+trivial re-interlace decimate after it. Field mode has no reconstruction
+step at all: each field is warped independently at its own native vertical
+sampling, and the two independently-warped results are interleaved back
+together afterward. Following this project's own WU-16a/16b, WU-20a/20b,
+WU-28a/28b precedent for splitting a bare backlog line once real scoping
+finds two genuinely different mechanisms inside it: **WU-23a/WU-23a2** name
+field mode's own two halves; **WU-23b** names de-interlace-to-frame,
+carrying Steve's own preference forward unchanged from the original bare
+WU-23 line.
+
+**Field mode's own v-parameter finding, discovered while building WU-23a,
+not before.** `core/binner.hpp`'s `generateFragmentsRowRange()` already
+documents that "every u/v lattice-parameter calculation stays keyed to
+src.width/src.height in full" — WU-16b's own reason for existing, so a
+caller partitioning rows into bands gets identical fragments to a
+whole-raster call. The scoping session's own first-cut plan (extract each
+field as its own half-height `SourceRaster`, run today's unchanged
+`generateFragments()` on it independently for Top and Bottom) hits this
+exact mechanism from the other side: `pixelToLattice(pixel, dim) = pixel *
+kLatticeMax / (dim - 1)` normalises across *whatever height is passed in*,
+so a field-native raster with `height == frameHeight/2` re-spans the
+*whole* `[0, kLatticeMax]` lattice range using only that field's own rows —
+both fields independently, identically — which erases the half-line
+vertical offset between Top's own row 0 (frame row 0) and Bottom's own row
+0 (frame row 1) that is the entire reason interlace looks like interlace
+rather than two independently-rescaled progressive images. The honest fix
+keeps the v-parameter's denominator at the *full frame* height while a
+field-aware fragment-generation entry point visits only that field's own
+rows (stride 2, offset 0 or 1) — the same "row-loop bound and v-parameter
+denominator are two independently controllable things, not the same field"
+shape ADR-041 already established for WU-16b's row bands, applied here to
+field parity instead of a worker's row band. This needs a new
+`core/binner.hpp`/`.cpp` sibling entry point, which — together with this
+unit's own two new `video/interlace.*` files — would exceed
+`SESSION-PROTOCOL.md`'s 3-source-file cap for one unit. Named, not fixed
+here: **WU-23a2** is that sibling entry point's own future unit; nothing in
+`core/binner.hpp`/`.cpp` is touched by WU-23a below.
+
+**WU-23a build: `video/interlace.hpp`/`.cpp` — field split and interleave,
+the pure data-layout half of field mode, no lattice/warp involvement at
+all.** `FieldParity` (`Top`/`Bottom`); `fieldRowCount(frameHeight, parity)`,
+a `constexpr` sizing helper in the same spirit as `core/binner.hpp`'s own
+`tileCount()`; `extractField()` (frame -> one field's own rows, a pure row
+copy — I2's "everything else passes through untouched" extended to the
+field-split step itself); `interleaveFields()` (two fields -> one frame,
+its own exact inverse). All three planes copied identically, no colour
+change of any kind. `Raster444`'s own tight-packed row-major layout
+(`video/raster.hpp`) is used directly — no new raster type needed.
+
+**Files:** `src/video/interlace.hpp` (new), `src/video/interlace.cpp`
+(new), `tests/test_interlace.cpp` (new), `CMakeLists.txt` (registration:
+`src/video/interlace.cpp` added to `scatter-core`'s source list,
+`scatter_test(test_interlace)` added). +297/-0 across the four files.
+
+**Accept:** see `WORK-UNITS.md`'s own WU-23a entry for the full criterion;
+in short, `extractField()`/`interleaveFields()` round-trip a marked test
+frame bit-exactly (every plane, every row) for even and odd frame heights
+and for this project's own two real geometries, and `fieldRowCount()`
+accounts for every row of a frame exactly once between the two parities —
+checked directly, not only inferred from the round-trip.
+
+**Status:** built and tested in this session's own Linux cloud sandbox.
+Full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3, Release/Debug,
+`SCATTER_TILE_LOG2` 4/5) all green, zero warnings under this project's full
+`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` set, plus
+GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at both
+tile sizes, clean. No AArch64 cross-compile run — this unit touches no
+platform-specific surface, the same scope WU-16a/WU-19a/WU-26/WU-28c's own
+portable-only units already used. `ctest`: 24 of 24 (23 pre-existing,
+unaffected, plus `test_interlace`, 302 checks). Steve's own real-terminal
+build/`ctest`/tag is the remaining step.
+
+Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
+ADR — `core/binner.hpp`/`.cpp`, `core/resolve.hpp` and `core/pipeline.cpp`
+are untouched by this unit; the v-parameter finding above is new-ground
+design work for a feature that has never been scoped before, not a
+correction to anything already built.

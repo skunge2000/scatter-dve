@@ -126,6 +126,7 @@ find_package(Threads REQUIRED)
 add_library(scatter-core STATIC
     src/video/v210.cpp
     src/video/chroma.cpp
+    src/video/interlace.cpp
     src/io/file_source.cpp
     src/io/file_sink.cpp
     src/core/lattice.cpp
@@ -192,6 +193,7 @@ endfunction()
 scatter_test(test_smoke)
 scatter_test(test_v210)
 scatter_test(test_chroma)
+scatter_test(test_interlace)
 scatter_test(test_ramp_roundtrip)
 scatter_test(test_jacobian)
 scatter_test(test_ewa)

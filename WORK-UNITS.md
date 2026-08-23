@@ -1717,15 +1717,93 @@ terminal before this unit can be called `green`.
 
 ## Phase 6 — Scale up
 
-### WU-23 — Interlace and field mode `todo`
-Steve's own stated preference, noted here for whoever scopes this unit, not
-a decision made now: **if deinterlacing is pursued, the route is Weston
-3-field, for period accuracy** — not a simpler bob/weave or line-doubling
-approach. Recorded ahead of this unit's own real scoping session so it isn't
-lost or re-litigated from scratch when WU-23 actually starts; that session's
-own first job is still real `Files:`/`Accept:` scoping against this
-preference and against whatever this project's own interlace/field-mode
-needs turn out to be by then, same discipline as every other unit.
+### WU-23 — Interlace and field mode
+This session (the scoping session this bare line asked for) split it into
+three real units once the actual code paths were read: de-interlace-to-frame
+and field mode are genuinely different mechanisms (`DECISIONS.md` ADR-075),
+and field mode itself split again once building began, when
+`core/binner.hpp`'s own v-parameter denominator turned out to be load-bearing
+for field mode's correctness, not just a `video/`-layer data shuffle. Steve's
+own stated preference — if deinterlacing is pursued, the route is Weston
+3-field, for period accuracy, not a simpler bob/weave or line-doubling
+approach — carries forward unchanged onto WU-23b below.
+
+### WU-23a — Field mode: field split and interleave `green` (`wu-23a-green`, pending Steve's manual tag)
+See `DECISIONS.md` ADR-075 for the full design, including why this is only
+field mode's own data-layout half (`video/interlace.hpp`'s own file comment
+has the complete reasoning) and not yet the lattice/warp-aware half
+(WU-23a2, below) — discovered while building, not before this session, once
+`core/binner.hpp`'s own `generateFragmentsRowRange()` comment ("every u/v
+lattice-parameter calculation stays keyed to src.width/src.height in full")
+made clear that a field-native `SourceRaster` half the frame's own height
+would renormalise the v-parameter across only that field's own extent,
+erasing the half-line vertical phase between the two fields that makes
+interlace look like interlace rather than two independently-scaled
+progressive images.
+
+**Files:** `src/video/interlace.hpp` (new — `FieldParity`, `fieldRowCount()`,
+`extractField()`, `interleaveFields()`), `src/video/interlace.cpp` (new),
+`tests/test_interlace.cpp` (new); `CMakeLists.txt` (registration only —
+`src/video/interlace.cpp` added to `scatter-core`'s unconditional source
+list, `scatter_test(test_interlace)` added alongside the other core-only
+tests — not counted against the 3-source-file cap, the same
+"registration, not implementation" accounting this project's own prior
+units have used). +297/-0 lines across the four files — within
+`SESSION-PROTOCOL.md`'s "3 source files plus its test, ~400 lines" cap (2
+non-test source files, well under 3, leaving headroom WU-23a2 will need).
+
+**Accept:** a synthetic marked frame (every row, every plane, a distinct
+value, so a row landing in the wrong place or one plane's row coming from
+the wrong source row both show up as a mismatch) split into its own Top and
+Bottom fields via `extractField()` reproduces each field's own source rows
+bit-exactly, for both an even and an odd frame height; `interleaveFields()`
+recombines two independently-produced field rasters back into the original
+frame bit-for-bit, every plane, every row, for an even frame height, an odd
+frame height, and this project's own two real geometries (720×576,
+1920×1080); `fieldRowCount()` accounts for every row of a frame exactly
+once between the two parities, no row lost or double-counted, checked
+directly rather than only inferred from the round-trip. Deliberately not
+exercised: any lattice/warp involvement at all — see WU-23a2.
+
+**Status:** built and tested in this session's own Linux cloud sandbox
+(Ubuntu 24.04). No Blackmagic SDK or Apple toolchain needed — this unit
+touches no platform-specific surface at all, unlike WU-17/WU-18's own NEON
+work, so no AArch64 cross-compile was run either, the same "portable-only
+unit, portable-only matrix" scope WU-16a/WU-19a/WU-26/WU-28c already used.
+Full 8-configuration matrix — GCC 13.3.0 and Clang 18.1.3, Release and
+Debug, `SCATTER_TILE_LOG2` 4 and 5 — all green, zero warnings under this
+project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
+-Werror` set, plus GCC 13 with `-fsanitize=address,undefined
+-fno-sanitize-recover=all` at both tile sizes: clean, no sanitizer report.
+`ctest`: 24 of 24 targets passing in every configuration (23 pre-existing,
+unaffected, plus this unit's own new `test_interlace`). `test_interlace`
+alone: 302 checks passing. Steve's own real-terminal build/`ctest` and
+`./tools/close.sh 23a` are the remaining steps — see `HANDOFF.md`.
+
+### WU-23a2 — Field mode: lattice-aware per-field fragment generation `todo`
+Not started. The real warp half of field mode: a new `core/binner.hpp`/`.cpp`
+sibling entry point (the same "new sibling, not a changed one" shape
+WU-16b/WU-28c already established for this file) that generates fragments
+for one field's own rows while keeping the v-parameter's denominator at the
+*full frame* height, not the field's own height — see `DECISIONS.md`
+ADR-075 and `video/interlace.hpp`'s own file comment for the full reasoning
+already worked out this session. Needs its own `Files:`/`Accept:` scoping
+session (this session's own scoping pass stopped at naming the problem, per
+`SESSION-PROTOCOL.md`'s "one session, one work unit" — WU-23a's own build
+already spent this session's file/line budget).
+
+### WU-23b — De-interlace to frame (Weston 3-field), then re-interlace `todo`
+Not started. Steve's own stated preference, unchanged from this unit's
+original bare line: if deinterlacing is pursued, the route is Weston
+3-field, for period accuracy — not a simpler bob/weave or line-doubling
+approach. Gated on working out the real Weston 3-field algorithm first (its
+own research/design step, likely its own ADR, before any `Files:`/`Accept:`
+scoping is possible) — genuinely new ground, not an extension of
+WU-23a/WU-23a2's own field-split machinery, which this unit's own
+re-interlace half reuses only for the trivial decimate-on-output direction
+(`interleaveFields()`'s own inverse is exactly `extractField()`, already
+built).
+
 ### WU-24 — Adaptive supersampling `todo`
 ### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`
 
