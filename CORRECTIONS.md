@@ -720,3 +720,28 @@ recorded fact that the old one should not be cited as settled until D6 is
 done. Whoever picks up WU-34 (or a dedicated performance-re-derivation unit)
 should re-run the budget against I8/ADR-070/ADR-072 before quoting a
 1080p50 conclusion either way.
+
+**C-024 — this session's own WU-23a close-out instructions told Steve to
+run `tools/close.sh`, expecting the ADR-035 duplex-check exception
+"should not come up" because the unit itself has no DeckLink-linked test.**
+*Claimed:* `HANDOFF.md`'s original Session-43 "Steve's own next steps"
+said to run `./tools/close.sh 23a` and that the already-accepted
+`test_decklink_device`/ADR-035 duplex exception "should not come up" for
+this unit, since `test_interlace` itself has no DeckLink dependency.
+*Correct:* `ctest --test-dir build` runs every registered test whenever
+the DeckLink SDK is configured, not only the unit's own new test —
+`test_decklink_device`'s `test_at_least_one_device_is_full_duplex` check
+runs on every close-out regardless of which unit is being closed, and per
+ADR-034/ADR-035 it now fails structurally, not just temporarily: the going-
+forward hardware is a Monitor 3G and a Recorder 3G, two separate devices,
+neither full duplex, and ADR-034 already names this check as failing "not
+even once the 4K Mini's PSU is sorted." `close.sh` treats any test failure
+as blocking and refuses to tag, so it does not succeed for essentially any
+close-out while this check exists and fails — not only for units that
+themselves touch DeckLink code, which is what this session's own
+(wrong) reasoning assumed. Corrected in `HANDOFF.md`'s own Session-43
+close-out instructions: skip `close.sh`, build and test manually, tag by
+hand once nothing *other* than this named exception fails, and push
+explicitly (`git push origin main` / `git push origin --tags`) — the
+manual-tag path does not push on its own, `SESSION-PROTOCOL.md`'s own
+anti-drift rule 9.

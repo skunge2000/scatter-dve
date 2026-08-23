@@ -145,6 +145,24 @@ matrix described above, not a real-terminal run. `docs/wu-audit-2026-08.md`
 and everything else from Session 42 is unaffected — this session added
 files, it did not touch anything Session 42 touched.
 
+**Standing condition, not new this session, but corrected in how a session
+should act on it (C-024, this session): `tools/close.sh` cannot currently
+succeed at all, for any unit, on Steve's real terminal.** The 4K Mini's PSU
+is out (no full-duplex device attached); the going-forward hardware is a
+Monitor 3G (output-only) and a Recorder 3G (capture-only), two separate
+non-duplex devices — and per ADR-034, `test_decklink_device`'s
+`test_at_least_one_device_is_full_duplex` check will keep failing even once
+the PSU itself is fixed, because the real architecture is now two devices,
+not one full-duplex one. `close.sh` treats any `ctest` failure as blocking
+and refuses to tag, so **every future session's own close-out must build
+and test manually, confirm no failure *other than* this one named check,
+then tag by hand and push explicitly** (`git push origin main`; `git push
+origin --tags` — the manual-tag path never pushes on its own,
+`SESSION-PROTOCOL.md`'s own anti-drift rule 9). Do not hand Steve a
+`./tools/close.sh NN` instruction as the close-out step until ADR-034's own
+still-open follow-up (retire or rescope `test_at_least_one_device_is_full_
+duplex` for a two-device architecture) is actually done.
+
 ## Append to DECISIONS.md
 
 **ADR-075** — already appended in full this session (WU-23 scoping split;
@@ -180,7 +198,7 @@ untracked (new files); `tests/test_interlace.cpp` untracked (new file);
 `CMakeLists.txt`, `WORK-UNITS.md`, `DECISIONS.md` and `HANDOFF.md`
 modified. Nothing else.
 
-**2. Build and test.**
+**2. Build and test — manually, not via `tools/close.sh` (see below).**
 
 ```
 cd ~/src/scatter-dve
@@ -189,24 +207,28 @@ ctest --test-dir build --output-on-failure
 ```
 
 Expected: every previously-passing test still passes, plus a new
-`test_interlace` (302 checks, per this session's own cloud-sandbox run).
+`test_interlace` (302 checks, per this session's own cloud-sandbox run) —
+**except** `test_decklink_device`'s own
+`test_at_least_one_device_is_full_duplex` check, which is expected to keep
+failing until either the hardware or the check itself changes (see
+"Environment check" above and C-024 in `CORRECTIONS.md`, this session).
+That one named failure is not a regression from this unit; anything else
+failing is.
 
-**3. Commit, then close (build + test + tag + push, in one step).**
+**3. Commit, then tag and push by hand — `tools/close.sh` cannot succeed
+right now (see above), so do not run it; it will refuse to tag because of
+the one already-known failure and this step would otherwise silently never
+happen.**
 
 ```
 cd ~/src/scatter-dve
 git add CMakeLists.txt src/video/interlace.hpp src/video/interlace.cpp \
-        tests/test_interlace.cpp WORK-UNITS.md DECISIONS.md HANDOFF.md
+        tests/test_interlace.cpp WORK-UNITS.md DECISIONS.md HANDOFF.md CORRECTIONS.md
 git commit -m "WU-23a: field split and interleave (ADR-075)"
-./tools/close.sh 23a
+git tag -a wu-23a-green -m "WU-23a: field split and interleave, green except the already-accepted ADR-035/ADR-034 duplex-check exception"
+git push origin main
+git push origin --tags
 ```
-
-`close.sh` builds, runs `ctest`, and — only if both succeed — tags
-`wu-23a-green` and pushes the commit and tag to `origin` automatically. If
-it refuses or fails, it will say why; do not tag by hand unless it names the
-already-accepted `test_decklink_device`/ADR-035 exception specifically (this
-unit has no DeckLink-linked test at all, so that exception should not come
-up).
 
 **4. Verify it landed correctly.**
 
