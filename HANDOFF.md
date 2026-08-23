@@ -3,11 +3,13 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 45 (WU-23a2b build — field mode's own runFrame()-level
-driver; no DeckLink, no hardware).
+**Session:** 46 (WU-23b scoping — Weston 3-field de-interlace: source
+confirmed, multi-frame-history question resolved, unit split into
+WU-23b1/WU-23b2; no code this session).
 
-**Tag:** none yet — `wu-23a2b-green` is Steve's own next action; see
-"Steve's own next steps" below.
+**Tag:** `wu-23a2b-green` is real, confirmed on the real repository this
+session (see below) — Steve's own tag/push from Session 45 already
+landed. Nothing to tag this session; this was scoping only.
 
 ## Before doing anything else in the next session
 
@@ -19,225 +21,182 @@ against the real repository first.
 
 ## This session in full
 
-Opened with a continuation prompt whose own job was two-fold: confirm
-real repository state, then give a real scoping proposal for WU-23a2b —
-the driver's exact signature, which height `fieldRowCount()` is evaluated
-against, the threading-scope call, and the new test file's own name and
-Accept: criteria — worked out from the real code, *before* writing any
-code, and only build once that scoping was actually confirmed with
-Steve.
+Opened with a continuation prompt whose own job was scoping only, per
+`SESSION-PROTOCOL.md`'s "one session, one work unit" sizing: confirm the
+real Weston 3-field source, resolve the multi-frame-history question
+Session 45's own handoff and `DECISIONS.md` ADR-075 left open, and give
+WU-23b real `Files:`/`Accept:` lines (splitting further if needed). No
+code written this session, as instructed.
 
-**Repository state, confirmed three ways before reading anything else:**
-`git tag --sort=creatordate` (newest: `wu-23a2a-green`), `git log
---oneline -10` (`HEAD` = `c07f38b`, "WU-23a2a: field-parity row
-visitation in core/binner.hpp/.cpp (ADR-076)"), `git status -sb` (`##
-main...origin/main`, clean, no ahead/behind) — all run directly against
-`~/src/scatter-dve` via the device bridge. Matches `HANDOFF.md`'s own
-prior account exactly; nothing to correct.
+**Repository state, confirmed directly before reading anything else:**
+`git tag --sort=creatordate` (newest: `wu-23a2b-green`), `git log
+--oneline -10` (`HEAD` = `6855c38`, "WU-23a2b: field mode's own
+runFrame()-level driver, runFrameField() (ADR-077)"), `git status -sb`
+(`## main...origin/main`, clean, no ahead/behind) — all run directly
+against `~/src/scatter-dve` via the device bridge. Matches the
+continuation prompt's own expected state exactly; **`HANDOFF.md`'s own
+prior "Tag: none yet" line was stale** (Steve's own real-terminal tag
+and push from Session 45 had already landed by the time this session
+opened) — not a `CORRECTIONS.md`-worthy error, just this file's own
+overwrite-each-session nature catching up.
 
-**Scoping.** Read `SESSION-PROTOCOL.md`, `INVARIANTS.md`, `DECISIONS.md`
-ADR-034/ADR-035/ADR-037/ADR-041/ADR-075/ADR-076, `CORRECTIONS.md` C-024,
-`WORK-UNITS.md`'s own WU-23a/WU-23a2/WU-23a2a/WU-23a2b entries,
-`docs/architecture.md` section 5's own "Interlace" note, and the real
-code directly: `core/resolve.hpp`, `core/pipeline.cpp` (`runFrame()`'s
-own `threads<=1` branch and its private `resolveOneTile()`),
-`core/binner.hpp` (`generateFragmentsFieldRows()`'s own signature and doc
-comment), `video/interlace.hpp`/`.cpp` (unmodified this session).
-Proposed, then confirmed with Steve directly before any code:
+**Source confirmed.** Fetched and read `libavfilter/vf_w3fdif.c`
+directly (not assumed from the continuation prompt's own summary):
+Weston 3-field, BBC R&D's algorithm (Jim Easterbrook's implementation of
+Martin Weston's process), FFmpeg filter by Mark Himsley — confirmed, not
+`vf_bwdif.c`. Every element of the continuation prompt's own algorithm
+summary checked out against the real source: both coefficient sets
+(simple 2+3 taps, complex 4+5 taps, scaled 2^15), the reflect-based edge
+handling, uniform plane treatment, frame-rate vs field-rate output
+modes, and the explicit `prev`/`cur`/`next` sliding-window driving
+model. See `DECISIONS.md` ADR-078 for the full account.
 
-1. **Signature: one `Lattice`, not two.** `generateFragmentsFieldRows()`
-   already takes a single lattice plus `rowOffset`; the driver calls it
-   twice, varying only `rowOffset`.
-2. **`fieldRowCount()` evaluated against `params.destHeight`, not
-   `src.height`** — each parity's own resolve is already a full
-   destination-sized raster, so `extractField()` decimates *that*, keyed
-   to the destination frame's own height.
-3. **Declared in `core/resolve.hpp`, implemented in
-   `core/pipeline.cpp`** — ADR-021/ADR-026's own precedent for a new
-   orchestration entry point with no state of its own.
-4. **Single-threaded only, this unit** — `params.threads`/`params.pool`
-   not consulted; a threaded field-mode path deferred, not scheduled.
-5. **`tests/test_field_pipeline.cpp`, new**, registered in
-   `CMakeLists.txt`.
+**Multi-frame-history question resolved.** Read
+`src/io/decklink_capture_consumer.hpp`/`.cpp` and `core/resolve.hpp`
+directly: no persistent cross-frame state exists anywhere in this
+project today. `CaptureConsumer::processOne()` is stateless per call
+except for the current lattice and the most recently produced *output*
+frame — no source-side history. Every `core/resolve.hpp` entry point
+(`runFrame()`/`runFrameBytes()`/`runFrameFile()`/`runFrameField()`) is a
+stateless free function. `core/ring_buffer.hpp`'s `RingBuffer` (WU-20a)
+is the nearest precedent — a generic, platform-independent, reusable
+component a DeckLink-specific caller later owns as a member — but it is
+a cross-thread handle queue, not a filter's own sliding-window state, so
+it is a precedent for *how* to build the new component, not something
+WU-23b reuses directly. **Decision: a new standalone stateful
+component, `video::Deinterlacer` (`video/deinterlace.hpp`/`.cpp`, new,
+not yet built), owning its own three-field history internally**, placed
+in `video/` (alongside `interlace.hpp`, `chroma.hpp`) rather than
+`core/`, since it is video-format-level processing with no lattice/warp
+involvement — reusable identically by the live-capture path (as a new
+owned member of `CaptureConsumer`) and any future file-sequence driver.
+See ADR-078 for the full reasoning, including the integer-arithmetic/
+edge-convention recommendation (signed 64-bit accumulation, this
+project's own round-half-up descale idiom, w3fdif's own reflect-edge
+convention adopted as-is and scoped narrowly to this one filter) and the
+open stream-start question left for WU-23b2.
 
-All five confirmed as the recommended option, matching this session's own
-written proposal exactly.
+**Unit split, confirmed necessary against the 3-source-file cap, not
+assumed going in.** The filter's own core math and history buffer
+(`video/deinterlace.hpp`/`.cpp`, 2 files, plus its own test) is
+self-contained and independently testable, no DeckLink dependency.
+Wiring it into the live-capture path needs at minimum
+`io/decklink_capture_consumer.hpp`/`.cpp`, likely also
+`core/resolve.hpp`/`core/pipeline.cpp` depending on how the output-side
+re-interlace decimate ends up shaped — a real design question left for
+that unit's own scoping session, not guessed here. Split into
+**WU-23b1** (filter core, given real `Files:`/`Accept:` this session,
+ready to build next) and **WU-23b2** (live-capture wiring plus the
+output-side re-interlace decimate, not yet scoped — genuinely depends on
+WU-23b1's own actual interface once built).
 
-**WU-23a2b build.** `runFrameField()` added to `core/resolve.hpp`
-(declaration) / `core/pipeline.cpp` (definition): calls the existing
-private `resolveOneTile()` directly, in the exact shape `runFrame()`'s
-own `threads<=1` branch already uses, once per parity
-(`generateFragmentsFieldRows()` standing in for `generateFragments()` as
-PASS 1's own entry point), into two temporary full-resolution rasters;
-`video::extractField()` decimates each to its own parity rows of the
-destination frame; `video::interleaveFields()` recombines them into
-`dest`. Two restraint decisions surfaced while implementing, not
-anticipated in ADR-076's own scoping text: `resolveOneTile()` also
-drives `PipelineParams::kBufferMode`/`weightOut` when a caller sets them,
-and wiring either through unexamined would be silently wrong for field
-mode specifically (a null-pointer crash for `kBufferMode`; a silent
-single-parity clobber for `weightOut`, since both per-parity resolves
-cover the same destination index space) — resolved by requiring both
-left at their defaults, documented as unchecked preconditions, the same
-restraint ADR-026/ADR-029 already used elsewhere rather than inventing an
-answer nobody has asked for. See `DECISIONS.md` ADR-077 for the full
-account.
-
-Built and tested in this session's own Linux cloud sandbox (Ubuntu
-24.04): full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3,
-Release/Debug, `SCATTER_TILE_LOG2` 4 and 5), all green, zero warnings
-under this project's full `-Wall -Wextra -Wpedantic -Wconversion
--Wsign-conversion -Werror` set, plus GCC 13 `-fsanitize=address,undefined
--fno-sanitize-recover=all` at both tile sizes, clean. `ctest`: 25 of 25
-in every configuration (24 carried over unchanged, plus
-`test_field_pipeline`, new). `test_field_pipeline` alone: 27654 checks
-passing.
-
-Delivered `core/resolve.hpp`, `core/pipeline.cpp`,
-`tests/test_field_pipeline.cpp`, `CMakeLists.txt`, `WORK-UNITS.md`,
-`DECISIONS.md` (ADR-077) and this file to the real repository via
-`SendUserFile` + `device_commit_files`, then re-staged all of them from
+Wrote `DECISIONS.md` ADR-078 (full design/scoping account),
+`WORK-UNITS.md` (replaced the single WU-23b stub with real WU-23b1
+`Files:`/`Accept:` lines and a WU-23b2 placeholder), and this file to
+the real repository via the device bridge, then re-staged all three from
 the device and diffed against this session's own edited copies before
 writing this sentence — `SESSION-PROTOCOL.md`'s own rule 8.
 
 ## Where we are
 
-**Phase 6's own field-mode thread is now complete: WU-23a, WU-23a2a and
-WU-23a2b all built and cloud-sandbox-green**, pending Steve's own
-real-terminal confirmation and tag for this unit (`wu-23a2a-green` is
-already tagged from the session before this one). `WU-23b` (de-interlace
-to frame, Weston 3-field) is separate again and still not started —
-gated on its own Weston-3-field research, not on this unit.
-`WU-24`/`WU-25` untouched. `DECISIONS.md` now runs through ADR-077;
-`INVARIANTS.md` unchanged through I11; `CORRECTIONS.md` unchanged through
-C-024 (nothing this session rose to a correction — see "Append to
-CORRECTIONS.md" below).
+**Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
+complete and tagged** (`wu-23a2b-green`, confirmed real this session).
+**WU-23b is now scoped, not built:** WU-23b1 (`video::Deinterlacer`
+filter core) has real `Files:`/`Accept:` lines and is the natural next
+pick; WU-23b2 (live-capture wiring) is named but deliberately not
+scoped yet. `WU-24`/`WU-25` untouched. `DECISIONS.md` now runs through
+ADR-078; `INVARIANTS.md` unchanged through I11; `CORRECTIONS.md`
+unchanged through C-024 (nothing this session rose to a correction).
 
 ## Next work unit
 
-**WU-23b** (de-interlace to frame, Weston 3-field, then re-interlace) is
-the natural next pick if continuing straight down Phase 6's own interlace
-thread — but it is gated on working out the real Weston 3-field algorithm
-first (its own research/design step, likely its own ADR, before any
-`Files:`/`Accept:` scoping is possible), genuinely new ground, not an
-extension of WU-23a/WU-23a2's own field-split machinery (which this
-unit's own re-interlace half reuses only for the trivial
-decimate-on-output direction). Everything named in Session 43's own "Next
-work unit" section (WU-28d, WU-27, WU-33, WU-35, WU-37) is unchanged and
-still pickable — this session did not touch Phase 7 at all.
+**WU-23b1** (`video::Deinterlacer` — Weston 3-field filter core,
+`video/deinterlace.hpp`/`.cpp`, `tests/test_deinterlace.cpp`) is the
+natural next pick: fully scoped this session (`DECISIONS.md` ADR-078,
+`WORK-UNITS.md`), no DeckLink dependency, buildable and testable
+entirely in the cloud sandbox the same way WU-23a was. Re-verify the
+coefficient sets and line-offset structure directly against the real
+`libavfilter/vf_w3fdif.c` source again before writing code — this
+session's own confirmation is not a substitute for that at build time,
+the same "do not rely on recall" discipline (`SESSION-PROTOCOL.md` rule
+6) every prior session has applied to its own prior findings.
+Everything named in Session 43's own "Next work unit" section (WU-28d,
+WU-27, WU-33, WU-35, WU-37) is unchanged and still pickable if the
+interlace thread is set aside instead.
 
 ## Open questions
 
 Unchanged from Session 42/43's own list (`kCaptureRingCapacity`, Q3, Q4,
 Task A1, Task D6, ADR-070's open question, WU-35's `compositeLayered()`
-question, the real Weston 3-field algorithm for WU-23b) — this session
-did not touch any of them. One new item, named but not resolved by this
-session (ADR-077): what weight-capture (`PipelineParams::weightOut`) or
-k-buffer resolve (`PipelineParams::kBufferMode`) should even mean for
-field mode's own two independently-resolved parities — `runFrameField()`
-currently requires both left at their defaults; a future unit that needs
-either has a real design question to answer first.
+question) — this session did not touch any of them. **One new item,
+named but not resolved by this session (ADR-078):** WU-23b2's own
+stream-start question — what `video::Deinterlacer` should do (or what
+`CaptureConsumer` should do with its output) for the first field of a
+capture run, before two frames of history exist to reconstruct from. Not
+answered here; a real design question for WU-23b2's own scoping.
 
 ## Blocked / red
 
-Nothing red. WU-23b remains named-but-blocked (Session 43's own note,
-unchanged), not red.
+Nothing red. Nothing newly blocked.
 
 ## Environment check
 
-This session's own build/test verification is the Linux cloud sandbox
-matrix described above, not a real-terminal run.
-
-**Standing condition, unchanged from Session 43/44, C-024: `tools/close.sh`
-cannot currently succeed at all, for any unit, on Steve's real
-terminal.** The 4K Mini's PSU is still out; the going-forward hardware is
-a Monitor 3G (output-only) and a Recorder 3G (capture-only), and per
-ADR-034/ADR-035, `test_decklink_device`'s own
-`test_at_least_one_device_is_full_duplex` check will keep failing even
-once the PSU is fixed, because the real architecture is two devices now,
-not one full-duplex one. `close.sh` treats any `ctest` failure as
-blocking and refuses to tag — **this session's own close-out is manual
-build, manual test, confirm no failure other than that one named check,
-then tag by hand and push explicitly** (`git push origin main`; `git push
-origin --tags`), the same as Session 43/44's own close-out. This unit has
-no DeckLink dependency of its own (it never links `scatter-decklink`, and
-this cloud sandbox has no Blackmagic SDK configured at all — the check
-does not even run here), but the check still runs on Steve's own real
-terminal, where the SDK *is* configured, on every close-out regardless of
-which unit is being closed — C-024's own point, still true.
+This session did no build/test work at all — scoping and documentation
+only, confirmed via `git`/file reads against the real repository through
+the device bridge. The standing condition from Session 43/44/45 (C-024:
+`tools/close.sh` cannot currently succeed for any unit, on Steve's real
+terminal, because of the PSU/two-device-architecture mismatch — see
+`DECISIONS.md` ADR-034/035/037 and `CORRECTIONS.md` C-024) is unchanged
+and not relevant this session, since nothing was built or tagged.
 
 ## Append to DECISIONS.md
 
-**ADR-077** — already appended in full this session (WU-23a2b build:
-`runFrameField()`, field mode's own `runFrame()`-level driver). See
-`DECISIONS.md`.
+**ADR-078** — already appended in full this session (WU-23b scoping:
+Weston 3-field source confirmed; multi-frame-history resolved to
+`video::Deinterlacer`; split into WU-23b1/WU-23b2). See `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session.
+Nothing this session. (The stale "Tag: none yet" line in the prior
+`HANDOFF.md` was caught and corrected by this file's own overwrite, per
+`SESSION-PROTOCOL.md`'s own design for that file — not a
+`CORRECTIONS.md`-worthy error, since nothing this project *claimed* as a
+technical fact was shown wrong.)
 
 ## Closed out this session
 
-**WU-23a2b build** (field mode's own `runFrame()`-level driver,
-`runFrameField()`). Cloud-sandbox green, full matrix, zero warnings,
-clean sanitizers. Ready for Steve's own real-terminal build, commit, tag
-and push. **Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
-now complete.**
+**WU-23b scoping.** No code. Real `Files:`/`Accept:` lines for WU-23b1
+written into `WORK-UNITS.md`; the full design account in `DECISIONS.md`
+ADR-078; WU-23b2 named but deliberately left unscoped. This is a
+complete, legitimate session outcome per `SESSION-PROTOCOL.md`'s own
+"one session, one work unit" sizing, applied here to a unit whose real
+work this session was confirming the source, resolving the architectural
+question, and designing — not a formality rushed past to reach code.
 
 ## Steve's own next steps
 
-**1. Confirm the tree at your own real terminal.**
+**Nothing to build, test, tag or push this session — this was scoping
+only.** Confirm the tree reflects only documentation changes:
 
 ```
 cd ~/src/scatter-dve
 git status --short
 ```
 
-Expected: `src/core/resolve.hpp`, `src/core/pipeline.cpp` and
-`CMakeLists.txt` modified; `tests/test_field_pipeline.cpp` new
-(untracked); `WORK-UNITS.md`, `DECISIONS.md` and `HANDOFF.md` modified.
-Nothing else.
+Expected: `DECISIONS.md`, `WORK-UNITS.md` and `HANDOFF.md` modified.
+Nothing else — no source or test files touched.
 
-**2. Build and test — manually, not via `tools/close.sh` (see
-"Environment check" above).**
-
-```
-cd ~/src/scatter-dve
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Expected: every previously-passing test still passes, plus the new
-`test_field_pipeline` (27654 checks in this session's own cloud-sandbox
-run) — **except** `test_decklink_device`'s own
-`test_at_least_one_device_is_full_duplex` check, which is expected to
-keep failing until either the hardware or the check itself changes (see
-"Environment check" above and C-024 in `CORRECTIONS.md`). That one named
-failure is not a regression from this unit; anything else failing is.
-
-**3. Commit, then tag and push by hand — `tools/close.sh` cannot succeed
-right now (see above), so do not run it.**
+If you're happy with the WU-23b1/WU-23b2 split and the
+`video::Deinterlacer` design in `DECISIONS.md` ADR-078, commit this
+scoping work (no tag — nothing was built or tested, so there is nothing
+for a `wu-NN-green` tag to certify):
 
 ```
 cd ~/src/scatter-dve
-git add src/core/resolve.hpp src/core/pipeline.cpp tests/test_field_pipeline.cpp \
-        CMakeLists.txt WORK-UNITS.md DECISIONS.md HANDOFF.md
-git commit -m "WU-23a2b: field mode's own runFrame()-level driver, runFrameField() (ADR-077)"
-git tag -a wu-23a2b-green -m "WU-23a2b: field mode's own runFrame()-level driver, green except the already-accepted ADR-035/ADR-034 duplex-check exception"
+git add DECISIONS.md WORK-UNITS.md HANDOFF.md
+git commit -m "WU-23b scoping: Weston 3-field de-interlace source confirmed, video::Deinterlacer design, split into WU-23b1/WU-23b2 (ADR-078)"
 git push origin main
-git push origin --tags
 ```
 
-**4. Verify it landed correctly.**
-
-```
-cd ~/src/scatter-dve
-git log --oneline -3
-git tag | tail -5
-git status -sb
-```
-
-`git log --oneline -3` should show your own new commit at `HEAD`,
-carrying `wu-23a2b-green`; `git tag | tail -5` should include
-`wu-23a2b-green`; `git status -sb` should read `## main...origin/main`
-with no ahead marker and no modified files listed at all.
+No `git tag` step this time — that's for a session that actually builds
+and verifies code, next time.

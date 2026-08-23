@@ -7553,5 +7553,186 @@ Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
 ADR, including ADR-075/ADR-076 themselves — this entry builds what those
 left scoped and outlined, it does not revise anything either already
 settled. Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
-now complete; WU-23b (de-interlace to frame, Weston 3-field) remains
-gated on its own algorithm research, unstarted.
+now complete; WU-23b (de-interlace to frame, Weston 3-field) is scoped
+by ADR-078, below, splitting into WU-23b1/WU-23b2.
+
+**ADR-078 — WU-23b scoping: Weston 3-field de-interlace confirmed
+against the real FFmpeg source; the multi-frame-history question
+resolved to a new standalone `video::Deinterlacer`; unit splits into
+WU-23b1 (filter core) and WU-23b2 (live-capture wiring, not yet
+scoped).**
+
+This session opened with a continuation prompt whose own job was
+scoping only, per `SESSION-PROTOCOL.md`'s "one session, one work unit"
+sizing: confirm the real Weston 3-field source, resolve the
+multi-frame-history question ADR-075 and `HANDOFF.md`'s own Session-45
+entry named and deferred, and split the unit if it does not fit the
+3-source-file cap. No code written this session.
+
+**Source, fetched and read directly, not assumed from the continuation
+prompt's own summary.** `libavfilter/vf_w3fdif.c` — "Weston 3 Field
+DeInterlacing Filter," Jim Easterbrook for BBC R&D, based on the process
+described by Martin Weston, FFmpeg filter by Mark Himsley — confirmed,
+not `vf_bwdif.c` (a materially more complex 2016 filter that
+incorporates w3fdif as one of several paths under substantial
+YADIF-derived motion-adaptive processing; Steve's own preference,
+confirmed again this session, is w3fdif alone, for period accuracy).
+Confirmed directly against the fetched source:
+
+- Coefficients match the continuation prompt's own summary exactly:
+  simple low-pass `{16384, 16384}`, simple high-pass `{-2048, 4096,
+  -2048}`; complex low-pass `{-852, 17236, 17236, -852}`, complex
+  high-pass `{1016, -3801, 5570, -3801, 1016}` — all scaled by 256×128 =
+  2^15 per the source's own comment, descaled by a 15-bit right shift
+  with clamping to the representable pixel range at the far end.
+- Structure: a line already present in `cur` (matching the output's own
+  field parity) is copied through unchanged. A missing line is
+  reconstructed as (spatial low-pass over `cur`'s own nearby existing
+  lines) plus (temporal high-pass combining `cur` and whichever of
+  `prev`/`next` is the correct adjacent field for that parity, chosen by
+  field parity/top-field-first).
+- Edge handling: out-of-range field-native line indices are reflected
+  back into range by repeatedly adding or subtracting 2 (the field's own
+  row stride) — not clamped, not replicated.
+- All planes (Y and both chroma) are treated identically by the
+  filter's own math — no luma/chroma distinction, matching this
+  project's own equal-treatment convention for the field-split step
+  (ADR-075's `extractField()`/`interleaveFields()`).
+- Two output modes exist (frame-rate, one output per input frame;
+  field-rate, doubled). Frame-rate mode is the one WU-23b needs,
+  confirmed against `docs/architecture.md` section 3's own signal-path
+  diagram, which shows `[de-interlace to frame]` as a single stage ahead
+  of PASS 1, once per frame.
+- The filter is driven across a sequence by an explicit three-pointer
+  sliding window (`prev`/`cur`/`next`), not an internal frame queue: on
+  each new input frame the pointers shift down one and the new frame
+  becomes `next`; the first frame received has no `prev` yet and
+  produces no output until a second frame arrives. This shape is the
+  direct model for the state this project's own new component needs to
+  hold (below) — not FFmpeg's own filter-graph machinery itself, which
+  does not need reproducing (ADR-075's own "no lattice/warp involvement"
+  framing, extended here to "no filter-graph involvement" for a
+  component that has no lattice/warp of its own either).
+
+**Multi-frame history, resolved: nowhere in this project's own code
+today, confirmed by reading `src/io/decklink_capture_consumer.hpp`/`.cpp`
+and `core/resolve.hpp` directly.** `CaptureConsumer::processOne()` is
+called once per popped ring item and is fully stateless across calls
+except for `m_lattice` (the current warp, WU-21f) and `m_latestFrame`
+(the most recently produced *output* frame, not a source-side history)
+— every `runFrame()`/`runFrameBytes()`/`runFrameFile()`/`runFrameField()`
+entry point in `core/resolve.hpp` is likewise a stateless free function
+taking one frame's worth of input and producing one frame's worth of
+output, with `PipelineParams` a small, non-owning value type carrying no
+frame history of its own. `core/ring_buffer.hpp`'s `RingBuffer` (WU-20a)
+is the one genuinely persistent, cross-call component in this project so
+far, but it is a generic single-producer/single-consumer handle queue
+for crossing the driver's own callback-thread boundary, not a filter's
+own sliding-window state — its own precedent is relevant to *how* to
+build the new component (a generic, platform-independent, reusable
+class that a DeckLink-specific caller later owns as a member — see
+WU-20a's own relationship to WU-20b), not a mechanism WU-23b can reuse
+directly.
+
+**Decision: a new standalone stateful component, `video::Deinterlacer`
+(`video/deinterlace.hpp`/`.cpp`, new), owning its own three-field history
+internally.** Placed in `video/`, not `core/`: `docs/architecture.md`
+section 8 already names `video/interlace.hpp/.cpp` for interlace-related
+work, and this filter is the same kind of thing `chroma.hpp`'s polyphase
+filters already are — video-format-level processing on `Raster444`
+planes, no lattice, no warp, no DeckLink dependency — not a sibling of
+`core/resolve.hpp`'s orchestration entry points, which is where the
+*warp* pipeline's own new-entry-point precedent (ADR-021/026, extended
+by ADR-077) belongs instead. Not folded into the existing
+`video/interlace.hpp`: that file's own scope is deliberately narrow —
+"the pure data-layout half of field mode, no lattice/warp involvement at
+all" (ADR-075) — and a stateful multi-frame integer-reconstruction
+filter is a different kind of component entirely, the same "new sibling
+file when scope genuinely diverges" judgment WU-16a/WU-28a and others
+already made for `core/binner.hpp` and `core/pipeline.hpp`. A new file,
+not a new symbol in the existing one.
+
+`video::Deinterlacer` is fed one field-native `Raster444` at a time (the
+caller's own choice of Top or Bottom stream — WU-23b operates on one
+field parity's own temporal sequence per instance, the direct analogue
+of FFmpeg's own single input stream) and produces either nothing (fewer
+than two frames buffered so far — the `prev`-not-yet-available case
+above) or one reconstructed full-frame-height `Raster444` per call once
+warmed up. Fully reusable by any caller with a sequence of fields to
+feed it — the live-capture path (`io/decklink_capture_consumer.cpp`, as
+a new owned member, the same "generic component owned by a
+DeckLink-specific caller" shape `RingBuffer` already established for
+WU-20a/20b) and any future file-sequence driver alike — with zero
+DeckLink or lattice/pipeline dependency of its own to thread through
+either. Precise method names/signatures are this decision's own
+follow-on build session's job, not frozen here — this session is
+scoping, not code, per its own brief.
+
+**Integer arithmetic and edge convention.** w3fdif's own 2^15-scaled
+integer coefficients fit this project's own I4/I6 integer-accumulation
+discipline directly — no new floating-point path needed anywhere in
+this filter. Recommended, to be confirmed at build time against
+`core/types.hpp`'s own conventions: accumulate each reconstructed
+sample in a signed 64-bit accumulator (mirroring `ColourAccum` —
+headroom this filter's own worst case does not remotely need, but
+consistent with this codebase's existing "when in doubt, int64"
+colour-path convention rather than inventing a narrower one), descale
+by the source's own 15-bit right shift, and round half-up via the same
+"add half the divisor, then shift" idiom `core/types.hpp`'s
+`toCode10()` and ADR-020's chroma filters already use, rather than a
+plain truncating shift. w3fdif's own edge-index reflection (reflecting
+an out-of-range field-native row index back into range by repeatedly
+adding or subtracting 2) is a genuinely different convention from
+ADR-018 (v210 short-group black fill), ADR-020 (chroma clamp-to-plane)
+and ADR-022 (lattice replicate-nearest-vertex) — not reconciled with
+any of them, because none of those govern this filter's own subsystem;
+adopted as-is, scoped narrowly to `video::Deinterlacer` alone, the same
+"only one sensible choice once the source algorithm is taken literally"
+reasoning ADR-025 already used for the splat's own bilinear weight
+formula.
+
+**Open question, deliberately not resolved here: stream-start
+behaviour.** FFmpeg buffers two frames before producing any output (the
+first frame becomes `next` with no `prev` yet). A live SDI capture path
+cannot "wait" the same way without a real gap in what reaches
+`CaptureConsumer::copyLatestFrame()` — whether that means genuinely
+producing no output for the first captured field of a run (leaving
+whatever the caller's own prior frame was in place, or nothing at all
+pre-start), or some other treatment, is a real design question for
+WU-23b2 (below), not invented here — the same "not this unit's job to
+invent an answer nobody has asked for" restraint ADR-026/029/077 already
+used.
+
+**Unit split, per `SESSION-PROTOCOL.md`'s 3-source-file cap — confirmed
+necessary, not assumed going in.** The filter's own core math and
+history buffer (`video/deinterlace.hpp`/`.cpp`, 2 files) is fully
+self-contained and independently testable against synthetic field
+triples, with no DeckLink dependency at all — same shape WU-23a's
+`video/interlace.hpp`/`.cpp` already used. Wiring it into the
+live-capture path needs at minimum `io/decklink_capture_consumer.hpp`
+(new member) and `.cpp` (constructor/`processOne()` changes), plus the
+trivial re-interlace-decimate-on-output half (`extractField()`/
+`interleaveFields()`, already built, ADR-075) — likely also touching
+`core/resolve.hpp`/`core/pipeline.cpp` for a new orchestration entry
+point if the decimate is more than a couple of inline calls inside
+`processOne()` itself, a question this session leaves for that unit's
+own scoping rather than guessing now. Splitting the filter core from its
+own wiring the same way WU-23a/WU-23a2/WU-23a2b already staged field
+mode:
+
+- **WU-23b1** — `video::Deinterlacer`: `video/deinterlace.hpp` (new),
+  `video/deinterlace.cpp` (new), `tests/test_deinterlace.cpp` (new).
+  Buildable next, now that the source is confirmed and the component's
+  placement is decided.
+- **WU-23b2** — wiring into the live-capture path and the output-side
+  re-interlace decimate. Not scoped with `Files:`/`Accept:` yet —
+  genuinely depends on WU-23b1's own actual interface once built, the
+  same "scope the wiring unit after the component it wires exists"
+  sequencing WU-23a2a/WU-23a2b already used for
+  `generateFragmentsFieldRows()`.
+
+Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
+ADR — `core/resolve.hpp`, `core/pipeline.cpp` and `video/interlace.hpp`
+are all confirmed unchanged by this session; this settles new-ground
+design work for a feature that has never been scoped before (ADR-075's
+own WU-23b line), not a correction to anything already built.

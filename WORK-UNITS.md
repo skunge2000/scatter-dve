@@ -1897,20 +1897,87 @@ see `HANDOFF.md`, and see `CORRECTIONS.md` C-024 for why this is a manual
 tag, not `./tools/close.sh 23a2b`.
 
 **Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is now
-complete.** WU-23b, below, remains gated on its own Weston 3-field
-algorithm research, unstarted.
+complete.** WU-23b has been scoped this session (`DECISIONS.md` ADR-078)
+and splits into WU-23b1 (filter core, `video::Deinterlacer`, ready to
+build) and WU-23b2 (live-capture wiring, not yet scoped, gated on
+WU-23b1).
 
-### WU-23b — De-interlace to frame (Weston 3-field), then re-interlace `todo`
-Not started. Steve's own stated preference, unchanged from this unit's
-original bare line: if deinterlacing is pursued, the route is Weston
-3-field, for period accuracy — not a simpler bob/weave or line-doubling
-approach. Gated on working out the real Weston 3-field algorithm first (its
-own research/design step, likely its own ADR, before any `Files:`/`Accept:`
-scoping is possible) — genuinely new ground, not an extension of
-WU-23a/WU-23a2's own field-split machinery, which this unit's own
-re-interlace half reuses only for the trivial decimate-on-output direction
-(`interleaveFields()`'s own inverse is exactly `extractField()`, already
-built).
+### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `todo`
+Not started. Scoped this session (`DECISIONS.md` ADR-078) after
+confirming the real source (`libavfilter/vf_w3fdif.c`, BBC R&D's Weston
+3-field algorithm — Jim Easterbrook's implementation of Martin Weston's
+process, not `vf_bwdif.c`, a materially more complex, later filter
+Steve confirmed is out of scope) and resolving the multi-frame-history
+question ADR-075/`HANDOFF.md`'s own Session-45 entry left open: no
+persistent cross-frame state exists anywhere in this project today
+(`io/decklink_capture_consumer.cpp`'s `processOne()` and every
+`core/resolve.hpp` entry point are stateless per call), so this unit is
+a new, standalone, DeckLink-independent component owning its own
+three-field (`prev`/`cur`/`next`) history internally, fed one
+field-native frame at a time.
+
+Design, per ADR-078: a line already present in `cur` (matching the
+output's own field parity) is copied through unchanged; a missing line
+is reconstructed as a spatial low-pass over `cur`'s own nearby existing
+lines plus a temporal high-pass combining `cur` with whichever of
+`prev`/`next` matches that line's parity — both coefficient sets
+(simple: 2 low-pass + 3 high-pass taps; complex: 4 low-pass + 5
+high-pass taps) scaled 2^15 per the real source, descaled by a
+round-half-up 15-bit shift (this project's own `toCode10()` rounding
+idiom, `core/types.hpp`); accumulation in a signed 64-bit accumulator
+per I4/I6. Edge handling: out-of-range field-native row indices
+reflected back into range (repeatedly ±2, the field's own row stride),
+adopted as-is, scoped to this filter alone — not reconciled with
+ADR-018/020/022's own different conventions, which govern different
+subsystems. All three planes (Y, Cb, Cr) treated identically, matching
+the real source. Frame-rate output (one reconstructed full-height
+`Raster444` per input field-native frame, once two frames' worth of
+history exist), not field-rate — confirmed against
+`docs/architecture.md` section 3's own signal-path diagram.
+
+**Files:** `video/deinterlace.hpp` (new), `video/deinterlace.cpp` (new),
+`tests/test_deinterlace.cpp` (new); plus `CMakeLists.txt`
+(`scatter_test(test_deinterlace)` registered — not counted against the
+file cap).
+
+**Accept:** the coefficient sets, the low-pass/high-pass line-offset
+structure and the edge-reflection logic all re-verified directly
+against the real `libavfilter/vf_w3fdif.c` source at build time (not
+taken from ADR-078's own paraphrase alone) before being frozen in
+committed code. A synthetic field-triple test constructed independently
+of `video::Deinterlacer`'s own implementation (hand-computed or
+independently recomputed expected output for at least one reconstructed
+line under each coefficient set) matches exactly. The three-history-
+frame state machine is checked directly: the first field pushed
+produces no output; the second produces one reconstructed frame; a
+short synthetic sequence (5+ fields) produces exactly one output per
+input from the second onward, with `prev`/`cur`/`next` verified (via a
+distinguishing per-frame marker in the synthetic content) to hold the
+correct three frames at each step, not just plausible-looking output.
+Edge rows (top and bottom of a field) reflect correctly, checked
+against a directly-computed expected value for at least one edge case
+per coefficient set.
+
+*Status:* not started.
+
+### WU-23b2 — Weston 3-field de-interlace: live-capture wiring and output re-interlace decimate `todo`
+Not started, not yet scoped with `Files:`/`Accept:` (ADR-078) —
+genuinely depends on WU-23b1's own actual interface once built, the
+same "scope the wiring unit after the component it wires exists"
+sequencing WU-23a2a/WU-23a2b already used for
+`generateFragmentsFieldRows()`. Wires a `video::Deinterlacer` instance
+into `io/decklink_capture_consumer.cpp` (new owned member,
+`processOne()` calls it ahead of the existing warp) and performs the
+trivial re-interlace-decimate-on-output half reusing
+`extractField()`/`interleaveFields()` (`video/interlace.hpp`, already
+built, WU-23a/ADR-075) — likely also touching `core/resolve.hpp`/
+`core/pipeline.cpp` for a new orchestration entry point if the decimate
+turns out to be more than a couple of inline calls inside
+`processOne()` itself, not decided by ADR-078. Open question named but
+not resolved by ADR-078: what happens on the first field of a capture
+run, before `video::Deinterlacer` has two frames of history to
+reconstruct from — a live SDI path cannot buffer the way FFmpeg's own
+file-oriented filter does without a real gap in output.
 
 ### WU-24 — Adaptive supersampling `todo`
 ### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`
