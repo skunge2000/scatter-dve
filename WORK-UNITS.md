@@ -1763,22 +1763,55 @@ this unit's own `Files:`/`Accept:` or `Status:` above — WU-26 is not
 reopened.
 
 ### WU-27 — Phong, linear light, two-sided `todo`
-**Renamed this session (WU-32, `DECISIONS.md` ADR-069) — was "Blinn-Phong,
+**Renamed Session 41 (WU-32, `DECISIONS.md` ADR-069) — was "Blinn-Phong,
 linear light, two-sided".** No `Files:`/`Accept:` has ever been written for
 this unit; it has carried only a one-line backlog title since it was first
-named. This unit does not scope it now — that is real scoping work for
-whoever picks WU-27 up next, and it must be done fresh, not by patching the
-old Blinn-Phong premise. Scope against `DECISIONS.md` ADR-069 (Phong, not
-Blinn-Phong: `cos B` is line-of-sight-to-reflected-ray, not a half-vector;
-linear-plus-constant falloff, not inverse-square; fixed orthographic view
-vector; `model(L,zone)` as a look-up table on `cos B`, not `pow()`),
-ADR-070 (evaluated per coarse-grid facet with the historical filtering
-ladder and grid-shift controls exposed literally, not per pixel — note
-ADR-070's own open question about whether to reproduce the historical
-finite-difference facet normal or reuse WU-26's exact analytic one) and
-ADR-071 (material owned by `(light, zone)`, not by surface — do not build a
-per-surface material system). Depends on WU-26 (`surfaceNormal()`), already
-available.
+named. Scope against `DECISIONS.md` ADR-069 (Phong, not Blinn-Phong: `cos
+B` is line-of-sight-to-reflected-ray, not a half-vector; linear-plus-constant
+falloff, not inverse-square; fixed orthographic view vector; `model(L,zone)`
+as a look-up table on `cos B`, not `pow()`), ADR-070 (evaluated per
+coarse-grid facet with the historical filtering ladder and grid-shift
+controls exposed literally, not per pixel — note ADR-070's own open
+question about whether to reproduce the historical finite-difference facet
+normal or reuse WU-26's exact analytic one) and ADR-071 (material owned by
+`(light, zone)`, not by surface — do not build a per-surface material
+system). Depends on WU-26 (`surfaceNormal()`), already available.
+
+**First-cut scoping, WU-36 (this sweep, `docs/wu-audit-2026-08.md`),
+[C] — whoever actually builds this must still re-verify against the real
+code, not treat this as frozen `Files:`/`Accept:` the way every other
+unit's own build session writes it fresh:**
+
+**Likely files:** `src/core/lighting.hpp`/`.cpp` (new — `Light`, `Zone`,
+`model(L, zone)` LUT interface per ADR-071, the closed-form Phong evaluator
+per ADR-069), `src/core/binner.hpp`/`.cpp` (per-sample shading call site,
+ahead of projection, per ADR-068/I10 — already structurally where
+`docs/architecture.md` §3's own signal-path diagram places `[shading]`,
+last step of PASS 1, nothing to restructure there), `tests/test_lighting.cpp`
+(new). Whether WU-27 and WU-34 (coarse-grid evaluation/interpolation) are
+one unit or two is explicitly not decided here — `WORK-UNITS.md`'s own
+WU-34 entry already flags the overlap; resolve at whichever unit is
+scoped first.
+
+**Likely first tests, per `tests/fixtures-historical.md`:** fixture 17
+(illumination formula, hand-worked case against ADR-069's closed form —
+"should be among WU-27's first tests once scoped," already noted there),
+fixture 18 (linear, not inverse-square, falloff), fixture 26 (orthographic
+specular — no highlight tracking on lateral move, the direct behavioural
+consequence of ADR-069's fixed view vector), fixture 12 (negative-intensity
+cancellation), fixture 13 (beam bidirectionality), fixture 14 (parallel-light
+direction), fixture 15 (point-source limit), fixture 16 (zone locking).
+Fixture 9 (default lighting state) is a reasonable smoke test once the
+above pass.
+
+**Predecessors:** WU-26 (hard, `surfaceNormal()` — already available).
+
+**Not resolved by this scoping note, left for WU-27's own build session:**
+the ADR-070 facet-normal-vs-analytic-normal design fork; whether `model(L,
+zone)`'s LUT contents can be genuinely tabulated before the real Starlight
+patent (EP 0248626/US 4,899,295) arrives — see Deliverable 5, blocked-work
+register, for the recommended pluggable-LUT workaround that unblocks the
+closed-form/falloff/view-vector parts of this unit regardless.
 
 ### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
@@ -2039,9 +2072,18 @@ but never switched on for real content) is not lost either. No code
 written. See `HANDOFF.md`.
 
 ### WU-29 — Environment map `todo`
+**Premise check, WU-36 (this sweep, `docs/wu-audit-2026-08.md`):** F2/ADR-069
+fixes the Starlight view vector as orthographic and per-effect-fixed, not
+per-pixel. An environment map conventionally implies a reflection direction
+that depends on view position, which a fixed view vector may make degenerate
+or at least historically inauthentic. Whoever scopes WU-29 must decide
+whether a historically-faithful environment map is even meaningful under
+ADR-069's fixed view vector, or whether this unit is a deliberate, flagged
+departure from strict Starlight reproduction — a design decision, not
+resolved by this documentation-only sweep. Not scoped past this note.
 
 ### WU-33 — Front/back source pair, selected by facing `todo`
-**New this session (WU-32, `DECISIONS.md` ADR-073).** Historical finding:
+**New Session 41 (WU-32, `DECISIONS.md` ADR-073).** Historical finding:
 front and back are two independently freezable video sources selected per
 sample by the sign of the surface normal, not a transition A/B pair
 (`docs/sources/WU-SM-01.md` §3.9.4.3). scatter-dve already has half of the
@@ -2052,6 +2094,28 @@ second source raster enters the pipeline (a second `SourceRaster` per
 `runFrame()`/`runFrameBytes()` call, most likely) and how `binner.cpp`
 samples front vs. back per fragment, consuming WU-26/WU-28c's own facing
 signal rather than duplicating it. Depends on WU-26 and WU-28c.
+
+**Scope amendment, WU-36 (this sweep) — F6 confirmed by reading the real
+code, not inferred:** every current ingest entry point (`core/binner.hpp`'s
+`generateFragments()`/`generateFragmentsRowRange()`/`*TagByFacing()`,
+`core/resolve.hpp`'s `runFrame()`/`runFrameBytes()`/`runFrameFile()`,
+`core/pipeline.cpp`'s `runThreaded()`) takes exactly one `SourceRaster`.
+This unit's real file footprint therefore includes *modifying* those
+already-green, frozen-signature files — a new `SourceRaster` parameter
+threaded through each — not only adding new ones beside them, which is a
+materially larger and more central change than every other Phase-7 unit
+built so far (all of which have been strictly additive). On the live-capture
+side, `io/decklink_input.hpp`/`.cpp` and `io/decklink_capture_consumer.hpp`/
+`.cpp` (WU-20b/WU-21b, both green) would need a second, independent
+capture-source-and-consumer pair per ADR-073's own "two independently
+freezable" requirement — `CaptureConsumer` today holds exactly one
+`Lattice` by value (WU-21f's `setLattice()`) with no notion of a second
+video feed at all. None of this is a defect in what shipped; it is why this
+unit was flagged as one of the three most consequential open scoping
+questions in this sweep's checkpoint summary. Per Ground Rule 3, this does
+not move WU-33 earlier or renumber anything — it is recorded here so
+whoever picks WU-33 up scopes it against its real footprint from the start
+rather than discovering it mid-session.
 
 ### WU-34 — Coarse-grid shading: filtering ladder and grid shift `todo`
 **New this session (WU-32, `DECISIONS.md` ADR-070).** Historical finding:
@@ -2095,6 +2159,55 @@ catch. Depends on WU-26 (depth gradient), WU-28a/WU-28b (the k-buffer
 storage this either extends or sits beside), and (soft dependency, for
 validation) WU-33 (front/back source pair — fixture 21/23 need real
 front/back content to exercise arbitration against, not just tags).
+
+**Scope amendment, WU-36 (this sweep, `docs/wu-audit-2026-08.md`):** the
+continuation prompt that opened this sweep suggested a specific Phase 7
+shape — "k=1 soft-z with an equal-depth blend band first; full k-buffer as
+a follow-on unit" — as a minimum for a unit named `WU-28`. That describes a
+design that was never built; what actually shipped and is green is a k=4,
+tag-keyed buffer (`WU-28a`–`WU-28d`, `ADR-059`–`ADR-062`/`ADR-065`), already
+reconciled with these findings by WU-32/this sweep's own audit (see
+`docs/wu-audit-2026-08.md`, Deliverable 1). Per Ground Rule 2, WU-28a/b/c
+are not reopened; per Ground Rule 3, they are not renumbered or restated as
+a k=1 design. **This unit (WU-35) remains the correct vehicle** for
+reconciling ADR-072/074 with the shipped k=4 design — the continuation
+prompt's suggested shape should be treated as superseded context, not
+actioned. One further scope item found this sweep: `WU-12b`'s
+`compositeLayered()` (page-turn priority-tag opacity) is a *second*,
+already-shipped, order-driven arbitration mechanism that ADR-074's
+swappable-interface requirement does not mention. Whoever scopes WU-35
+should explicitly decide whether `compositeLayered()` moves behind the
+future interface too, or is documented as a permanently separate,
+page-turn-specific mechanism outside ADR-074's scope — not resolved here.
+
+### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
+**New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —
+adjust if it collides with a unit named between this sweep and whenever it
+is picked up.** Historical finding (ADR-069, WU-SM-01.md §4.6.3, [C] but
+well-supported): `model(L, zone)` is almost certainly a look-up table
+indexed on `cos B`, matching S5's own chisel circuit's "function
+generator... may include a look-up table" idiom. Eight named models are
+attested (`Model 1`…`4`, `Ramp`, `Posterise`, `2 ring`, `4 ring`) but their
+actual tabulated curves are not — that requires the real Starlight patent,
+**EP 0248626 / US 4,899,295**, identified by this project (F1/ADR-069) but
+not yet obtained (see Deliverable 5, blocked-work register).
+
+**What can be built now, per the blocked-work register:** the
+`model(L, zone)` interface itself — an enum/id selecting one of eight
+slots, each a pluggable `cos B -> intensity` LUT (or closed-form stand-in)
+— with placeholder curves (e.g. a linear ramp for `Ramp`, a stepped
+function for `Posterise`, uniform rings for `2 ring`/`4 ring`) clearly
+marked provisional. This unblocks WU-27's own closed-form Phong evaluator
+(ADR-069's equation, falloff and fixed view vector are already [A]/settled
+independent of the LUT contents) from waiting on the patent at all; only
+the *exact tabulated curves* are blocked, not the mechanism.
+
+**Not scoped past this note:** file list, exact placeholder curve shapes,
+and how a caller selects a model per `(light, zone)` (ADR-071) are all real
+scoping work for whoever picks this up, informed by whatever WU-27 itself
+settles on for its own file layout. Depends on WU-27 (or scope together,
+per WU-34's own precedent for an overlapping pair) for the interface point
+the LUTs plug into.
 
 ---
 
@@ -2155,3 +2268,33 @@ them.
 *Status:* `green` — no build-affecting change, so the sandbox matrix and
 `test_scan_order_invariance` are the whole test surface; see `HANDOFF.md`
 for the run.
+
+### WU-36 — Work-unit re-plan sweep against WU-32's findings `green`
+Documentation-only, per its own opening brief: audited every one of the 53
+units then in `WORK-UNITS.md` against F1–F10 (WU-32's own findings),
+produced an audit register with a verdict per unit, a revised Phase 7 plan,
+a green-tag review-candidate list, a dependency graph, and a blocked-work
+register. Read the real source tree directly for every finding that could
+only be confirmed that way (F5 leakage, F6 architecture, F4 pipeline order,
+F7 culling, F10 ordering) rather than reasoning from the ADRs alone. No
+green tag reopened; no production code touched.
+
+**Files:** `docs/wu-audit-2026-08.md` (new — the full audit register plus
+Deliverables 3/4/5), `WORK-UNITS.md` (this Phase 7 amendment: WU-27 scoped
+for the first time, WU-29/WU-33/WU-35 amended with scope notes, WU-37
+added, this entry), `HANDOFF.md`.
+
+**Accept:** the four-configuration build matrix unchanged and green (no
+source file touched); no test result altered; every one of the 53
+pre-existing units carries a verdict in `docs/wu-audit-2026-08.md`'s
+register.
+
+**Not done, and explicitly not this unit's job:** does not resolve F9 (the
+M1/M2/M3 arbitration mechanism choice stays open, and WU-35's own arbitration
+interface stays swappable); does not reopen any green tag — WU-12b, WU-19b,
+WU-22c and WU-26 are named as green-tag review candidates, not corrected;
+does not implement any part of WU-27/WU-33/WU-35/WU-37 beyond the scope
+notes above.
+
+*Status:* `green` — no build-affecting change; see `docs/wu-audit-2026-08.md`
+and `HANDOFF.md` for the full sweep.
