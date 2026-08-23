@@ -40,6 +40,7 @@
 
 #include "core/binner.hpp"
 #include "core/types.hpp"
+#include "video/deinterlace.hpp"
 #include "video/raster.hpp"
 
 #include <array>
@@ -508,6 +509,65 @@ void runFrameBytes(const Lattice& lattice,
                     int srcWidth, int srcHeight,
                     const PipelineParams& params,
                     std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes);
+
+// ---------------------------------------------------------------------------
+// De-interlaced bytes path -- WU-23b2a (DECISIONS.md ADR-080). WU-23b2's own
+// live-capture wiring (WU-23b2b, io/decklink_capture_consumer.cpp, not this
+// unit) needs a de-interlace-then-warp route into this pipeline, and
+// runFrameBytes() above cannot be reused for it: its own chroma-upsampled
+// weave Raster444 -- exactly the shape video::Deinterlacer::push() requires
+// -- is a local variable of runFrameBytes() itself, never exposed to any
+// caller (CORRECTIONS.md C-027). This is the same shared middle
+// runFrameBytes() above already runs (v210 unpack, chroma upsample,
+// runFrame(), chroma downsample, v210 pack), with `deinterlacer.push()`
+// inserted between the chroma upsample and runFrame() -- see
+// core/pipeline.cpp for the body, and ADR-080 for the full design account.
+//
+// `deinterlacer` is a caller-owned instance, taken by reference and not
+// folded into PipelineParams -- PipelineParams is shared by every
+// runFrame()/runFrameField()/runFrameBytes() caller in this codebase,
+// including every non-interlaced test, and a single-caller-only field there
+// would be exactly the scope creep ADR-078 already declined when it chose a
+// new sibling file over folding Deinterlacer into video/interlace.hpp. A
+// caller drives one Deinterlacer across a sequence of calls to this
+// function, one weave frame per call, exactly as it would drive
+// Deinterlacer::push() directly -- this function's own internal push() call
+// shares that same instance's history, not a fresh one per call.
+//
+// Mirrors Deinterlacer::push()'s own contract exactly (video/deinterlace.hpp):
+// returns false, dstBytes completely untouched, on the very first call ever
+// made against a freshly constructed `deinterlacer` -- there is no prior
+// frame yet for the filter's own three-frame history to reconstruct
+// anything from. Every call from the second onward returns true and writes
+// a fully processed frame into dstBytes, exactly as runFrameBytes() above
+// does. (The same bool-return shape runFrameFile() above already uses for a
+// different reason -- a file operation that can fail -- reused here for
+// push()'s own "no output yet" case instead; runFrame()/runFrameBytes()
+// themselves have no failure of their own, by construction.)
+//
+// Output-side "[re-interlace]" (docs/architecture.md section 3, after PASS
+// 2, before chroma decimate) is deliberately NOT implemented here as an
+// explicit video::extractField()/interleaveFields() pass: ADR-080 proves
+// that composition is an exact no-op for this project's own frame-rate-only
+// mode (docs/architecture.md section 5 frames de-interlace-to-frame and
+// field mode as alternatives, never combined, so this mode never produces
+// two independently-warped fields for the output side to recombine) --
+// runFrame()'s own warped output goes straight to chroma downsample, the
+// same way runFrameBytes() above already does.
+//
+// Preconditions, unchecked -- the same convention runFrameBytes() above
+// already uses: srcBytes holds at least srcRowBytes * srcHeight bytes of
+// packed v210; dstBytes holds at least dstRowBytes * params.destHeight
+// bytes, and dstRowBytes is at least video::v210::rowBytesMin(params.destWidth).
+// Every weaveFrame this function ever builds from srcBytes across
+// `deinterlacer`'s own lifetime must share one consistent srcWidth/srcHeight
+// -- Deinterlacer::push()'s own precondition, unchanged, passed through.
+bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
+                                const Lattice& lattice,
+                                const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                                int srcWidth, int srcHeight,
+                                const PipelineParams& params,
+                                std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes);
 
 // Full file-to-file path -- architecture.md section 3's complete signal
 // path: v210 unpack, chroma upsample, runFrame() above, chroma downsample,

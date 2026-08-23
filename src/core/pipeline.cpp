@@ -679,6 +679,94 @@ void runFrameBytes(const Lattice& lattice,
                             dstBytes, dstRowBytes);
 }
 
+// runFrameBytesDeinterlaced() -- WU-23b2a (DECISIONS.md ADR-080). Reproduces
+// runFrameBytes()'s own shared sequence above (v210 unpack, chroma upsample,
+// runFrame(), chroma downsample, v210 pack) exactly, with `deinterlacer`'s
+// own push() inserted between the chroma upsample and runFrame() -- see
+// core/resolve.hpp for the full design account and CORRECTIONS.md C-027 for
+// why runFrameBytes() itself could not simply be extended in place (its own
+// chroma-upsampled weave Raster444 is a local variable, never reachable by
+// any caller).
+bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
+                                const Lattice& lattice,
+                                const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                                int srcWidth, int srcHeight,
+                                const PipelineParams& params,
+                                std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes) {
+    // v210 unpack (WU-02) straight out of the caller's own buffer -- exactly
+    // runFrameBytes()'s own first step above.
+    video::Raster422 in(srcWidth, srcHeight);
+    v210::unpackImage(srcBytes, srcRowBytes, srcWidth, srcHeight,
+                              in.Y.data(), in.planeY().strideSamples,
+                              in.Cb.data(), in.Cr.data(), in.planeCb().strideSamples);
+
+    // Chroma upsample 4:2:2 -> 4:4:4 (ADR-005) into the full-height "weave"
+    // frame -- exactly the shape video::Deinterlacer::push() requires
+    // (video::extractField()'s own precondition vocabulary, video/deinterlace.hpp);
+    // luma passes straight through, same as runFrameBytes()'s other callers.
+    video::Raster444 weave(srcWidth, srcHeight);
+    std::copy(in.Y.begin(), in.Y.end(), weave.Y.begin());
+    chroma::upsampleImage(in.Cb.data(), in.planeCb().strideSamples,
+                           srcWidth, srcHeight,
+                           weave.Cb.data(), weave.planeCb().strideSamples);
+    chroma::upsampleImage(in.Cr.data(), in.planeCr().strideSamples,
+                           srcWidth, srcHeight,
+                           weave.Cr.data(), weave.planeCr().strideSamples);
+
+    // Deinterlace -- the one step runFrameBytes() above does not have.
+    // ADR-080: mirrors push()'s own contract exactly. On the very first call
+    // ever made against a freshly constructed `deinterlacer`, push() returns
+    // false and `progressive` is left whatever Raster444's own constructor
+    // zero-initialised it to -- dstBytes must stay completely untouched in
+    // that case, so this returns immediately, before touching runFrame() or
+    // dstBytes at all.
+    video::Raster444 progressive(srcWidth, srcHeight);
+    if (!deinterlacer.push(weave, progressive)) {
+        return false;
+    }
+
+    // The reconstructed full-height progressive frame -- not `weave` -- is
+    // this call's own source raster for the warp, exactly the same relative
+    // position `full` occupies in runFrameBytes() above.
+    SourceRaster src;
+    src.width = srcWidth;
+    src.height = srcHeight;
+    src.y = progressive.Y.data();
+    src.cb = progressive.Cb.data();
+    src.cr = progressive.Cr.data();
+
+    video::Raster444 warped(params.destWidth, params.destHeight);
+    runFrame(lattice, src, params, warped);
+
+    // Output-side "[re-interlace]" is a provable no-op for this project's
+    // own frame-rate-only mode (ADR-080: video::extractField() applied for
+    // both parities followed by video::interleaveFields() over the *same*
+    // source frame reproduces every row at its own original index exactly,
+    // an algebraic identity of the row-index arithmetic itself) -- so
+    // `warped` goes straight to chroma downsample below, exactly as
+    // runFrameBytes() above does with its own (non-deinterlaced) warped
+    // output. Not a corner cut: WORK-UNITS.md's own WU-23b2a Accept line
+    // checks this identity directly, by building the same output via an
+    // explicit extractField() x2 + interleaveFields() pass and comparing
+    // byte for byte against the no-op path shipped here.
+    video::Raster422 out(params.destWidth, params.destHeight);
+    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
+    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+                             params.destWidth, params.destHeight,
+                             out.Cb.data(), out.planeCb().strideSamples);
+    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+                             params.destWidth, params.destHeight,
+                             out.Cr.data(), out.planeCr().strideSamples);
+
+    // v210 pack (WU-02) straight into the caller's own buffer -- exactly
+    // runFrameBytes()'s own last step above.
+    v210::packImage(out.Y.data(), out.planeY().strideSamples,
+                            out.Cb.data(), out.Cr.data(), out.planeCb().strideSamples,
+                            params.destWidth, params.destHeight,
+                            dstBytes, dstRowBytes);
+    return true;
+}
+
 bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                    int srcWidth, int srcHeight, const PipelineParams& params,
                    const std::string& dstPath) {

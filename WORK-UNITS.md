@@ -1898,11 +1898,13 @@ tag, not `./tools/close.sh 23a2b`.
 
 **Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
 complete.** WU-23b split into WU-23b1 (filter core, `video::Deinterlacer`,
-scoped `DECISIONS.md` ADR-078, built `DECISIONS.md` ADR-079 — unverified,
-needs a real build/`ctest` run) and WU-23b2 (live-capture wiring), itself
-split this session (`DECISIONS.md` ADR-080) into WU-23b2a (the new
-`runFrameBytesDeinterlaced()` orchestration entry point) and WU-23b2b
-(`CaptureConsumer` wiring, gated on WU-23b2a's own actual interface).
+scoped `DECISIONS.md` ADR-078, built `DECISIONS.md` ADR-079, tagged
+`wu-23b1-green`) and WU-23b2 (live-capture wiring), itself split into
+WU-23b2a (the new `runFrameBytesDeinterlaced()` orchestration entry
+point — scoped `DECISIONS.md` ADR-080, built this session, cloud-sandbox
+green, Steve's own real-terminal build/tag still pending) and WU-23b2b
+(`CaptureConsumer` wiring, gated on WU-23b2a's own actual interface, not
+started).
 
 ### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `built, unverified`
 Built this session (`DECISIONS.md` ADR-079). Scoped in the immediately
@@ -1987,7 +1989,7 @@ run (GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and 2^5,
 plus GCC 13 ASan/UBSan at both tile sizes, this project's own standard
 portable-unit matrix) before `wu-23b1-green`. See `HANDOFF.md`.
 
-### WU-23b2a — Weston 3-field de-interlace: `runFrameBytesDeinterlaced()` orchestration entry point `todo`
+### WU-23b2a — Weston 3-field de-interlace: `runFrameBytesDeinterlaced()` orchestration entry point `built, cloud-sandbox green`
 Scoped this session (`DECISIONS.md` ADR-080), splitting WU-23b2 per
 `SESSION-PROTOCOL.md`'s 3-source-file cap — the full wiring touches four
 source files, one over the cap, and splits along the seam ADR-080's own
@@ -2061,9 +2063,23 @@ its new sibling).
 - 625i50 geometry (720×576) exercised directly, per Steve's own
   stay-in-SD-domain scope decision — not 1080i.
 
-*Status:* todo. No DeckLink dependency — portable, buildable and
-testable in this project's own Linux cloud sandbox, the same shape
-WU-23b1 already used.
+*Status:* built and tested this session — `core/resolve.hpp`/`core/pipeline.cpp`
+implement the frozen ADR-080 design exactly (no redesign, no new
+`DECISIONS.md`/`CORRECTIONS.md` entries needed), and
+`tests/test_pipeline_bytes.cpp` was extended with four new checks
+covering every bullet of this entry's own `Accept:` line above,
+including a direct check of the re-interlace no-op claim against an
+explicit `extractField()`x2 + `interleaveFields()` pass (not merely
+trusting ADR-080's own algebra) and a 625i50 (720x576) geometry pass,
+per Steve's own stay-in-SD-domain scope decision. All 10 configurations
+of this project's own standard portable-unit matrix (GCC 13.3.0 and
+Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5, plus GCC
+13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes) are green in this project's own Linux cloud sandbox. Cloud-sandbox
+green is not real-terminal green (`SESSION-PROTOCOL.md`'s own "sandbox
+edits are not delivered until pushed" discipline) — needs Steve's own
+real-terminal `cmake --build`/`ctest` run and manual tag before
+`wu-23b2a-green`. See `HANDOFF.md`.
 
 ### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `todo`
 Scoped this session (`DECISIONS.md` ADR-080) alongside WU-23b2a, above —

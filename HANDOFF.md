@@ -3,175 +3,166 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 48 (WU-23b2 scoping — Weston 3-field de-interlace: live-capture
-wiring. Scoping only, no code, per this session's own continuation
-prompt's explicit brief).
+**Session:** 49 (WU-23b2a build — Weston 3-field de-interlace:
+`runFrameBytesDeinterlaced()` orchestration entry point).
 
-**Tag:** `wu-23b1-green` is still the newest real tag on the repository
-(confirmed this session). This session wrote no code, so there is
-nothing new to tag — `DECISIONS.md` (ADR-080), `CORRECTIONS.md` (C-027)
-and `WORK-UNITS.md` (WU-23b2 split into WU-23b2a/WU-23b2b) were committed
-doc-only, no build/test implications. See "Steve's own next steps" below.
+**Tag:** `wu-23b1-green` is still the newest real tag on the repository as
+of this session's own start (confirmed directly). This session's own new
+code is built and tested green in the cloud sandbox but not yet tagged —
+that is Steve's own next step, below (`wu-23b2a-green`).
 
 ## Before doing anything else in the next session
 
 Run `git tag --sort=creatordate`, `git log --oneline -10`, `git rev-parse
 HEAD origin/main` and `git status --short` directly against
-`~/src/scatter-dve` (via the device bridge, or at a real terminal) — do
-not trust this file's own account without checking it against the real
-repository first. **In particular, confirm this session's own commits
-actually reached `origin/main`** — see "Steve's own next steps" below;
-this session's own device-bridge sandbox has no network egress to
-GitHub, so the commits made here are local-only on the Mac until Steve
-pushes them himself.
+`~/src/scatter-dve` — do not trust this file's own account without
+checking it against the real repository first.
 
 ## This session in full
 
-Opened with a continuation prompt whose job was scoping WU-23b2
-(live-capture wiring plus the output-side re-interlace decimate) — named
-but deliberately left unscoped by the immediately preceding session's own
-WU-23b1 build, per ADR-078's "scope the wiring unit after the component
-it wires exists" sequencing.
+Opened with a continuation prompt whose own job was resolving the
+immediately preceding session's own unpushed-commits loose end, then
+building WU-23b2a.
 
 **Repository state, confirmed directly before reading anything else:**
-`git tag --sort=creatordate` (newest: `wu-23b1-green`), `git log
---oneline -10` (`HEAD` = `6de0818`, "WU-23b1: Weston 3-field de-interlace
-filter core..."), `git rev-parse HEAD origin/main` (both
-`6de0818672202330b5d9add212d32394b2f07aef`) — all matching the
-continuation prompt's own expected state exactly.
+`git tag --sort=creatordate` (newest: `wu-23b1-green`, matching the
+continuation prompt's own expected state exactly), `git log --oneline
+-10` (`HEAD` = `dcca567`, "WU-23b2 scoping: split into WU-23b2a/WU-23b2b
+(ADR-080), corrects prior wiring assumption (C-027)", immediately
+preceded by `982e3e2`, "Session 47 close-out..." — both matching the
+continuation prompt's own expected short hashes exactly), `git status
+--short` (clean at session start).
 
-**Handled the one loose end the continuation prompt flagged:**
-`git status --short` showed exactly `M CORRECTIONS.md` and `M HANDOFF.md`
-(the immediately preceding session's own close-out fix, written to the
-real repository after `wu-23b1-green` was already tagged/pushed). Hit
-the device bridge's own known `.git/index.lock`/`HEAD.lock` stray-file
-problem twice while committing this and while re-checking status
-afterward (the bridge's sandbox cannot delete files it creates during its
-own git invocations) — moved each stray lock into `_to_delete/` rather
-than fighting it, per this project's own standing convention, then
-retried. Committed as `982e3e2` ("Session 47 close-out: fix wrong
-git-add path in HANDOFF.md, log C-026"). **`git push origin main` failed:
-this session's own device-bridge sandbox has no network egress to
-GitHub** (`403 from proxy after CONNECT`, confirmed on a second attempt,
-not transient) — a new, previously-unencountered limitation of this
-particular sandbox, distinct from the already-known index-lock problem.
-`982e3e2` is a real commit on the Mac's own `main` branch but is not yet
-on `origin`. See "Steve's own next steps" below — this needs a manual
-push before this session's own new commit (below) goes on top of it.
+**The continuation prompt's own flagged loose end was already closed by
+the time this session started:** `git rev-parse HEAD origin/main`
+returned the same hash twice
+(`dcca56740b6caeaedc381557c84afa99599a0af3`) — Steve had already pushed
+the immediately preceding session's own doc-only commits before this
+session began. No push was needed or attempted this session for that;
+said so plainly per the continuation prompt's own instruction, and moved
+straight to this session's own actual job.
 
-**Read directly, not from memory or paraphrase, before proposing any
-design** (continuation prompt's own five-item list): `io/decklink_capture_consumer.hpp`/`.cpp`,
-`video/deinterlace.hpp`, `core/resolve.hpp`, `core/pipeline.cpp`
-(specifically `runFrameBytes()`, lines ~630-680, and `runFrameField()` as
-its own precedent for a new orchestration entry point), `video/interlace.hpp`/`.cpp`,
-and `docs/architecture.md` sections 3 and 5.
+**Read directly, not from memory or paraphrase, before writing anything**
+(continuation prompt's own list): `SESSION-PROTOCOL.md`, `HANDOFF.md`,
+`INVARIANTS.md`, `DECISIONS.md` (ADR-080 in full), `CORRECTIONS.md`
+(C-026/C-027 in full), `WORK-UNITS.md` (WU-23b2a's own entry in full),
+`core/resolve.hpp`, `core/pipeline.cpp`'s `runFrameBytes()` (confirmed at
+the stated ~lines 630-680), `video/deinterlace.hpp`,
+`video/interlace.hpp`/`.cpp`, `tests/test_pipeline_bytes.cpp`,
+`tests/test_deinterlace.cpp` (for `Deinterlacer`'s own real call
+convention and `push()`'s own one-frame-latency state machine),
+`tools/testpat.hpp`, `tests/harness.hpp`.
 
-**Found a real gap in WU-23b2's own prior (pre-split) scoping stub,
-logged as `CORRECTIONS.md` C-027:** `CaptureConsumer::processOne()`
-cannot call `Deinterlacer::push()` "ahead of the existing warp" as that
-stub assumed — `processOne()` calls `scatter::runFrameBytes()` exactly
-once, and that function's own chroma-upsampled weave `Raster444` (the
-exact shape `push()` needs) is a local variable, never exposed to any
-caller. The real trigger for needing a new `core/resolve.hpp`/
-`core/pipeline.cpp` orchestration entry point is this, not (as the stub
-guessed) the output-side decimate's own complexity — which turned out to
-be a provable no-op (below).
+**Re-derived, not merely trusted, ADR-080's own
+`extractField()`/`interleaveFields()` no-op proof before relying on it**
+(continuation prompt's own explicit instruction): read `video/interlace.cpp`
+directly — `extractField()` copies frame row `2*fy + rowOffset` into
+field row `fy`; `interleaveFields()` writes field row `fy` back into dest
+row `2*fy + rowOffset`. Applying both parities' `extractField()` and then
+`interleaveFields()` to the same source frame reproduces every row at its
+own original index exactly — confirmed algebraically, not assumed from
+the ADR's own paraphrase, before writing `runFrameBytesDeinterlaced()`'s
+own body to rely on it. This is also checked directly at runtime now, not
+merely proven on paper — see `tests/test_pipeline_bytes.cpp`'s new
+`test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace()`,
+below.
 
-**Settled all three of ADR-078's own open design questions, `DECISIONS.md`
-ADR-080:**
+**Built WU-23b2a exactly as ADR-080/`WORK-UNITS.md` already froze it — no
+redesign, no new `DECISIONS.md` entry needed:**
 
-1. **A new orchestration entry point is required, and does not fit
-   inside `io/decklink_capture_consumer.cpp` alone.** New sibling
-   function `bool runFrameBytesDeinterlaced(video::Deinterlacer&,
-   const Lattice&, const std::uint8_t* srcBytes, std::ptrdiff_t
-   srcRowBytes, int srcWidth, int srcHeight, const PipelineParams&,
-   std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes)`, declared in
-   `core/resolve.hpp`, defined in `core/pipeline.cpp` — the same
-   "declare a new `.cpp`'s public entry point in an existing, related
-   header" shape `runFrameField()` already used. `Deinterlacer` is a
-   reference parameter, not folded into `PipelineParams` (which every
-   non-interlaced caller in this codebase also uses).
-2. **Output-side "[re-interlace]" is a provable no-op, not new code.**
-   `extractField()`+`interleaveFields()`, re-derived directly from
-   `video/interlace.cpp`'s own row-index arithmetic, reproduce their
-   input exactly when applied to the same source frame in sequence — an
-   algebraic identity, not an approximation — because
-   `docs/architecture.md` section 5 frames de-interlace-to-frame and
-   field mode as *alternative* processing paths, never combined, so this
-   project's own frame-rate-only mode never has two independently-warped
-   fields to recombine on the output side. `runFrameBytesDeinterlaced()`
-   sends `runFrame()`'s own `warped` output straight to chroma
-   downsample, with a comment citing ADR-080 for why this is correct,
-   not a corner cut.
-3. **One `Deinterlacer` instance, not two.** A single instance already
-   produces one complete progressive frame per push (anchor parity
-   verbatim, the other reconstructed); a second, opposite-anchor
-   instance would only matter for field-rate output, already ruled out
-   by ADR-078. `CaptureConsumer` gets exactly one member, anchored
-   `FieldParity::Top` (this project's own existing convention;
-   `bmdModePAL`'s real field dominance has never been independently
-   confirmed against hardware, but which parity is "anchor" is a
-   labelling choice, not a correctness one).
-4. **Stream-start behaviour.** Traced `Deinterlacer::push()`'s own state
-   machine precisely: only the very first push of a given instance's own
-   lifetime ever returns `false` — a one-time, once-per-`CaptureConsumer`
-   event, not a recurring cost. Decision: leave `m_latestFrame` untouched
-   on that one frame (extending, not inventing, `copyLatestFrame()`'s
-   own existing "nothing produced yet" semantics) and skip the
-   warp/splat/resolve pipeline for it entirely, which
-   `runFrameBytesDeinterlaced()`'s own `false`-return-before-touching-
-   `runFrame()` behaviour already guarantees. Counted by a new, fourth
-   `CaptureConsumerStats` counter (name left for the build session), not
-   `framesFailed` — this is not an error.
+- `core/resolve.hpp`: added `#include "video/deinterlace.hpp"`; declared
+  `runFrameBytesDeinterlaced(video::Deinterlacer&, const Lattice&, const
+  std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes, int srcWidth, int
+  srcHeight, const PipelineParams&, std::uint8_t* dstBytes,
+  std::ptrdiff_t dstRowBytes)`, the frozen signature verbatim, between
+  `runFrameBytes()` and `runFrameFile()`.
+- `core/pipeline.cpp`: defined it — reproduces `runFrameBytes()`'s own
+  sequence (v210 unpack, chroma upsample into a local weave `Raster444`,
+  chroma downsample, v210 pack) exactly, with
+  `deinterlacer.push(weave, progressive)` inserted between the chroma
+  upsample and `runFrame()`; returns `false` immediately (`dstBytes`
+  completely untouched) if `push()` returns `false`; `runFrame()` is
+  called against the reconstructed `progressive` frame, not the raw
+  `weave`; the output side sends `runFrame()`'s own `warped` result
+  straight to chroma downsample with no `extractField()`/
+  `interleaveFields()` call, per ADR-080's own no-op proof.
+- `tests/test_pipeline_bytes.cpp`: extended (not replaced) with four new
+  checks, one per `WORK-UNITS.md`'s own WU-23b2a `Accept:` bullets: (1)
+  a freshly constructed `Deinterlacer`'s first push leaves `dstBytes`
+  byte-for-byte unchanged and returns `false`, checked together with (2)
+  from the second push onward matching a hand-composed independent
+  reference (`unpackImage` → `upsampleImage` → `push()` → `runFrame()` →
+  `downsampleImage` → `packImage`, written independently of
+  `core/pipeline.cpp`'s own body) — both in
+  `test_deinterlaced_matches_reference_and_first_push_is_a_noop()`; (3)
+  the re-interlace no-op path matches an explicit `extractField()`x2 +
+  `interleaveFields()` variant byte for byte, in
+  `test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace()`;
+  (4) anchor-parity rows survive `runFrameBytesDeinterlaced()` unchanged
+  under an identity lattice (I7 does not apply directly to a lossy
+  de-interlaced round trip, so this substitutes for it), in
+  `test_deinterlaced_anchor_rows_survive_identity_round_trip()`; (5)
+  625i50 (720x576) geometry exercised directly, in
+  `test_deinterlaced_sd_geometry_sanity()`, reusing the same reference
+  cross-check at full SD size.
 
-**Gave WU-23b2 real `Files:`/`Accept:` lines, splitting it** (confirmed
-necessary: the full wiring touches four source files, one over
-`SESSION-PROTOCOL.md`'s 3-file cap) into:
+**Built and tested in this project's own Linux cloud sandbox, the full
+standard portable-unit matrix WU-23b1 already established — all 10
+configurations green:** GCC 13.3.0 and Clang 18.1.3, Release and Debug,
+`SCATTER_TILE_LOG2` 4 and 5, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes. `ctest`: 26 of 26 in every configuration (25 pre-existing tests,
+unaffected, plus `test_pipeline_bytes`'s own now-larger suite — 42
+checks, up from 2 tests' worth previously). No ASan/UBSan findings in any
+configuration. This is a pre-flight check, not a substitute for Steve's
+own real-terminal build — `SESSION-PROTOCOL.md`'s own "sandbox edits are
+not delivered until pushed" discipline, extended to "cloud-sandbox green
+is not real-terminal green" the same way WU-23b1's own `HANDOFF.md`
+entry already stated it. See "Steve's own next steps" below.
 
-- **WU-23b2a** — `runFrameBytesDeinterlaced()`: `core/resolve.hpp`,
-  `core/pipeline.cpp` (2 files), plus `tests/test_pipeline_bytes.cpp`
-  (edited, exempt from the cap). No DeckLink dependency — portable,
-  buildable next.
-- **WU-23b2b** — `CaptureConsumer` wiring: `io/decklink_capture_consumer.hpp`/`.cpp`
-  (2 files), plus `tests/test_decklink_capture_consumer.cpp` (edited,
-  exempt). Gated on WU-23b2a's own actual interface once built;
-  real-hardware-gated for its own `Accept:` line.
+**Wrote `core/resolve.hpp`, `core/pipeline.cpp`, `tests/test_pipeline_bytes.cpp`
+and `WORK-UNITS.md` to the real repository via the device bridge, then
+re-staged each from the device and diffed against this session's own
+edited copies before writing this sentence** (`SESSION-PROTOCOL.md`'s own
+rule 8) — all four came back byte-for-byte identical. `git status
+--short` against the real repository shows exactly `M WORK-UNITS.md`,
+`M src/core/pipeline.cpp`, `M src/core/resolve.hpp`,
+`M tests/test_pipeline_bytes.cpp` and nothing else (a stray
+`_scatter_dve_src_tmp.tar.gz`, an artifact of this session's own
+cloud-sandbox transfer mechanism, was created at the repository root and
+then moved into `_to_delete/` within the same session, not left in the
+tree). This `HANDOFF.md` is written the same way.
 
-Both units' own `Accept:` lines target 576i25/625i50 explicitly, not
-1080i — Steve's own stay-in-SD-domain scope decision, reiterated once
-more here per that decision's own standing "don't let it carry forward
-silently" request.
-
-**Wrote `DECISIONS.md` (ADR-080), `CORRECTIONS.md` (C-027) and
-`WORK-UNITS.md` (WU-23b2 split into WU-23b2a/WU-23b2b, and the Phase-6
-summary paragraph updated) to the real repository via the device
-bridge, then re-staged all three from the device and diffed against this
-session's own edited copies before writing this sentence —
-`SESSION-PROTOCOL.md`'s own rule 8.** This `HANDOFF.md` is written the
-same way. All four files are staged as local, uncommitted changes on the
-Mac as of this sentence — see "Steve's own next steps" below for the
-commit this session's own close-out block hands him, on top of the
-still-unpushed `982e3e2` from the loose-end paragraph above.
+No `DECISIONS.md` or `CORRECTIONS.md` entries this session: WU-23b2a's
+own implementation matched ADR-080's frozen design in every particular,
+including the `extractField()`/`interleaveFields()` no-op proof
+re-derived above — nothing ADR-080 assumed turned out wrong once the
+code was actually written.
 
 ## Where we are
 
-**WU-23b2 is scoped, not built** — `DECISIONS.md` now runs through
-ADR-080; `WORK-UNITS.md`'s WU-23b2 entry is replaced by WU-23b2a (`todo`)
-and WU-23b2b (`todo`, blocked on WU-23b2a); `INVARIANTS.md` unchanged
-through I11; `CORRECTIONS.md` now runs through C-027. No code exists yet
-for either new unit.
+**WU-23b2a is built and cloud-sandbox green, not yet tagged.**
+`core/resolve.hpp`/`core/pipeline.cpp` carry the new
+`runFrameBytesDeinterlaced()`; `tests/test_pipeline_bytes.cpp` carries
+its own new checks. `WORK-UNITS.md`'s WU-23b2a entry status line and the
+Phase 6 summary paragraph above it reflect this. `DECISIONS.md`
+unchanged through ADR-080; `CORRECTIONS.md` unchanged through C-027;
+`INVARIANTS.md` unchanged through I11. All four changed files are staged
+as local, uncommitted changes on the Mac as of this sentence — see
+"Steve's own next steps" below for the commit/tag/push this session's
+own close-out hands him.
 
 ## Next work unit
 
-**WU-23b2a** (`runFrameBytesDeinterlaced()`, `core/resolve.hpp`/
-`core/pipeline.cpp`) is the natural next pick — fully scoped this
-session (`DECISIONS.md` ADR-080, `WORK-UNITS.md`), no DeckLink
-dependency, genuinely depends on nothing but WU-23b1's own already-built
-`video::Deinterlacer`. WU-23b2b (`CaptureConsumer` wiring) is scoped but
-blocked on WU-23b2a's own actual interface once built — do not start it
-first. Everything named in Session 43's own "Next work unit" section
-(WU-28d, WU-27, WU-33, WU-35, WU-37) is unchanged and still pickable if
-the interlace thread is set aside instead.
+**WU-23b2b** (`CaptureConsumer` wiring, `io/decklink_capture_consumer.hpp`/`.cpp`)
+is the natural next pick once WU-23b2a is tagged `wu-23b2a-green` — fully
+scoped (`DECISIONS.md` ADR-080, `WORK-UNITS.md`), genuinely depends on
+WU-23b2a's own actual built interface, which now exists. Real-hardware-gated
+for its own `Accept:` line (per `WORK-UNITS.md`), so building it does not
+itself require the PSU or a real capture device, but verifying it fully
+eventually will. Everything named in Session 43's own "Next work unit"
+section (WU-28d, WU-27, WU-33, WU-35, WU-37) is unchanged and still
+pickable if the interlace thread is set aside instead.
 
 **Steve's own explicit stay-in-SD-domain scope decision (WU-24/WU-25
 skipped until he says otherwise) is unchanged and still in force** —
@@ -181,97 +172,112 @@ decision's own standing request not to let it be lost silently.
 ## Open questions
 
 Unchanged from Session 42/43's own list (`kCaptureRingCapacity`, Q3, Q4,
-Task A1, Task D6, ADR-070's open question, WU-35's `compositeLayered()`
-question) — this session did not touch any of them. WU-23b2's own
-stream-start question (ADR-078) is now resolved (ADR-080, above), not
-open any longer. One new item: `DeinterlaceCoefficients` (Simple vs
-Complex) for `CaptureConsumer`'s own new constructor parameter is
-deliberately left undecided (ADR-080) — WU-23b2b's own build session
-should raise it with Steve rather than default it silently.
+Task A1, Task D6, ADR-070's own open question, WU-35's
+`compositeLayered()` question) — this session did not touch any of them.
+`DeinterlaceCoefficients` (Simple vs Complex) for `CaptureConsumer`'s own
+new constructor parameter (ADR-080) is also unchanged and still open —
+WU-23b2b's own build session should raise it with Steve, not default it
+silently; this session's own job was WU-23b2a alone, which has no such
+parameter of its own to decide (it takes an already-constructed
+`Deinterlacer&`).
+
+One aside, not this session's own job to fix: `WORK-UNITS.md`'s own
+WU-23b1 entry still read (before this session's own edits above, which
+did not touch it) "built this session, unverified — needs a real
+build/`ctest` run... before `wu-23b1-green`," even though the real
+repository's own newest tag confirms `wu-23b1-green` already exists —
+the same kind of stale status line a past correction sweep (`0dc2247`,
+"WORK-UNITS.md: correct six stale status lines") already fixed once for
+other units. Left alone this session (out of scope — one session, one
+work unit) but worth a future sweep.
 
 ## Blocked / red
 
-Nothing red. WU-23b2b is blocked on WU-23b2a by design (not a problem —
-the same sequencing WU-23a2b was blocked on WU-23a2a). **New this
-session: this session's own commit (`982e3e2`, the prior session's
-loose-end fix) is on the Mac's own local `main` but not yet on
-`origin`** — the device-bridge sandbox this session ran in has no
-network egress to GitHub. Not a repository problem, a sandbox
-limitation; Steve's own real terminal has ordinary network access and
-just needs to push. See "Steve's own next steps" below.
+Nothing red. WU-23b2b is blocked on WU-23b2a by design (not a problem)
+until Steve's own real-terminal tag lands — the same sequencing WU-23a2b
+was blocked on WU-23a2a, and WU-23b2 itself on WU-23b1, before it.
 
 ## Environment check
 
-This session did no building or testing — scoping only, reading state
-files and source directly via the device bridge. The standing condition
-from prior sessions (C-024: `tools/close.sh` cannot currently succeed
-for any unit, on Steve's real terminal, because of the PSU/two-device-
-architecture mismatch — `DECISIONS.md` ADR-034/035/037, `CORRECTIONS.md`
-C-024) is unchanged and unaffected — nothing this session did touches it
-either way. **New this session, worth carrying forward explicitly: the
-device-bridge sandbox has no network egress to GitHub** (confirmed
-directly, not assumed — a real `git push` attempt, twice, both failing
-identically with a proxy 403) — any future session that commits
-doc-only or code changes via this bridge should expect the same and plan
-to hand Steve an explicit `git push` step, not assume the bridge can
-push on its own the way it can commit.
+This session built and ran real code in this project's own Linux cloud
+sandbox (Ubuntu 24.04, GCC 13.3.0 / Clang 18.1.3 both present, matching
+the versions this project's own standard matrix already names) — no
+DeckLink SDK configured there (`BLACKMAGIC_SDK_DIR` unset), so
+`scatter-decklink` and every DeckLink-linked test, including
+`test_decklink_device`, are not even configured in that sandbox; this
+unit touches no DeckLink-linked file and needs none of them regardless
+(same scope as WU-23b1). The standing condition from prior sessions
+(C-024: `tools/close.sh` cannot currently succeed for any unit on
+Steve's own real terminal, where the DeckLink SDK *is* configured,
+because of the PSU/two-device-architecture mismatch — `DECISIONS.md`
+ADR-034/035/037, `CORRECTIONS.md` C-024) is unchanged and unaffected by
+this session — Steve's own real-terminal `ctest` run below should still
+show `test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
+failing, expected, not blocking. The device-bridge sandbox used this
+session for git/file operations (distinct from the Linux cloud sandbox
+above) had ordinary read/write access this time — no `.git/index.lock`
+stray files encountered, and `git push` was not attempted from it
+(nothing needed pushing, per the loose-end check above) so its own
+network-egress behaviour this session is untested one way or the other;
+do not assume either way next session.
 
 ## Append to DECISIONS.md
 
-**ADR-080** — already appended in full this session (WU-23b2 scoping:
-split into WU-23b2a/WU-23b2b; `runFrameBytesDeinterlaced()` design;
-stream-start, single-instance and output re-interlace-is-a-no-op
-questions all settled). See `DECISIONS.md`.
+Nothing this session — WU-23b2a's own implementation matched ADR-080's
+already-frozen design exactly.
 
 ## Append to CORRECTIONS.md
 
-**C-027** — already appended in full this session (WU-23b2's own prior
-scoping stub wrongly assumed `processOne()` could call `Deinterlacer::push()`
-directly and that a third file's necessity hinged on the output decimate's
-own complexity; corrected, full account in `DECISIONS.md` ADR-080). See
-`CORRECTIONS.md`.
+Nothing this session — no assumption ADR-080 made turned out wrong once
+the code was written, including the `extractField()`/`interleaveFields()`
+no-op proof, re-derived directly and confirmed (see "This session in
+full," above, and `tests/test_pipeline_bytes.cpp`'s own new
+`test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace()`).
 
 ## Closed out this session
 
-**WU-23b2 scoping.** `DECISIONS.md` ADR-080, `CORRECTIONS.md` C-027,
-`WORK-UNITS.md`'s WU-23b2 entry replaced by WU-23b2a/WU-23b2b with real
-`Files:`/`Accept:` lines, this `HANDOFF.md`. No source code changed —
-scoping only, per this session's own explicit brief. Also closed out the
-immediately preceding session's own loose end: `CORRECTIONS.md`/`HANDOFF.md`
-committed as `982e3e2` (not yet pushed — see below).
+**WU-23b2a.** `core/resolve.hpp` (new include, new declaration),
+`core/pipeline.cpp` (new definition), `tests/test_pipeline_bytes.cpp`
+(four new checks) — built and tested green across this project's own
+full 10-configuration portable-unit matrix in the Linux cloud sandbox.
+`WORK-UNITS.md` updated (WU-23b2a's own status line, Phase 6 summary
+paragraph). This `HANDOFF.md`. No `DECISIONS.md`/`CORRECTIONS.md`
+entries needed. Also confirmed and closed the continuation prompt's own
+flagged loose end: the immediately preceding session's own unpushed
+commits had already reached `origin` by the time this session started —
+no action needed.
 
 ## Steve's own next steps
 
-No build or test implications this session — nothing to build, nothing
-to run. Two things need doing at your own real terminal, in order: push
-this session's own commit (doc-only, no tag), then push the still-local
-`982e3e2` from the immediately preceding session's own loose end (the
-same commit, both travel together since neither has reached `origin`
-yet):
+At your own real terminal:
 
 ```
 cd ~/src/scatter-dve
-git status --short
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-If that shows exactly `M CORRECTIONS.md`, `M DECISIONS.md`,
-`M HANDOFF.md` and `M WORK-UNITS.md` and nothing else (this session's own
-four state-file edits, on top of the already-committed `982e3e2`):
+Confirm nothing **other than** `test_decklink_device`'s own
+`test_at_least_one_device_is_full_duplex` check fails (the standing
+PSU/two-device exception, `DECISIONS.md` ADR-034/035/037,
+`CORRECTIONS.md` C-024) — this unit touches no DeckLink-linked file, so
+nothing about its own build/test should disturb that. Then:
 
 ```
 cd ~/src/scatter-dve
-git add CORRECTIONS.md DECISIONS.md HANDOFF.md WORK-UNITS.md
-git commit -m "WU-23b2 scoping: split into WU-23b2a/WU-23b2b (ADR-080), corrects prior wiring assumption (C-027)"
+git add src/core/pipeline.cpp src/core/resolve.hpp tests/test_pipeline_bytes.cpp WORK-UNITS.md HANDOFF.md
+git commit -m "WU-23b2a: runFrameBytesDeinterlaced() orchestration entry point (ADR-080)"
+git tag -a wu-23b2a-green -m "WU-23b2a: runFrameBytesDeinterlaced() orchestration entry point (ADR-080)"
 git push origin main
+git push origin --tags
 ```
-
-(No `git tag` — this is a doc-only scoping session, nothing built or
-tested changed, `SESSION-PROTOCOL.md`'s own tagging discipline applies
-only to units that end green.) The `git push origin main` above carries
-both this session's own new commit and the still-unpushed `982e3e2`
-ahead of it in one push, since neither has reached `origin` yet.
 
 **File paths above match this session's own real `git status --short`,
 re-diffed immediately before writing this block, not merely recalled
-from earlier in the session** — `CORRECTIONS.md` C-026's own general
-lesson, applied here.
+from earlier in the session** — `git status --short` at the moment this
+block was finalised showed exactly `M HANDOFF.md`, `M WORK-UNITS.md`,
+`M src/core/pipeline.cpp`, `M src/core/resolve.hpp`,
+`M tests/test_pipeline_bytes.cpp`, all five accounted for above
+(`CORRECTIONS.md` C-026's own general lesson — an earlier draft of this
+very block omitted `HANDOFF.md` itself from the `git add` line, caught
+by this same diff-against-reality step before being sent).
