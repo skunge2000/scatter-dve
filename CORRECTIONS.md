@@ -869,3 +869,44 @@ same session and trusting memory or a paraphrase of it when typing the
 final command out. A session can hold the correct information and still
 hand over the wrong command if the two are never diffed against each
 other directly.
+
+**C-027 — WU-23b2's own prior scoping stub (`WORK-UNITS.md`, written
+under ADR-078) described `CaptureConsumer::processOne()` as a plausible
+place to call `Deinterlacer::push()` directly, and framed the question
+of whether a third file was needed as depending on the output-side
+decimate's own complexity -- both wrong once the real call sites were
+read.**
+*Claimed (`WORK-UNITS.md`'s WU-23b2 entry, `DECISIONS.md` ADR-078):*
+"Wires a `video::Deinterlacer` instance into `io/decklink_capture_consumer.cpp`
+(new owned member, `processOne()` calls it ahead of the existing warp)
+... likely also touching `core/resolve.hpp`/`core/pipeline.cpp` for a new
+orchestration entry point if the decimate is more than a couple of
+inline calls inside `processOne()` itself" -- presenting the decimate's
+own complexity as the thing that would decide whether a third file was
+needed.
+*Correct:* read `io/decklink_capture_consumer.cpp`'s `processOne()` and
+`core/pipeline.cpp`'s `runFrameBytes()` directly this session.
+`processOne()` does not call into the warp pipeline in stages at all --
+it calls `scatter::runFrameBytes()` exactly once, a single monolithic
+function performing v210 unpack, chroma upsample into a local
+`Raster444`, `runFrame()`, chroma downsample and v210 pack entirely
+inside its own body (`core/pipeline.cpp`, lines ~630-680). The
+intermediate chroma-upsampled weave `Raster444` -- exactly the shape
+`video::Deinterlacer::push()` requires -- is a local variable of
+`runFrameBytes()` itself, never returned to or reachable from any
+caller. So `processOne()` has no "ahead of the existing warp" point to
+insert a `push()` call at, regardless of how simple or complex the
+output-side decimate turns out to be -- a new `core/resolve.hpp`/
+`core/pipeline.cpp` orchestration entry point (`DECISIONS.md` ADR-080,
+`runFrameBytesDeinterlaced()`) is required for a more basic reason than
+the one the stub anticipated: not because the decimate is complex (it
+turns out to be a provable no-op for this project's own frame-rate-only
+mode, ADR-080), but because no caller of `runFrameBytes()` has ever had
+access to its own internal unpacked frame. Not a defect in
+`runFrameBytes()` -- WU-21a/ADR-048 wrote it before any caller needed
+that access, and folding all five stages into one call was the right
+choice for every caller before this one. This corrects a planning-time
+assumption in `WORK-UNITS.md` about *where* the wiring's own complexity
+would come from, not a design decision any earlier ADR froze. See
+`DECISIONS.md` ADR-080 for the corrected design and the file split it
+produces (WU-23b2a/WU-23b2b).

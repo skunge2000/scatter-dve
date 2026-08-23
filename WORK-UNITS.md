@@ -1899,8 +1899,10 @@ tag, not `./tools/close.sh 23a2b`.
 **Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
 complete.** WU-23b split into WU-23b1 (filter core, `video::Deinterlacer`,
 scoped `DECISIONS.md` ADR-078, built `DECISIONS.md` ADR-079 — unverified,
-needs a real build/`ctest` run) and WU-23b2 (live-capture wiring, not yet
-scoped, gated on WU-23b1's own actual interface, now built).
+needs a real build/`ctest` run) and WU-23b2 (live-capture wiring), itself
+split this session (`DECISIONS.md` ADR-080) into WU-23b2a (the new
+`runFrameBytesDeinterlaced()` orchestration entry point) and WU-23b2b
+(`CaptureConsumer` wiring, gated on WU-23b2a's own actual interface).
 
 ### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `built, unverified`
 Built this session (`DECISIONS.md` ADR-079). Scoped in the immediately
@@ -1985,24 +1987,137 @@ run (GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and 2^5,
 plus GCC 13 ASan/UBSan at both tile sizes, this project's own standard
 portable-unit matrix) before `wu-23b1-green`. See `HANDOFF.md`.
 
-### WU-23b2 — Weston 3-field de-interlace: live-capture wiring and output re-interlace decimate `todo`
-Not started, not yet scoped with `Files:`/`Accept:` (ADR-078) —
-genuinely depends on WU-23b1's own actual interface once built, the
-same "scope the wiring unit after the component it wires exists"
-sequencing WU-23a2a/WU-23a2b already used for
-`generateFragmentsFieldRows()`. Wires a `video::Deinterlacer` instance
-into `io/decklink_capture_consumer.cpp` (new owned member,
-`processOne()` calls it ahead of the existing warp) and performs the
-trivial re-interlace-decimate-on-output half reusing
-`extractField()`/`interleaveFields()` (`video/interlace.hpp`, already
-built, WU-23a/ADR-075) — likely also touching `core/resolve.hpp`/
-`core/pipeline.cpp` for a new orchestration entry point if the decimate
-turns out to be more than a couple of inline calls inside
-`processOne()` itself, not decided by ADR-078. Open question named but
-not resolved by ADR-078: what happens on the first field of a capture
-run, before `video::Deinterlacer` has two frames of history to
-reconstruct from — a live SDI path cannot buffer the way FFmpeg's own
-file-oriented filter does without a real gap in output.
+### WU-23b2a — Weston 3-field de-interlace: `runFrameBytesDeinterlaced()` orchestration entry point `todo`
+Scoped this session (`DECISIONS.md` ADR-080), splitting WU-23b2 per
+`SESSION-PROTOCOL.md`'s 3-source-file cap — the full wiring touches four
+source files, one over the cap, and splits along the seam ADR-080's own
+design already drew: the new orchestration entry point first, the
+`CaptureConsumer` wiring after (WU-23b2b, below), the same "scope/build
+the component before the thing that wires it" sequencing
+WU-23a2a/WU-23a2b and WU-23b1/WU-23b2 already used one level up.
+
+**Design (`DECISIONS.md` ADR-080):** `CaptureConsumer::processOne()`
+cannot call `video::Deinterlacer::push()` "ahead of the existing warp"
+as WU-23b2's own original (pre-split) scoping stub assumed —
+`processOne()` calls `scatter::runFrameBytes()` exactly once, and that
+function's own chroma-upsampled weave `Raster444` (exactly `push()`'s
+own required input shape) is a local variable never exposed to any
+caller (`CORRECTIONS.md` C-027). This unit adds a new sibling entry
+point instead — `bool runFrameBytesDeinterlaced(video::Deinterlacer&
+deinterlacer, const Lattice& lattice, const std::uint8_t* srcBytes,
+std::ptrdiff_t srcRowBytes, int srcWidth, int srcHeight, const
+PipelineParams& params, std::uint8_t* dstBytes, std::ptrdiff_t
+dstRowBytes)` — that unpacks v210 and upsamples chroma exactly as
+`runFrameBytes()` already does, pushes the resulting weave frame into
+`deinterlacer`, returns `false` with `dstBytes` untouched if `push()`
+returns `false` (mirrors `push()`'s own contract and `runFrameFile()`'s
+own bool-return precedent, ADR-079), otherwise runs `runFrame()` on the
+reconstructed progressive frame and chroma-downsamples/packs into
+`dstBytes` exactly as `runFrameBytes()` already does. `deinterlacer` is
+a reference parameter, not a new `PipelineParams` field — a
+single-caller-only field there would repeat the scope creep ADR-078
+already declined by giving `Deinterlacer` its own file. The output-side
+"[re-interlace]" stage (`docs/architecture.md` section 3) is *not*
+implemented as an `extractField()`/`interleaveFields()` call — ADR-080
+proves that composition is an exact no-op for this project's own
+frame-rate-only mode (section 5's "Interlace" note frames
+de-interlace-to-frame and field mode as alternatives, never combined),
+so `warped` goes straight to chroma downsample with a comment citing the
+ADR.
+
+**Files:** `core/resolve.hpp` (edited: new `#include
+"video/deinterlace.hpp"`, new `runFrameBytesDeinterlaced()`
+declaration), `core/pipeline.cpp` (edited: new definition); plus
+`tests/test_pipeline_bytes.cpp` (edited, not counted against the cap —
+WU-21a's own portable `runFrameBytes()` test file, the natural home for
+its new sibling).
+
+**Accept:**
+- A freshly constructed `Deinterlacer`'s first push through
+  `runFrameBytesDeinterlaced()` leaves `dstBytes` completely unchanged
+  from its own pre-call contents and returns `false` — checked byte for
+  byte, not just "the call doesn't crash".
+- From the second push onward, output matches an independently-composed
+  reference built in the test file itself (`unpackImage` →
+  `upsampleImage` → `deinterlacer.push()` → `runFrame()` →
+  `downsampleImage` → `packImage`, called by hand, not through the unit
+  under test) byte for byte — the same "check against an independently
+  composed sequence, not the unit's own internals" discipline
+  `test_pipeline_bytes.cpp`'s existing `runFrameBytes()`-vs-
+  `runFrameFile()` check already uses.
+- The re-interlace no-op finding is checked directly, not merely
+  assumed from the ADR's own proof: building the same output via an
+  explicit `extractField()` ×2 + `interleaveFields()` pass over
+  `runFrame()`'s own warped output produces byte-identical `dstBytes` to
+  the no-op path actually shipped.
+- I7 does not apply directly (a de-interlaced round trip is lossy by
+  construction — the non-anchor parity's real rows are discarded and
+  reconstructed, ADR-079) — substituted with an anchor-parity-only
+  round-trip check: for a synthetic weave frame whose anchor-parity rows
+  already equal a known test pattern exactly, those rows survive
+  `runFrameBytesDeinterlaced()` unchanged under an identity lattice,
+  isolating this unit's own wiring correctness from WU-23b1's own
+  already-tested reconstruction math.
+- 625i50 geometry (720×576) exercised directly, per Steve's own
+  stay-in-SD-domain scope decision — not 1080i.
+
+*Status:* todo. No DeckLink dependency — portable, buildable and
+testable in this project's own Linux cloud sandbox, the same shape
+WU-23b1 already used.
+
+### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `todo`
+Scoped this session (`DECISIONS.md` ADR-080) alongside WU-23b2a, above —
+genuinely depends on WU-23b2a's own actual `runFrameBytesDeinterlaced()`
+signature once built, the same "scope the wiring unit after the
+component it wires exists" sequencing WU-23a2a/WU-23a2b already used.
+
+**Design (`DECISIONS.md` ADR-080):** `CaptureConsumer` owns exactly one
+`video::Deinterlacer` member — not two; a single instance already
+produces one full progressive frame per push with every row present
+(anchor parity verbatim, the other reconstructed), and a second,
+opposite-anchor instance would only earn its keep for field-rate output,
+which ADR-078 already ruled out — constructed with `FieldParity::Top`
+(matching `video/interlace.hpp`'s own "Top is first-transmitted field"
+convention already used without incident through WU-23a/WU-23a2; this
+project has never independently confirmed `bmdModePAL`'s own SDK-reported
+field dominance against real hardware, but which parity is "anchor" is a
+labelling choice, not a correctness requirement). `DeinterlaceCoefficients`
+(Simple/Complex) is a new `CaptureConsumer` constructor parameter, left
+for this unit's own build session to pick with Steve — no accept
+criterion has stated a preference yet. `processOne()` calls
+`scatter::runFrameBytesDeinterlaced()` in place of `scatter::runFrameBytes()`;
+on a `false` return (stream start — the very first popped frame of this
+consumer's own lifetime only, per ADR-080's trace of `Deinterlacer`'s own
+state machine, never a recurring cost), `m_latestFrame` is left
+completely untouched (extending, not inventing, `copyLatestFrame()`'s own
+existing "nothing produced yet" semantics) and the frame is counted by a
+new, fourth `CaptureConsumerStats` counter, not `framesFailed` — this is
+not an error and is never retried; the counter's own exact name is this
+unit's own build-time detail, not frozen by the ADR.
+
+**Files:** `io/decklink_capture_consumer.hpp` (edited: new owned
+`video::Deinterlacer` member, new stats counter, new
+`DeinterlaceCoefficients` constructor parameter), `io/decklink_capture_consumer.cpp`
+(edited: constructor, `processOne()`); plus
+`tests/test_decklink_capture_consumer.cpp` (edited, not counted against
+the cap — already real-hardware-gated exactly as this unit needs).
+
+**Accept:**
+- Real-hardware run (UltraStudio Monitor 3G → Recorder 3G loopback, this
+  project's own established rig, ADR-037) at 625i50 — Steve's own
+  stay-in-SD-domain standard, not 1080i: the new stream-start counter
+  increments exactly once, before `framesProcessed` ever increments, for
+  a freshly constructed `CaptureConsumer`, and `copyLatestFrame()`
+  returns `false` until it does.
+- Without a loopback connected, `CaptureSource::create()`/
+  `CaptureConsumer::start()`/`stop()` still run cleanly (the mechanics
+  this unit's own automated checks gate on) — the same "nothing plugged
+  in right now is a real, honestly reportable state" convention
+  `tests/test_decklink_capture_consumer.cpp`'s own existing header
+  comment already documents; `stats()` may legitimately stay at zero in
+  that case, warned about rather than failed on.
+
+*Status:* todo, blocked on WU-23b2a above.
 
 ### WU-24 — Adaptive supersampling `todo`
 ### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`

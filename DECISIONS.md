@@ -7895,3 +7895,204 @@ cross-reference C-025 just to know what the class actually does; its own
 paragraph for why the "prev/cur/next hold the correct three frames"
 wording is still satisfied, verified through output content since `next`
 is never read directly).
+
+**ADR-080 — WU-23b2 scoping: live-capture wiring split into WU-23b2a
+(new `runFrameBytesDeinterlaced()` orchestration entry point,
+`core/resolve.hpp`/`core/pipeline.cpp`) and WU-23b2b (`CaptureConsumer`
+wiring, `io/decklink_capture_consumer.hpp`/`.cpp`); stream-start,
+single-instance and output re-interlace questions settled.**
+
+This session opened with a continuation prompt whose own job was scoping
+only, per `SESSION-PROTOCOL.md`'s "one session, one work unit" sizing:
+read `io/decklink_capture_consumer.hpp`/`.cpp`, `video/deinterlace.hpp`,
+`core/resolve.hpp`, `core/pipeline.cpp` and `video/interlace.hpp`/`.cpp`
+directly, settle ADR-078's own open "stream-start behaviour" and
+"one instance or two" questions, confirm whether the wiring fits inside
+`io/decklink_capture_consumer.cpp` alone, and give WU-23b2 real
+`Files:`/`Accept:` lines. No code written this session.
+
+**`CaptureConsumer::processOne()` has no point to insert a
+`Deinterlacer::push()` call "ahead of the existing warp" at all --
+confirmed by reading both files directly, correcting an assumption
+WU-23b2's own prior scoping stub made.** `processOne()`
+(`io/decklink_capture_consumer.cpp`) calls `scatter::runFrameBytes()`
+exactly once, against the StartAccess-mapped raw v210 bytes, and does
+nothing else with the pipeline itself. `runFrameBytes()`
+(`core/pipeline.cpp`, lines ~630-680) performs v210 unpack, chroma
+upsample into a local `Raster444` named `full`, `runFrame()`, chroma
+downsample and v210 pack, all inside its own body -- `full`, exactly the
+full-height chroma-upsampled "weave" shape `video::Deinterlacer::push()`
+requires (`video::extractField()`'s own precondition vocabulary), is a
+local variable of `runFrameBytes()` itself and is never returned to or
+reachable from any caller. `processOne()` therefore cannot call `push()`
+"ahead of the existing warp," regardless of how simple or complex the
+output-side re-interlace decimate turns out to be -- the trigger for
+needing a new orchestration entry point is not the decimate's own
+complexity (see below: it turns out to be a no-op), it is that no caller
+of `runFrameBytes()` has ever had access to its own internal unpacked
+frame. Not a defect in `runFrameBytes()` -- WU-21a/ADR-048 wrote it
+before any caller needed that access, and folding all five stages into
+one call was the right choice for every caller before this one. See
+`CORRECTIONS.md` C-027.
+
+**Decision: a new orchestration entry point,
+`runFrameBytesDeinterlaced()`, declared in `core/resolve.hpp` and
+defined in `core/pipeline.cpp`** -- the same "declare a new `.cpp`'s
+public entry point in an existing, related header instead of a header of
+its own" shape ADR-021/026 already used for `runFrame()`/`runFrameFile()`
+and ADR-077 used again for `runFrameField()`, applied a third time here.
+Signature:
+
+```cpp
+bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
+                                const Lattice& lattice,
+                                const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                                int srcWidth, int srcHeight,
+                                const PipelineParams& params,
+                                std::uint8_t* dstBytes, std::ptrdiff_t dstRowBytes);
+```
+
+Body: v210 unpack and chroma upsample exactly as `runFrameBytes()`
+already does, building the same local weave `Raster444`; `deinterlacer.push(weave, progressive)`;
+if `false`, return `false` immediately, `dstBytes` completely untouched
+(mirrors `push()`'s own contract directly, and `runFrameFile()`'s own
+bool-return precedent ADR-079 already named for exactly this situation);
+otherwise `runFrame(lattice, srcFromProgressive, params, warped)`, then
+chroma downsample and v210 pack into `dstBytes` exactly as
+`runFrameBytes()` already does, then return `true`. `deinterlacer` is
+taken by reference, not added to `PipelineParams`: `PipelineParams` is
+shared by every `runFrame()`/`runFrameField()`/`runFrameBytes()` caller
+in this codebase, including every non-interlaced test, and a
+single-caller-only field there would be exactly the kind of scope creep
+ADR-078 already declined when it chose a new sibling file over folding
+`Deinterlacer` into `video/interlace.hpp` -- `runFrameField()` is
+already this project's own precedent for "a new dedicated function and
+parameter list, not a mode flag threaded through a shared struct."
+
+**Output-side "[re-interlace]" (`docs/architecture.md` section 3,
+after PASS 2, before chroma decimate): a provable no-op for this
+project's own frame-rate-only mode, not new code.** `video/interlace.cpp`'s
+`extractField()`/`interleaveFields()`, read directly: `extractField()`
+copies frame row `2*fy + rowOffset` into field row `fy`; `interleaveFields()`
+writes field row `fy` back into dest row `2*fy + rowOffset` (`rowOffset`
+0 for the top field it is handed, 1 for the bottom). Applying
+`extractField()` for both parities and then `interleaveFields()` to the
+*same* source frame therefore reproduces every row at its own original
+index exactly -- an algebraic identity of the row-index arithmetic
+itself (every row belongs to exactly one parity, and both functions
+agree on which), not an approximation or a special case of "nothing
+moved this time." `docs/architecture.md` section 5's own "Interlace"
+note frames de-interlace-to-frame and field mode as two *alternative*
+processing paths ("de-interlace to frames for warping, re-interlace on
+output" versus "a field mode that warps each field independently"), not
+a combination -- confirmed directly, not paraphrased -- so this
+project's own de-interlace-to-frame mode never produces two
+independently-warped fields for the output side to recombine; it
+produces one progressive `warped` raster from `runFrame()`, full stop.
+Decision: `runFrameBytesDeinterlaced()` does not call
+`extractField()`/`interleaveFields()` at all -- `warped` goes straight
+to chroma downsample, with a code comment citing this ADR for why the
+signal-path diagram's own bracketed stage is not missing, just proven
+identical. This only holds for frame-rate mode (ADR-078); it would not
+hold if a future unit ever added field-rate output (two
+independently-timed fields genuinely needing recombination) -- not
+requested, not scheduled, flagged here so the reasoning is not silently
+assumed to extend to a case it was never checked against.
+
+**One `Deinterlacer` instance, not two.** `docs/architecture.md` section
+5 frames de-interlace-to-frame and field mode as alternatives (above),
+and in frame-rate mode a single `Deinterlacer` instance already produces
+one full progressive frame per push with every row present -- the fixed
+anchor parity's rows copied verbatim, the other parity's rows
+reconstructed (ADR-079) -- there is no missing coverage a second,
+opposite-anchor instance would fill in. A second instance would only
+earn its keep for field-rate output (doubled frame rate, alternating
+anchor), which ADR-078 already ruled out for this project. Decision:
+`CaptureConsumer` owns exactly one `video::Deinterlacer` member,
+constructed with `FieldParity::Top` -- matching `video/interlace.hpp`'s
+own "Top... is the first-transmitted field" convention already used
+without incident throughout WU-23a/WU-23a2 -- though note this project
+has never independently confirmed `bmdModePAL`'s own SDK-reported field
+dominance against real hardware. Not blocking: which parity is "anchor"
+is a labelling choice, not a correctness requirement -- either choice
+reconstructs a genuinely progressive frame, since the filter's own job
+is symmetric in which parity it treats as ground truth. `DeinterlaceCoefficients`
+(Simple/Complex) is left as a `CaptureConsumer` constructor parameter,
+not fixed here -- no accept criterion in this project has stated a
+preference for one over the other yet, the build session's own small
+decision to make with Steve, not an architectural one.
+
+**Stream-start behaviour, settled.** `Deinterlacer::push()`'s own state
+machine (ADR-079), traced precisely: only the very first push a given
+instance ever receives returns `false`; every push from the second call
+onward returns `true`, including the "first output," which uses a
+duplicated frame as its own temporal partner. So the caller-visible gap
+is exactly one popped ring frame per `CaptureConsumer` instance's own
+lifetime, at stream start only -- not a recurring per-run cost, and not
+the "buffer several frames" picture FFmpeg's own file-oriented filter
+graph suggested when ADR-078 first left this question open. Decision,
+the continuation prompt's own first named option, combined with its
+third: leave whatever `m_latestFrame` already holds -- nothing, on a
+genuine cold start -- rather than inventing content or skipping the ring
+pop itself, and skip the warp/splat/resolve pipeline entirely for that
+one frame, which `runFrameBytesDeinterlaced()`'s own `false` return
+already guarantees by construction (it returns before ever touching
+`runFrame()`, chroma downsample or v210 pack). This extends, not
+invents, `m_latestFrame`'s own existing semantics: `copyLatestFrame()`
+already returns `false` and leaves `out` unchanged whenever nothing has
+been produced yet (e.g. before `processOne()` has ever run at all) --
+this decision only widens the window that condition holds across, from
+"before the first `processOne()` call" to "before the first call whose
+own `Deinterlacer::push()` returns `true`," the same
+`RingBuffer`/`tryPop()` "never invent content, return nothing instead"
+precedent ADR-078 itself already named for this exact question.
+`processOne()` branches on `runFrameBytesDeinterlaced()`'s own bool
+return: on `false`, `m_latestFrame` is left untouched entirely. Not
+counted as `CaptureConsumerStats::framesFailed` -- that counter's own
+existing meaning ("popped but ... failed, or bad geometry") is a real
+error condition, and a stream-start non-output is neither an error nor
+retried. `CaptureConsumerStats` gains a fourth counter for the build
+session to add and name, distinguishing this genuinely-expected
+once-per-instance case from both `framesProcessed` and `framesFailed` --
+the exact name is a build-time detail, not frozen here; the behaviour it
+counts is: incremented instead of `framesProcessed`, exactly once in the
+ordinary case, only ever on the first successfully-decoded frame of a
+fresh `CaptureConsumer`'s own run.
+
+**Real-hardware verification standard: 576i25/625i50, not 1080i** --
+Steve's own explicit stay-in-SD-domain scope decision (unchanged since
+the session before last), carried into both units' own `Accept:` lines
+below rather than assumed silently.
+
+**Unit split, per `SESSION-PROTOCOL.md`'s 3-source-file cap --
+confirmed necessary, not assumed going in.** The full wiring touches
+four source files (`core/resolve.hpp`, `core/pipeline.cpp`,
+`io/decklink_capture_consumer.hpp`, `io/decklink_capture_consumer.cpp`),
+one over the cap, and splits cleanly along the same seam the design
+above already drew -- the new orchestration entry point first, the
+consumer wiring after, the same "scope/build the component before the
+thing that wires it" sequencing WU-23a2a/WU-23a2b and WU-23b1/WU-23b2
+already used one level up:
+
+- **WU-23b2a** -- `runFrameBytesDeinterlaced()`: `core/resolve.hpp`
+  (new declaration, new `#include "video/deinterlace.hpp"`),
+  `core/pipeline.cpp` (new definition). No DeckLink dependency, fully
+  portable -- buildable and testable in this project's own Linux cloud
+  sandbox, the same shape WU-23b1 already used. Genuinely depends on
+  nothing but WU-23b1's own already-built `video::Deinterlacer`.
+- **WU-23b2b** -- `CaptureConsumer` wiring: `io/decklink_capture_consumer.hpp`
+  (new owned `video::Deinterlacer` member, new stats counter),
+  `io/decklink_capture_consumer.cpp` (constructor, `processOne()`).
+  Genuinely depends on WU-23b2a's own actual `runFrameBytesDeinterlaced()`
+  signature once built; real-hardware-gated the same way
+  `tests/test_decklink_capture_consumer.cpp` already is.
+
+See `WORK-UNITS.md` for both units' own `Files:`/`Accept:` lines.
+
+Does not reopen `docs/architecture.md`, `INVARIANTS.md`, ADR-078's own
+placement decision, or ADR-079's interface freeze -- all confirmed
+unchanged by this session. Does not reopen `core/resolve.hpp`'s existing
+`runFrame()`/`runFrameField()`/`runFrameBytes()`/`runFrameFile()`
+declarations or `PipelineParams` -- `runFrameBytesDeinterlaced()` is
+purely additive, the same "new sibling, not a changed one" shape this
+project has used throughout Phase 6.
