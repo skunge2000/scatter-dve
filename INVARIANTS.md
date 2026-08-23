@@ -50,3 +50,40 @@ Input v210 equals output v210, byte for byte, illegal excursions included. This
 is the foundation test. If it passes, the transport, the offsets, the
 accumulators and the normalisation are all honest, and every artefact seen
 afterwards is genuinely the warp.
+
+**I8 — Nothing is culled; back faces always splat.**
+Back-facing surfaces are rendered, not dropped, and carry the back source
+(`docs/sources/WU-SM-01.md` §3.9.4.1/.3, ADR-073). Splat count therefore
+stays fixed at source-raster size regardless of shape or viewpoint — do not
+add an early-out on facing anywhere in the fragment-generation or splat
+path. Destination contention roughly doubles wherever two sheets overlap,
+which for a closed shape is most of its area; this is expected, not a
+regression to fix.
+
+**I9 — No per-sample normal or depth channel in the lattice/library
+format; both are derived at run time.**
+The library frame is an address map plus a validity mask and nothing else
+(ADR-066). Surface normals (`core/jacobian.hpp`'s `surfaceNormal()`, WU-26)
+and any future depth-gradient sheet-membership tolerance (ADR-072) are
+computed from the lattice's own Jacobian each time they are needed, never
+read back from a stored per-sample channel. A change that adds a stored
+normal or depth plane to the lattice/library container requires a
+superseding ADR, not a quiet extension of the container.
+
+**I10 — Shading is applied pre-projection; resolve-time shading is
+unavailable.**
+The source sample is shaded in 3D view space, before the 3D→2D projection
+step, and the *shaded* value is what gets splatted (ADR-068). No pipeline
+stage after the splat may re-derive or adjust lighting from an accumulated
+cell, because I9 already forbids carrying the normal that would require.
+
+**I11 — Within-sheet contributions accumulate; between-sheet blending is a
+separate resolve-time stage.**
+Two source samples from the same surface sheet landing on overlapping
+footprints accumulate exactly as ADR-001 already governs — this is
+resampling, not compositing, and stays untouched. Two samples from
+*different* sheets never simply accumulate-and-normalise; they are resolved
+by whatever between-sheet mechanism ADR-072/ADR-074 eventually settles,
+behind the swappable interface ADR-074 requires. A resolve path that cannot
+tell "same sheet" from "different sheet" is not a valid implementation of
+either half of this invariant.

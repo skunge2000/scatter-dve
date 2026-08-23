@@ -241,6 +241,16 @@ scatter_test(test_kbuffer_storage)
 scatter_test(test_kbuffer_resolve)
 target_include_directories(test_kbuffer_resolve PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
+# WU-32 -- historical-findings import (DECISIONS.md ADR-066..074). Documentation
+# only apart from this one standing regression (docs/sources/WU-SM-02.md
+# fixture 29, row-traversal axis only -- see the test file's own header).
+# Portable, zero DeckLink dependency, no new scatter-core source file --
+# exercises the existing generateFragmentsRowRange()/splatTile()/sumBanks()
+# entry points directly via core/shapes/shapes.hpp, no tools/testpat.hpp
+# needed (same pattern as test_kbuffer_storage/test_kbuffer_resolve's Parts
+# A/B above).
+scatter_test(test_scan_order_invariance)
+
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared
 # in src/video/v210.hpp only under #if defined(__ARM_NEON) (AArch64 always

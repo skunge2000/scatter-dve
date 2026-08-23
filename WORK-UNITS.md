@@ -1751,7 +1751,35 @@ passing, no regressions; `test_jacobian` itself 551 checks passing. Not yet
 Steve's own real-terminal `build`/`ctest`/`close.sh 26`/tag/push — see
 `HANDOFF.md`.
 
-### WU-27 — Blinn-Phong, linear light, two-sided `todo`
+**Note (WU-32, documentation-only, `docs/sources/WU-SM-02.md` §6):** the
+`∂z` this unit adds to `Jacobian` gates three separate downstream
+consumers, not one — Starlight shading's surface **normal** (WU-27), the
+front/back source select's normal **sign** (already consumed by WU-28c;
+ADR-073's video-source pair, WU-33, will need it too), and a future sheet-
+arbitration depth **gradient** for same-sheet tolerance (ADR-072, WU-35).
+Recorded here so a future session does not have to rediscover why this
+small, already-shipped unit turned out to matter this much. Not a change to
+this unit's own `Files:`/`Accept:` or `Status:` above — WU-26 is not
+reopened.
+
+### WU-27 — Phong, linear light, two-sided `todo`
+**Renamed this session (WU-32, `DECISIONS.md` ADR-069) — was "Blinn-Phong,
+linear light, two-sided".** No `Files:`/`Accept:` has ever been written for
+this unit; it has carried only a one-line backlog title since it was first
+named. This unit does not scope it now — that is real scoping work for
+whoever picks WU-27 up next, and it must be done fresh, not by patching the
+old Blinn-Phong premise. Scope against `DECISIONS.md` ADR-069 (Phong, not
+Blinn-Phong: `cos B` is line-of-sight-to-reflected-ray, not a half-vector;
+linear-plus-constant falloff, not inverse-square; fixed orthographic view
+vector; `model(L,zone)` as a look-up table on `cos B`, not `pow()`),
+ADR-070 (evaluated per coarse-grid facet with the historical filtering
+ladder and grid-shift controls exposed literally, not per pixel — note
+ADR-070's own open question about whether to reproduce the historical
+finite-difference facet normal or reuse WU-26's exact analytic one) and
+ADR-071 (material owned by `(light, zone)`, not by surface — do not build a
+per-surface material system). Depends on WU-26 (`surfaceNormal()`), already
+available.
+
 ### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
 a decision made until now) and the design fork it resolved. Splits from
@@ -1902,44 +1930,70 @@ buildable, runnable and testable directly in the cloud sandbox once someone
 actually writes them, unlike every DeckLink/Cocoa-touching unit before
 them.
 
-### WU-28c — self-fold facing tag: per-fragment tag from surface normals `todo`
-See `DECISIONS.md` ADR-062. Closes the real-content gap flagged on WU-28b
-above: gives a self-folding surface's front and back *different*
-`Frag::tag` values, so WU-28a's k-buffer has something to key apart and
-WU-28b's resolve modes have more than one occupied slot to ever act on.
-**Depends on WU-26 (Normals from lattice), not yet scoped or built.**
-`core/lattice.hpp`'s own header comment already earmarks exactly this:
-Jacobian is deliberately 2x2 today because "dz/du and dz/dv are not needed
-until WU-26's surface normals (cross product of the two tangent vectors)
-and can be added there without changing this interface." Facing —
-front-facing (visible, `normal.z < 0` in this project's z-increases-into-
-screen convention) versus back-facing (folded away from camera, `normal.z
->= 0`) — is exactly the sign WU-26's own normal supplies per source
-sample. This unit does not reopen or duplicate WU-26's own job (computing
-the normal correctly, analytically, from the lattice's tangents) — it
-consumes that result. A same-session finite-difference shortcut around
-WU-26 was considered and rejected: `core/lattice.hpp`'s own comment already
-promises this dz/du/dz/dv work to WU-26 specifically, and inventing a
-second, divergent facing computation elsewhere is exactly what
-`SESSION-PROTOCOL.md`'s anti-drift rules (never reopen a settled design
-question in a different unit) exist to prevent.
+### WU-28c — self-fold facing tag: per-fragment tag from surface normals `wip`
+See `DECISIONS.md` ADR-062 for the original real-content gap this unit
+closes and ADR-065 for this session's own scoping and build. Closes the
+real-content gap flagged on WU-28b above: gives a self-folding surface's
+front and back *different* `Frag::tag` values, so WU-28a's k-buffer has
+something to key apart and WU-28b's resolve modes have more than one
+occupied slot to ever act on. **WU-26 (Normals from lattice), this unit's
+hard prerequisite, is now genuinely closed** (`wu-26-green` confirmed as an
+ancestor of `HEAD` this session, per standing device-bridge discipline) —
+the "not yet scoped or built" line this entry previously carried is now
+stale and is corrected here, not carried forward.
 
-**Files (once WU-26 lands and this unit is actually scoped in full):**
-expected to be `core/binner.hpp`/`.cpp` (a new, additive per-sample tag
-mode alongside today's single-scalar-`tag` `generateFragments()`/
-`generateFragmentsRowRange()` — the existing per-sample loop already
-evaluates the lattice and its Jacobian for every source sample, so this is
-new logic in an already-visited place, not a new pass), a new test
-(synthetic self-folding lattice, e.g. a lattice built directly at the
-angleSpanH == 2*pi fold boundary, checked against a hand-computed
-front/back split). Exact `Files:`/`Accept:` is this unit's own job to fix
-for real once WU-26 exists to build against — not invented here, the same
-discipline WU-28b's own `Accept:` line followed for its blend formula.
+Facing — front-facing (visible, `normal.z < 0` in this project's
+z-increases-into-screen convention) versus back-facing (folded away from
+camera, `normal.z >= 0`) — is exactly the sign `core/jacobian.hpp`'s
+`surfaceNormal()` (WU-26) supplies per source sample. This unit does not
+reopen or duplicate WU-26's own job (computing the normal correctly,
+analytically, from the lattice's tangents) — it consumes that result,
+called on `lattice.jacobian(u, v)`'s own direct output rather than on the
+`pixelJacobian()`-converted value already in scope at the per-sample loop's
+tag-assignment point, per ADR-063's own explicit warning about that trap
+(see `DECISIONS.md` ADR-065 for why this matters even though, in this
+unit's own case, the wrong input would have happened to give the same
+sign).
 
-*Status:* named and given a real-content rationale this session so the gap
-this session found is not lost — not yet scoped in full (its own
-`Files:`/`Accept:` above is provisional, pending WU-26). No code written.
-See `HANDOFF.md`.
+**Files:** `src/core/binner.hpp` (two new, additive declarations —
+`generateFragmentsRowRangeTagByFacing()`, `generateFragmentsTagByFacing()`
+— alongside today's unchanged single-scalar-`tag` `generateFragments()`/
+`generateFragmentsRowRange()`), `src/core/binner.cpp` (the shared
+per-sample loop extracted into a new private function template,
+`generateFragmentsRowRangeImpl()`, tag-selector-templated so the existing
+functions' own behaviour is unchanged and the two new ones reuse the
+identical loop with a facing-based selector instead — no new lattice
+evaluation), `tests/test_binner.cpp` (one new test,
+`test_self_fold_front_and_back_get_different_tags()`, against a real
+`buildSphereLattice()` self-fold, `angleSpanH == 2*pi` — the same
+front-most and antipodal-fold-boundary control vertices `DECISIONS.md`
+ADR-063 and `tests/test_jacobian.cpp` already hand-derive and check the
+*sign* at, this time checking the *tag* `generateFragmentsTagByFacing()`
+assigns). +196/-14 lines across the three files — within
+`SESSION-PROTOCOL.md`'s "3 source files plus its test, ~400 lines" cap.
+
+**Accept:** a real, self-folding `buildSphereLattice()` lattice
+(`angleSpanH == 2*pi`), run through `generateFragmentsTagByFacing()`, gives
+every fragment decoded back to the front-most source sample (phi == psi ==
+0) the caller-supplied `frontTag`, and every fragment decoded back to the
+antipodal fold-boundary source sample (phi == -pi, psi == 0) the
+caller-supplied `backTag` — checked directly against `Frag::tag`, not
+inferred. `generateFragmentsRowRangeTagByFacing()` covering the same rows
+in one call agrees exactly (`BinStats` fields identical) with the
+whole-raster wrapper, the same row-range/whole-raster equivalence WU-16b/
+ADR-041 already established for the plain-tag functions. Every pre-existing
+`test_binner` check (WU-08's own three accept criteria, 4.6's supersampling
+thresholds, off-raster dropping) still passes unchanged, confirming
+`generateFragmentsRowRangeImpl()`'s refactor did not alter the plain-tag
+path's own behaviour.
+
+*Status:* `wip` — green in the cloud sandbox this session — fresh clone of
+`origin/main` confirmed at `wu-21d-green`/`bba3634` before any file was
+touched; full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3, Release/
+Debug, tile 2^4/2^5) clean, zero warnings, plus GCC+ASan/UBSan clean; full
+portable `ctest` suite 22/22 passing in every configuration, no
+regressions; `test_binner` itself 38401 checks passing. Not yet Steve's own
+real-terminal `build`/`ctest`/tag (`wu-28c-green`)/push — see `HANDOFF.md`.
 
 ### WU-28d — wire self-fold occlusion into the live sphere demo `todo`
 See `DECISIONS.md` ADR-062. Once WU-28c exists, turns the feature on where
@@ -1975,9 +2029,118 @@ written. See `HANDOFF.md`.
 
 ### WU-29 — Environment map `todo`
 
+### WU-33 — Front/back source pair, selected by facing `todo`
+**New this session (WU-32, `DECISIONS.md` ADR-073).** Historical finding:
+front and back are two independently freezable video sources selected per
+sample by the sign of the surface normal, not a transition A/B pair
+(`docs/sources/WU-SM-01.md` §3.9.4.3). scatter-dve already has half of the
+mechanism — WU-28c's `generateFragmentsTagByFacing()` computes exactly this
+facing sign, today to choose a k-buffer tag rather than a video source. Not
+scoped past this note: whoever picks this unit up needs to decide how a
+second source raster enters the pipeline (a second `SourceRaster` per
+`runFrame()`/`runFrameBytes()` call, most likely) and how `binner.cpp`
+samples front vs. back per fragment, consuming WU-26/WU-28c's own facing
+signal rather than duplicating it. Depends on WU-26 and WU-28c.
+
+### WU-34 — Coarse-grid shading: filtering ladder and grid shift `todo`
+**New this session (WU-32, `DECISIONS.md` ADR-070).** Historical finding:
+Starlight's shading is evaluated once per coarse-grid facet (a
+three-adjacent-sample normal, computed in a shifting window) and
+interpolated to pixels, with a literal filtering control (`−2`…`+3`,
+default `−1`) and a grid-shift control (`0`…`2`) governing how much
+interpolation happens and where a discontinuity's shading value lands.
+Not scoped past this note: coarse-grid cell size is not stated in any held
+source (`docs/sources/WU-SM-01.md` §3.9.1) and is this unit's own first
+question. Overlaps WU-27's own scope (the coarse grid is *how* WU-27's
+Phong formula gets evaluated across a raster, not a separate lighting
+model) — whoever scopes either unit should scope both together or make the
+seam between them explicit. Depends on WU-26; see ADR-070's own open note
+on the facet-normal-vs-WU-26-normal question before starting.
+
+### WU-35 — Sheet arbitration v2: transparency-coefficient resolve behind a swappable interface `todo`
+**New this session (WU-32, `DECISIONS.md` ADR-072/ADR-074), forward-looking
+only — does not touch WU-28a/WU-28b/WU-28c/WU-28d's own files or status.**
+scatter-dve's shipped k-buffer resolve (`WU-28a`/`WU-28b`, `ADR-059`–
+`ADR-061`) was invented from scratch before this research existed — ADR-059
+itself records that the real Mirage patent discloses no general
+multi-surface mechanism — and its shipped blend formula has no
+transparency coefficient, no `Manual`/`Auto Transp`/`Ext. Key` distinction,
+and no depth-gradient sheet tolerance. This unit is where that gets
+reconciled: (a) put the arbitration stage behind one swappable interface
+(`ADR-074`'s binding requirement — M1/M2/hybrid substitutable without
+touching the splat); (b) implement `ADR-072`'s transparency-coefficient
+rule (`T` from `Manual`/`Auto`/`Ext. Key`, `Opaque` = `T = 0`) behind it;
+(c) derive the same-sheet tolerance from the Jacobian depth gradient
+(`ADR-072` §4.1) rather than `WU-28a`'s tag-keyed same-tag assumption alone.
+Not scoped past this note — in particular, whether this supersedes
+`WU-28b`'s `compositeKBuffer()` outright or sits alongside it as a second,
+opt-in resolve mode is this unit's own first design question, not decided
+here. **Do not implement any part of this unit as a side effect of scoping
+it** — `ADR-074`'s M1/M2 choice is not yet settled (blocked on
+`docs/sources/WU-SM-02.md` Task A1, UK 2,158,671 in full) and building
+ahead of that would risk exactly the "silently make `Trail` and `Opaque`
+work together" mistake `docs/sources/WU-SM-02.md` fixture 31 exists to
+catch. Depends on WU-26 (depth gradient), WU-28a/WU-28b (the k-buffer
+storage this either extends or sits beside), and (soft dependency, for
+validation) WU-33 (front/back source pair — fixture 21/23 need real
+front/back content to exercise arbitration against, not just tags).
+
 ---
 
 ## Phase 8 — Authoring
 
 ### WU-30 — Embedded Lua shape programs `todo`
 ### WU-31 — OSC or WebSocket control `todo`
+
+---
+
+## Cross-cutting documentation units
+
+Units that import external research into `DECISIONS.md`/`INVARIANTS.md`/
+`WORK-UNITS.md` rather than building a phase's own feature. Numbered in the
+same sequence as every other unit (`SESSION-PROTOCOL.md` was not amended to
+add a separate series for these), listed here rather than under any one
+phase because their own content spans several.
+
+### WU-32 — Import WU-SM-01/WU-SM-02 historical findings `green`
+Documentation-only, per its own opening brief: promoted the
+implementation-binding subset of two research documents
+(`docs/sources/WU-SM-01.md` draft 0.3, `docs/sources/WU-SM-02.md` draft 0.1)
+derived from primary Quantel sources into this repository's own state
+files, plus one standing regression test — no other production code.
+
+**Files:** `DECISIONS.md` (ADR-066–ADR-074), `INVARIANTS.md` (I8–I11),
+`CORRECTIONS.md` (C-022, C-023), `WORK-UNITS.md` (this Phase 7 restructure:
+WU-26 note, WU-27 renamed, WU-33/WU-34/WU-35 added, this entry),
+`docs/architecture.md` (§0/§4.7/§10/§13 corrected per C-022),
+`docs/sources/WU-SM-01.md`, `docs/sources/WU-SM-02.md` (dropped in verbatim,
+own numbering intact), `docs/sources/README.md` (ADR-SM-nnn → ADR-nnn
+mapping table), `tests/fixtures-historical.md` (new: the 32 fixtures from
+both research documents, fixture → owning WU → status), plus one test:
+`tests/test_scan_order_invariance.cpp` (new; `CMakeLists.txt` gains its
+`scatter_test()` registration).
+
+**Accept:** the four-configuration build matrix (Release/Debug ×
+`SCATTER_TILE_LOG2` 4/5) green under `-Werror -Wconversion
+-Wsign-conversion`, trivially, since no existing production source file is
+touched; `test_scan_order_invariance` passing; no change to any other
+test's result. See that test's own file header for what it does and,
+importantly, does not cover — full four-direction `(u, v)` scan-order
+invariance (`docs/sources/WU-SM-02.md` fixture 29) needs a column-traversal
+parameter `core/binner.cpp` does not expose today, and adding one would be
+production code beyond this unit's own "documentation-only" scope; this
+unit's test covers the row-traversal axis only, honestly narrowed rather
+than overclaimed.
+
+**Not done, and explicitly not this unit's job:** does not implement the
+arbitration stage (ADR-074); does not touch WU-28a/WU-28b/WU-28c/WU-28d's
+own files or status; does not promote `docs/sources/WU-SM-01.md`'s other
+proposed ADR-SM entries (`001`, `002`, `004`–`008`, `010`, `013`) — only the
+nine items the opening brief named as implementation-binding were promoted,
+each with its own `ADR-0NN` above; the rest stay `Proposed` in the source
+document only, not mirrored into `DECISIONS.md`, until a future unit needs
+them.
+
+*Status:* `green` — no build-affecting change, so the sandbox matrix and
+`test_scan_order_invariance` are the whole test surface; see `HANDOFF.md`
+for the run.

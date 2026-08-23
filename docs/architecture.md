@@ -17,7 +17,11 @@ Target host: MacBook Pro M1 Max, 32 GB.
 - Per-pixel density compensation and anisotropic anti-aliasing derived
   analytically from the mapping Jacobian.
 - Accumulation-based transparency, as the original.
-- Per-pixel lighting and shading (the "Starlight" equivalent) in a later phase.
+- Coarse-grid-evaluated, per-pixel-applied lighting and shading (the
+  "Starlight" equivalent) in a later phase — corrected from "per-pixel
+  lighting" per `DECISIONS.md` ADR-070/CORRECTIONS.md C-022: the intensity
+  factor is applied per pixel but evaluated once per coarse-grid facet and
+  interpolated, not recomputed per pixel.
 - 4:2:2 10-bit SDI in and out via v210, at 625i50/576p25, 1080p25 and 1080p50.
 
 ### Out of scope
@@ -461,9 +465,19 @@ Diagnostic coverage view on the Mac display.
 adaptive supersampling.
 *Done when:* 1080p50 sustained, or the bottleneck is identified and documented.
 
-**Phase 7 — Starlight.** Normals from the lattice, Blinn-Phong with 4–8 lights
-in linear light, two-sided lighting, optional environment map. k-buffer for
-correct layered transparency.
+**Phase 7 — Starlight.** Normals from the lattice, Phong with 4–8 lights in
+linear light, two-sided lighting, optional environment map — corrected from
+"Blinn-Phong" per `DECISIONS.md` ADR-069/CORRECTIONS.md C-022: the real
+Starlight illumination formula (US 5,103,217) is the original Phong
+formulation (`cos B` between the line of sight and the reflected ray, no
+half-vector), evaluated per coarse-grid facet (ADR-070) and material owned
+by `(light, zone)` rather than surface (ADR-071). Front/back source pair
+selected by facing (ADR-073) and the sheet-arbitration mechanism (ADR-072/
+ADR-074, still open on M1/M2/M3) are also part of this phase's real scope —
+see `WORK-UNITS.md` WU-27/WU-33/WU-34/WU-35. k-buffer for correct layered
+transparency (already partly built, `WU-28a`/`WU-28b`/`WU-28c`/`WU-28d` —
+see `WORK-UNITS.md`; not yet reconciled with ADR-072's transparency-
+coefficient rule, tracked as WU-35).
 
 **Phase 8 — Authoring.** Embedded Lua for shape programs, honouring the
 original's model in which shapes are programs rather than menu entries. OSC or
@@ -516,8 +530,17 @@ address offsets on write and common addressing on read; the coarse address
 lattice with spatial and temporal interpolation; and the priority tag for
 forcing opacity. Related reading: **GB 2,158,671** (3D address map projected to
 a viewing surface), **US 5,150,213** (projection onto non-planar surfaces) and
-**US 5,103,217** (Cawley — 3D position with per-surface-element colour, the
-closest published document to the Starlight lighting option).
+**US 5,103,217** (Cawley — 3D position with per-surface-element colour; a
+skin-store/chisel machine, not Mirage itself, but one that names and reuses
+Mirage's own starlight, floating-viewpoint and colour-processing circuits as
+commercial building blocks, and the source of the Phong illumination formula
+in `DECISIONS.md` ADR-069). **EP 0248626 / US 4,899,295** (Nonweiler,
+priority 3 June 1986) is the Starlight patent proper, cited by name within
+US 5,103,217 — identified but not yet obtained; see `docs/sources/
+WU-SM-01.md` §2.1 and `DECISIONS.md` ADR-069/070/071. (This corrects no
+citation previously in this file: this repository never cited EP 0320166A1,
+the misattribution some earlier scatter-dve *working assumptions*, outside
+this file, had carried — see CORRECTIONS.md C-022.)
 
 What has been changed, and why:
 

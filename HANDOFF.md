@@ -3,19 +3,18 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 38 (WU-21d, Cold-start black fill for `LiveFramePlayback`'s own
-pool — scoped and built this session, per `SESSION-PROTOCOL.md`'s normal
-shape, though "built" covers only the portable half; see below). Also:
-`WORK-UNITS.md`'s own WU-21i stale `wip` status line corrected doc-only
-(confirmed `wu-21i-green` genuinely exists via `git tag`), and WU-17's own
-entry corrected doc-only (its own body text claimed "Steve tagged
-`wu-17-green` by hand"; no such tag exists in the real repository, confirmed
-via `git tag` — the code itself is done, only the tag is missing).
+**Session:** 40 (WU-32, historical-findings import — documentation-only,
+per its own opening brief; no production source file touched, one new
+standing regression test added). WU-28c/WU-21d's own real-terminal
+close-out status is unchanged from Session 39 — not this session's job,
+not touched.
 
-**Tag:** no new tag exists yet. `wu-21d-green` is Steve's own next action,
-once his own real-terminal build/`ctest`/by-eye run confirms the
-DeckLink-linked half (untestable in this session's own cloud sandbox — see
-below) is genuinely green. See "Steve's own next steps" below.
+**Tag:** no new tag exists yet. `wu-32-green` is Steve's own next action —
+see "Steve's own next steps" below. Unlike every WU-28-adjacent unit before
+it, this one changes no `scatter-core`/`scatter` source file at all (only
+one new test file plus `CMakeLists.txt`'s own registration of it), so the
+real-terminal step is materially smaller than usual: rebuild, run the new
+test, confirm nothing else moved, tag.
 
 ## Before doing anything else in the next session
 
@@ -26,171 +25,211 @@ tag/commit state without checking it against the real repository first.
 
 ## This session in full
 
-Opened by requesting device-bridge folder access to `~/src/scatter-dve`
-only (core-only scoping, not the Blackmagic SDK folder), then reading
-`SESSION-PROTOCOL.md`, `HANDOFF.md`, `WORK-UNITS.md`, `DECISIONS.md`,
-`CORRECTIONS.md`, `INVARIANTS.md` in full, then verifying real repository
-state directly via the device bridge, per standing discipline, before
-trusting `HANDOFF.md`'s own account: `git tag` listed both `wu-26-green` and
-`wu-28b-green`; `git log --oneline -10` showed `HEAD` at `4381823` ("WU-26:
-normals from lattice (ADR-063); C-021 tag-before-commit correction");
-`git merge-base --is-ancestor` confirmed both tags as ancestors of `HEAD`
-(`wu-26-green` in fact dereferences to `HEAD` itself — `git rev-parse
-wu-26-green` returning a different-looking hash is the annotated tag
-object's own SHA, not the commit it points at; `git log wu-26-green`/`git
-show -s wu-26-green` both resolve to `4381823`); `git status --short` empty;
-`git status -sb` read `## main...origin/main` with no ahead/behind marker.
-Session 37's own C-021 fix had genuinely landed — no drift found this time,
-unlike several recent prior sessions. Full detail in `DECISIONS.md` ADR-064's
-own opening section.
+Opened from a continuation prompt (pasted by Steve) asking to import two
+research documents' findings — `WU-SM-01` (Mirage shape/UI/storage model,
+draft 0.3) and `WU-SM-02` (surface arbitration and the front/back source
+pair, draft 0.1), both derived from primary Quantel sources — into this
+repository's own state files. The prompt was explicit that it might be
+working from a stale summary of repository state and instructed verifying
+`DECISIONS.md`/`INVARIANTS.md`/`WORK-UNITS.md`/`HANDOFF.md`/`docs/
+gpu-route-assessment.md` before writing anything, and to ask before choosing
+this unit's own number rather than assume.
 
-With WU-26/WU-28b both confirmed genuinely closed, moved to WU-21d, per this
-session's own brief. Read WU-21d's own full `WORK-UNITS.md` entry, then
-`src/io/decklink_live_output.hpp`/`.cpp` (where `LiveFramePlayback` actually
-lives — not `decklink_live_playback.hpp`, which does not exist; the real
-file layout was checked directly, not assumed) in full, then `DECISIONS.md`
-ADR-050's own same-session addendum (the original cold-start-green finding
-this unit is scoped against) in full.
+Requested device-bridge access to `~/src/scatter-dve` and read
+`SESSION-PROTOCOL.md`, `HANDOFF.md` (Session 39's), `WORK-UNITS.md`,
+`DECISIONS.md`, `CORRECTIONS.md`, `INVARIANTS.md`, `docs/architecture.md`
+and `docs/workflow.md` in full before writing anything, per standing
+discipline.
 
-**Confirmed DeckLink-linked before assuming either way, per this session's
-own brief.** `CMakeLists.txt`'s own `scatter-decklink` static library target
-lists `src/io/decklink_live_output.cpp` among its sources, guarded by
-`if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS
-"${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPI.h")` — confirmed directly by
-reading the file. This session's own cloud-sandbox `cmake -B build` output
-stated plainly "BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found
-there) — skipping scatter-decklink" — `decklink_live_output.cpp` is not
-compiled by this sandbox's own CMake configuration at all, confirmed by its
-own absence from every build log this session produced.
+**Verification found the continuation prompt's premises did not fully match
+real repository state, in several concrete ways — surfaced to Steve before
+any file was written, per the prompt's own instruction:**
 
-**Design decision, recorded in full in `DECISIONS.md` ADR-064: push the
-pure, portable part (building black v210 bytes) into `video/v210.hpp`/`.cpp`
-as a new `packBlackFrame()`, and keep `decklink_live_output.cpp`'s own
-change to the minimum SDK-facing glue** — three lines of substance in
-`startWith()`'s pool-creation loop (build the black bytes once, fill each
-buffer with them right after `CreateVideoFrame()`, fail `create()` cleanly
-if a fill fails). This is a materially more testable design than putting the
-black-fill logic directly in the DeckLink-linked file would have been: it
-follows the project's own established `scatter-core`/`scatter-decklink`
-separation (the same shape `CaptureConsumer` calling into `runFrameBytes()`
-already uses, ADR-048) and means the actual byte-construction logic is
-genuinely built and tested in this session's own cloud sandbox, not only
-reasoned through by hand — even though the unit as a whole remains not
-core-only, and `decklink_live_output.cpp` itself stays reasoned-through-only,
-unbuilt and unrun in this sandbox, the same as every DeckLink-touching unit
-before it since WU-14/ADR-031.
+1. `docs/gpu-route-assessment.md` does not exist in this repository (`find`
+   confirmed directly, not assumed). The equivalent content — the Starlight
+   phase description, the transparency-mechanism design note, the patent
+   provenance list — lives in `docs/architecture.md` §0/§4.7/§10/§13.
+   Corrections targeted that file instead.
+2. `docs/architecture.md` §13 already cited **US 5,103,217 (Cawley)**, not
+   EP0320166A1, as its Starlight provenance — there was no wrong-patent
+   citation in this repository to fix. The wrong-attribution history
+   `WU-SM-01.md` §2.1 describes belongs to an earlier scatter-dve working
+   assumption, not to this file's current text. See CORRECTIONS.md C-022.
+3. `WORK-UNITS.md`'s WU-27 ("Blinn-Phong, linear light, two-sided") has
+   never carried `Files:`/`Accept:` content past its one-line backlog
+   title — there was no existing acceptance criteria to rewrite, only a
+   title to correct and a scoping note to leave for whoever picks it up.
+4. `WORK-UNITS.md`'s WU-28 is not `todo` — it is already split into
+   WU-28a/WU-28b (`green`, a k-buffer resolve with `Opaque`/`Blend` modes,
+   built and sandbox-tested across several sessions, `DECISIONS.md`
+   ADR-059–ADR-061), WU-28c (`wip`, per-fragment facing tags), and WU-28d
+   (`todo`, wiring into the live demo). Its shipped blend formula
+   (`ADR-061`) does not implement the transparency-coefficient rule the
+   research documents describe (`ADR-072`), and it was built — ADR-059
+   says so explicitly — as an invented-from-scratch mechanism, because the
+   real Mirage patent discloses no general multi-surface mechanism. "WU-28
+   becomes sheet arbitration" (the continuation prompt's own framing) does
+   not match this — WU-28a–d are not to be touched, renumbered or
+   reinterpreted as unbuilt.
+5. Two of the nine `DECISIONS.md` items the prompt asked for ("address map
+   plus soft stencil", and two others) were not fully explained by the
+   findings pasted into the prompt itself; `WU-SM-01`/`WU-SM-02` had not
+   been attached. Flagged to Steve, who then attached both — all nine items
+   were promoted with real provenance once they arrived. One correction
+   surfaced in the process: the source documents' own Task A5 (mask width:
+   one bit or a wider soft stencil) is explicitly **unresolved**, so
+   "address map plus soft stencil" overstated what is actually settled —
+   promoted as "address map plus validity mask, width open" instead
+   (`ADR-066`).
 
-Built and tested in the cloud sandbox, for the portable half only: fresh
-`git clone` of `https://github.com/skunge2000/scatter-dve.git`, confirmed
-matching the real repository's own `git tag`/`git log`/`git status -sb`
-(`wu-26-green` at `HEAD`, `4381823`, clean, in sync) before any file was
-touched. Full 8-configuration matrix — GCC 13.3.0 and Clang 18.1.3, Release
-and Debug, `SCATTER_TILE_LOG2` 4 and 5 — all green, zero warnings under this
-project's full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion
--Werror` set, plus GCC 13 with `-fsanitize=address,undefined
--fno-sanitize-recover=all`: clean, no sanitizer report. `ctest`: 22 of 22
-targets passing in every configuration, no regressions anywhere outside
-`test_v210` itself. `test_v210` alone: 5117 checks passing (three new
-`testPackBlackFrame()` calls at widths 12, 14, 720).
+Two decisions were put to Steve before writing, per the prompt's own "ask
+before choosing this unit's own number" instruction and the scale of the
+WU-28/research divergence above:
 
-Delivered four changed/new-content source files plus three doc files to the
-real repository via `SendUserFile` + `device_commit_files`, to
-`/Users/stephenneal/src/scatter-dve/...`: `src/video/v210.hpp`,
-`src/video/v210.cpp`, `src/io/decklink_live_output.cpp`,
-`tests/test_v210.cpp`, `WORK-UNITS.md`, `DECISIONS.md`, this file.
-**Delivery confirmation (this session's own device_bash checks after
-writing every file):** `wc -l` on each of the seven files matched this
-session's own sandbox copies exactly; `git status --short` showed exactly
-these seven files changed, nothing else; byte-for-byte `diff` against this
-session's own sandbox copies, re-staged from the device afterward, showed
-no differences on any of the seven.
+- **This unit's own number: WU-32, main sequence** (not a new `WU-Dn`
+  documentation series, Steve's explicit choice over the recommended
+  alternative).
+- **The WU-28/`ADR-072` gap: a new forward-looking unit (WU-35), not
+  touching WU-28a/WU-28b/WU-28c/WU-28d's own files or status**, promoting
+  `ADR-072`/`ADR-074` as documentation and leaving the actual
+  reconciliation — a swappable arbitration interface, the transparency-
+  coefficient blend formula, retiring or superseding WU-28b's placeholder —
+  as a scoped-but-not-built future unit (Steve's explicit choice, the
+  recommended option).
+
+**Deliverables, once both documents were in hand:**
+
+1. `DECISIONS.md` — nine ADRs appended, ADR-066 through ADR-074, each with
+   a provenance line back to `docs/sources/WU-SM-01.md`/`WU-SM-02.md`'s own
+   section and confidence tier ([A]/[B]/[C]/[P] preserved, not flattened).
+   Real next number confirmed directly (`grep -oE "ADR-[0-9]+"`, max was
+   ADR-065) before use, per the prompt's own instruction not to guess.
+2. `INVARIANTS.md` — four additions, I8–I11 (nothing culled; no per-sample
+   normal/depth in the lattice format; shading pre-projection; within-sheet
+   accumulate vs. between-sheet blend as separate stages).
+3. `CORRECTIONS.md` — two entries, C-022 (`docs/architecture.md`'s
+   Blinn-Phong/per-pixel-evaluation text, and the non-existent wrong-patent
+   citation — see point 2 above) and C-023 (the ADR-007 1080p50 headroom
+   figure predates I8/`ADR-070`/`ADR-072` and cannot be inherited without
+   re-deriving it — no replacement figure computed here, per Task D6 in
+   `WU-SM-02.md` §5.2, left for whoever does that re-derivation).
+4. `WORK-UNITS.md` — WU-26 gained a note that its own `∂z` gates three
+   consumers (shading normal, facing sign, future depth-gradient
+   tolerance), not touching its `Files:`/`Accept:`/`Status:`; WU-27 renamed
+   Phong (was Blinn-Phong) with a scoping note, no invented `Files:`/
+   `Accept:`; three new units added, WU-33 (front/back source pair), WU-34
+   (coarse-grid shading), WU-35 (sheet arbitration v2, forward-looking
+   only); this unit's own WU-32 entry added under a new "Cross-cutting
+   documentation units" heading (numbers do not track document position
+   for these three new units — WU-33/34/35 sit inside the Phase 7 section
+   by topic, ahead of Phase 8's lower-numbered WU-30/31, flagged plainly
+   rather than silently reordered).
+5. `docs/architecture.md` — §0 ("per-pixel lighting" → coarse-grid-
+   evaluated), §10 (Phase 7's Blinn-Phong line corrected, cross-referenced
+   to the new ADRs and work units), §13 (the S6 Starlight-patent citation
+   added; a note that no wrong-patent citation existed to fix).
+6. `docs/sources/WU-SM-01.md`, `docs/sources/WU-SM-02.md` — dropped in
+   verbatim, own numbering intact. `docs/sources/README.md` — new, the
+   `ADR-SM-nnn → ADR-0nn` mapping table, and an explicit list of what was
+   **not** promoted this session (`ADR-SM-001/002/004–008/010/013/019/021`
+   remain proposals in the source documents only).
+7. `tests/fixtures-historical.md` — new, all 32 fixtures from both
+   documents, fixture → owning WU → status. Most rows are `not runnable`
+   (the owning unit doesn't exist yet) — the table itself is the
+   deliverable, as the opening brief said it would be.
+8. `tests/test_scan_order_invariance.cpp` — new, the one actual test.
+   **Narrower than the fixture's own name**, honestly: covers the row (v)
+   traversal axis only (four distinct row-visitation orders — forward,
+   reverse, even-then-odd, block-reversed — through the existing
+   `generateFragmentsRowRange()` public API, checked bit-identical via
+   `splatTile()`/`sumBanks()`), not the full four-way `(u, v)` combination
+   the fixture names, because covering the column (u) axis would need a
+   traversal-direction parameter `core/binner.cpp` does not expose today —
+   adding one is production code beyond a documentation-only unit's scope.
+   Flagged in the test file's own header, in `tests/fixtures-historical.md`
+   fixture 29's row, and here, rather than silently claiming full coverage.
+   `CMakeLists.txt` gained its `scatter_test()` registration, same pattern
+   as every other test target.
+
+Delivered every changed/new file to the real repository via `SendUserFile`
++ `device_commit_files`, then **re-staged each one from the device and
+diffed against this session's own edited copy before writing this
+sentence** — `SESSION-PROTOCOL.md`'s own rule 8, not inferred from the
+write call returning without error alone.
 
 ## Where we are
 
-Phase 6 (Scale up) unchanged: WU-22a/b/c all `green`. Phase 7 (Starlight):
-WU-26 `green` (confirmed this session, Session 37's own C-021 fix landed),
-WU-27 `todo`, WU-28a/WU-28b `green`, WU-28c/WU-28d `todo` (both still gated
-on WU-26, which has now genuinely landed — WU-28c's own real scoping session
-can proceed in full whenever it is next picked up), WU-29 `todo`. Phase 5
-(Live capture): WU-21d now `wip` (this session) — the portable half is
-real-terminal-independent green (cloud sandbox, above); the DeckLink-linked
-half needs Steve's own real-terminal build/`ctest`/by-eye run before this
-line goes `green`. `DECISIONS.md` runs through ADR-064. `CORRECTIONS.md`
-unchanged this session, still runs through C-021 — nothing new was wrong
-enough to log there.
+Phase 6/Phase 5 unchanged from Session 39. Phase 7: WU-26 `wip` (unchanged,
+gained a documentation-only note), WU-27 renamed and still `todo` (no
+`Files:`/`Accept:`, unchanged in substance), WU-28a/WU-28b `green`, WU-28c
+`wip`, WU-28d `todo` (none touched — status, files and content all
+unchanged from Session 39), WU-29 `todo` (unchanged), WU-33/WU-34/WU-35
+new, all `todo`, none scoped past a note. `DECISIONS.md` runs through
+ADR-074. `INVARIANTS.md` runs through I11. `CORRECTIONS.md` runs through
+C-023. `WORK-UNITS.md` gained the "Cross-cutting documentation units"
+section, WU-32.
 
 ## Next work unit
 
-**Steve's own real-terminal close-out for WU-21d** — see "Steve's own next
-steps" below. After that: WU-28c (self-fold facing tag) is now unblocked in
-full and is a reasonable next pick — its own real scoping session's first
-job is fixing its own stale "Depends on WU-26... not yet scoped or built"
-line as part of doing the real `Files:`/`Accept:` work, not before it.
-WU-21d's own original todo entry also named further live-pipeline candidate
-territory (the one-hour endurance run, `framesRepeated` rate over a longer
-run) that this session deliberately left unscoped — see `DECISIONS.md`
-ADR-064's own "Scope, decided now" paragraph — available for a future
-session if it becomes a priority, not currently blocking anything.
+**Steve's own real-terminal close-out for WU-32** — see below; small,
+since no `scatter-core`/`scatter` source file changed. After that, several
+independently pickable units are now real: WU-27 (rename done, real scoping
+still needed against ADR-069/070/071), WU-33 (front/back source pair),
+WU-34 (coarse-grid shading), WU-35 (sheet arbitration v2, blocked in
+substance on Task A1 — UK 2,158,671 in full — per `docs/sources/
+WU-SM-02.md` §7, not blocked procedurally). None of WU-28a/WU-28b/WU-28c/
+WU-28d's own next-step guidance (Session 39's HANDOFF, preserved above by
+implication) has changed.
 
 ## Open questions
 
-Unchanged from Session 35/36/37: `kCaptureRingCapacity`'s value of 8
-(WU-20a/20b, ADR-046), Q3 (macOS/Desktop Video version), and Q4 (lattice
-edge damping, C-008(a)) all remain open, none touched this session. The
-cold-start green-frame artifact itself (previously listed here as WU-21d)
-is no longer merely an open question — see this session's own work above;
-whether it is actually fixed on real hardware is Steve's own next
-confirmation, not still an open question about what to do.
+Unchanged from Session 35–39: `kCaptureRingCapacity` = 8 (WU-20a/20b,
+ADR-046), Q3 (macOS/Desktop Video version), Q4 (lattice edge damping,
+C-008(a)). New this session, carried from the research documents rather
+than this project's own prior sessions: Task A1 (UK 2,158,671 in full —
+gates `ADR-074`'s M1/M2/M3 choice and therefore WU-35), Task D6
+(re-derive the 1080p50 performance budget — C-023), and the open design
+question `ADR-070` records (coarse-grid facet normal vs. WU-26's exact
+analytic normal — whichever of WU-27/WU-34 gets scoped first should settle
+it, not silently pick one).
 
 ## Blocked / red
 
-Nothing red. WU-28c/WU-28d remain honestly `todo`, no longer blocked on
-anything (WU-26 landed). WU-21d is `wip`, not broken: its own portable half
-is genuinely tested and passing; only the DeckLink-linked half and the
-by-eye confirmation are outstanding, the same category every DeckLink-
-touching unit's own real-terminal step has always been.
+Nothing red. Nothing newly blocked. WU-35 is blocked *in substance* on Task
+A1 (not a repository-state block); noted above, not new to this session's
+own scope.
 
 ## Environment check
 
-Unchanged from Session 35/36/37: **UltraStudio Monitor 3G** (output,
-HDMI-mirrored) and **UltraStudio Recorder 3G** (input) both last confirmed
-working in Session 29's own real-hardware runs. **UltraStudio 4K Mini**
-remains on hold pending a PSU replacement. `origin` remains configured and
-in sync as of this session's own opening and closing checks.
+Unchanged from Session 39. Nothing this session touched any DeckLink-linked
+or Cocoa-linked file, or any `scatter-core`/`scatter` source file at all.
 
 ## Append to DECISIONS.md
 
-ADR-064 (WU-21d scoping and build: the DeckLink-linked confirmation,
-`scatter::v210::packBlackFrame()`'s design and the portable/DeckLink-linked
-split it enables, `decklink_live_output.cpp`'s own minimal integration, and
-the explicit scope decision leaving the endurance-run/`framesRepeated`
-candidate territory undecided) — appended in full this session; see
-`DECISIONS.md`. Does not reopen ADR-050 (extends its own named-not-fixed
-candidate into a real implementation) or ADR-010/032/037/048/063.
+ADR-066 through ADR-074 — appended in full this session; see `DECISIONS.md`.
+Does not reopen any existing ADR, including ADR-059/060/061 (WU-28a/WU-28b's
+own k-buffer design and build) and ADR-007 (1080p50 headroom, corrected only
+via CORRECTIONS.md C-023, not reopened or rewritten).
 
 ## Append to CORRECTIONS.md
 
-Nothing this session — no error found that rose to a logged correction.
-(Two doc-only status-line corrections were made in place, in `WORK-UNITS.md`
-itself, per the same convention Session 35/37 already used for WU-28a/WU-28b's
-own stale lines — not `CORRECTIONS.md` entries, since neither was a mistake
-made by an assistant session, only stale bookkeeping found while
-re-verifying repository state.)
+C-022 (`docs/architecture.md`'s Blinn-Phong/per-pixel text, and the
+non-existent wrong-patent citation) and C-023 (the ADR-007 1080p50 headroom
+figure needs re-deriving, not inheriting) — appended in full this session;
+see `CORRECTIONS.md`.
 
 ## Closed out this session
 
-Nothing tagged this session — WU-21d's own DeckLink-linked half cannot be
-verified without Steve's own real terminal (no Blackmagic SDK, no
-AppleClang/Xcode in this cloud sandbox), so no `close.sh`/manual-tag step
-was appropriate here, consistent with "the assistant does not run
-`close.sh`" and does not tag units it could not itself fully verify.
+Nothing tagged this session — WU-32 needs Steve's own real-terminal
+`build`/`ctest` to confirm `test_scan_order_invariance` before a tag is
+appropriate, consistent with "the assistant does not run `close.sh`" and
+does not tag units on cloud-sandbox evidence alone.
 
 ## Steve's own next steps
 
-**1. Rebuild and test WU-21d's own DeckLink-linked half, with the same
-Monitor 3G SDI-out loopback (or a live source, whichever you have patched
-in) `test_decklink_live_output.cpp`'s own header comment already documents
-— no new physical setup.**
+**1. Rebuild and test WU-32 at your own real terminal.** No hardware setup
+needed — every changed/new file is either documentation or a
+`scatter-core`-only test.
 
 ```
 rm -f ~/src/scatter-dve/.git/index.lock
@@ -201,49 +240,34 @@ ctest --test-dir build --output-on-failure
 ```
 
 Expected: everything green except `test_decklink_device`'s own
-`foundDuplexDevice` check — ADR-035's already-accepted exception (the
-Monitor 3G is playback-only) — nothing else. `test_v210` should now report
-more checks than before (5117 in this session's own cloud-sandbox run,
-GCC/Clang on Linux — the real AppleClang count may differ slightly but
-should not fail).
+`foundDuplexDevice` check — ADR-035's already-accepted exception, which
+fires on every real-terminal run regardless of what a given unit touches.
+`test_scan_order_invariance` should appear as a new passing target; every
+other test's own result should be unchanged from your last real-terminal
+run, since no `scatter-core`/`scatter` source file was touched.
 
 **If anything else fails, stop here — don't tag, don't proceed to step 2 —
-and paste me the full `--output-on-failure` output.** That would be a real
-regression this session's own cloud-sandbox run (which never even compiled
-`decklink_live_output.cpp`, no SDK present) could not have caught.
+and paste me the full `--output-on-failure` output.**
 
-**2. By-eye confirmation — this unit's own only unautomatable `Accept:`
-criterion.** Run the live-output test binary directly and watch the Monitor
-3G's own HDMI-mirrored output from the very start of the run:
-
-```
-cd ~/src/scatter-dve
-./build/test_decklink_live_output
-```
-
-Expect: **black**, not the strongly saturated green ADR-050's own addendum
-recorded, for the first moment or two after the run starts, before real
-captured content (or the identity-mapped loopback signal) appears. Worth
-reporting either way — if it is still green, that means the fix did not
-take effect on real hardware and this needs a fresh look, not a tag.
-
-**3. If both of the above are clean, commit and tag.** This uses the manual
-fallback (the known `test_decklink_device` exception `close.sh` cannot
-distinguish from a real failure) — `git add`/`git commit` come **before**
-`git tag`, so the tag lands on the commit that actually contains these
-changes, not on whatever `HEAD` happened to be beforehand (the exact mistake
-C-021 recorded last session):
+**2. Commit, tag and push.** Same manual-tag fallback every DeckLink-adjacent
+close-out has used since ADR-035 (`close.sh` refuses to tag past that known
+exception) — `git add`/`git commit` before `git tag`, so the tag lands on
+the commit that actually contains these changes (the exact mistake C-021
+recorded, avoided here):
 
 ```
 cd ~/src/scatter-dve
-git add src/video/v210.hpp src/video/v210.cpp src/io/decklink_live_output.cpp tests/test_v210.cpp WORK-UNITS.md DECISIONS.md HANDOFF.md
-git commit -m "WU-21d: cold-start black fill for LiveFramePlayback's own pool (ADR-064)"
-git tag -a wu-21d-green -m "WU-21d: cold-start black fill green (test_decklink_device/foundDuplexDevice is ADR-035's known exception)"
+git add DECISIONS.md INVARIANTS.md CORRECTIONS.md WORK-UNITS.md HANDOFF.md \
+        docs/architecture.md docs/sources/WU-SM-01.md docs/sources/WU-SM-02.md \
+        docs/sources/README.md tests/fixtures-historical.md \
+        tests/test_scan_order_invariance.cpp CMakeLists.txt
+git commit -m "WU-32: import WU-SM-01/WU-SM-02 historical findings (ADR-066..074)"
+git tag -a wu-32-green -m "WU-32: historical findings import green (test_decklink_device/foundDuplexDevice is ADR-035's known exception)"
 git push origin main
 git push origin --tags
 ```
 
-**4. Verify it landed correctly:**
+**3. Verify it landed correctly:**
 
 ```
 cd ~/src/scatter-dve
@@ -253,28 +277,5 @@ git status -sb
 ```
 
 `git log --oneline -3` should show your own new commit at `HEAD`, carrying
-`wu-21d-green`; `git status -sb` should read `## main...origin/main` with no
+`wu-32-green`; `git status -sb` should read `## main...origin/main` with no
 ahead marker and no modified files listed at all.
-
----
-
-**Optional, independent of WU-21d — WU-17's own missing tag.** This
-session found `WORK-UNITS.md`'s own WU-17 entry claiming you had already
-tagged `wu-17-green` by hand, but no such tag exists in the real repository
-(confirmed via `git tag`) — the doc claim was corrected in place this
-session (see `WORK-UNITS.md`'s own WU-17 entry). The code itself is already
-verified green per that entry's own text (full suite passing at your own
-real terminal, `test_v210_neon` itself green). If you want to close this out
-for real, independently of WU-21d above, and your working tree is otherwise
-clean:
-
-```
-cd ~/src/scatter-dve
-git status --short
-git tag -a wu-17-green -m "WU-17: NEON v210 unpack and pack green (test_decklink_device/foundDuplexDevice is ADR-035's known exception)"
-git push origin --tags
-```
-
-Only run this if `git status --short` above prints nothing — if it prints
-anything, something is uncommitted and tagging now would repeat C-021's own
-mistake on a different unit.

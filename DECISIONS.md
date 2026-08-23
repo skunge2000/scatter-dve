@@ -6742,3 +6742,453 @@ decisions ADR-050 itself made. Does not reopen ADR-010, ADR-032, ADR-037,
 ADR-048 or ADR-063 — `packBlackFrame()` is additive alongside `packRow()`/
 `packImage()`, consuming `core/types.hpp`'s existing `kBlack`/`kChromaZero`
 exactly as they already stood.
+
+**ADR-065 — WU-28c build: self-fold facing tag, `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` as new, additive sibling entry
+points in `core/binner.hpp`/`.cpp`, alongside the existing single-scalar-tag
+`generateFragments()`/`generateFragmentsRowRange()`, unchanged.** Session
+opened by verifying real repository state directly via the device bridge,
+per standing discipline, before trusting `HANDOFF.md`'s own account: `git
+tag` listed `wu-21d-green` (in addition to every earlier tag); `git log
+--oneline -10` showed `HEAD` at `bba3634` ("WU-21d: cold-start black fill
+for `LiveFramePlayback`'s own pool (ADR-064)"); `git rev-parse
+wu-21d-green^{commit}` and `git rev-parse HEAD` both resolved to
+`bba3634...`, and `git merge-base --is-ancestor wu-21d-green HEAD` confirmed
+it directly rather than by inference from the tag's own presence; `git
+status --short` empty; `git status -sb` read `## main...origin/main` with no
+ahead/behind marker (`.git/index.lock` present at 0 bytes, read-only git
+commands unaffected, consistent with `SESSION-PROTOCOL.md`'s own standing
+note on this). WU-21d is genuinely closed at Steve's own real terminal, not
+merely claimed — no drift found this session, unlike several sessions before
+Session 37/38.
+
+**Design: reuse the exact facing computation ADR-062/ADR-063 already
+scoped and built, exposed through new sibling functions rather than a
+changed signature — matching WU-16b's own precedent (`generateFragments()`
+staying a thin wrapper around a new `generateFragmentsRowRange()`, not
+itself changed) and `WORK-UNITS.md`'s own WU-28c entry, which already
+named "a new, additive per-sample tag mode alongside today's
+single-scalar-tag `generateFragments()`/`generateFragmentsRowRange()`" as
+the expected shape before this session began.** Both existing functions'
+own signature and behaviour are unchanged — confirmed by the full portable
+suite below showing no regression anywhere outside `test_binner` itself.
+Internally, `core/binner.cpp`'s per-sample loop (previously the body of
+`generateFragmentsRowRange()` directly) is now `generateFragmentsRowRangeImpl()`,
+a function template taking a `TagFn` tag-selector called once per emitted
+fragment as `tagFor(rawJ)`, where `rawJ` is the same `lattice.jacobian(u, v)`
+value the loop already computes for the supersampling decision (`centreJ`/`J`
+before `pixelJacobian()`'s conversion) — no new lattice evaluation, the same
+reuse-not-duplicate reasoning ADR-062/ADR-063 already applied to `dz/du`,
+`dz/dv` themselves. `generateFragmentsRowRange()` now calls the template with
+a captureless-except-`tag` lambda that ignores its own argument and returns
+`tag` — the compiler inlines this to exactly the previous code, confirmed
+by the unchanged pre-existing `test_binner` checks all still passing
+byte-for-byte identically (no tolerance loosened, no check removed).
+`generateFragmentsRowRangeTagByFacing()` calls the same template with
+`[frontTag, backTag](const Jacobian& rawJ) { return surfaceNormal(rawJ).z <
+0.0 ? frontTag : backTag; }` — `surfaceNormal()` is `core/jacobian.hpp`'s,
+already reachable via `core/binner.hpp`'s existing
+`#include "core/jacobian.hpp"`, no new include needed.
+
+**`surfaceNormal()` is called on the raw `lattice.jacobian(u, v)` output,
+before `pixelJacobian()`'s conversion — ADR-063's own explicit warning,
+designed in from the start rather than rediscovered by a wrong result.**
+ADR-063 already recorded that a `Jacobian` which has passed through
+`pixelJacobian()` carries zeroed `dzdu`/`dzdv`, and flagged this exact trap
+for "whichever unit consumes this next... rather than rediscover it by a
+wrong result" — read in full, per this session's own brief, before any
+line of `core/binner.cpp` was written. Worth stating explicitly why this
+matters even though it would not have failed loudly if missed: as
+`test_jacobian.cpp`'s own `test_surface_normal_z_matches_2x2_determinant()`
+already establishes, `surfaceNormal(j).z` depends only on `j`'s `dxdu`,
+`dxdv`, `dydu`, `dydv` — never `dzdu`/`dzdv` — and `pixelJacobian()`'s
+positive `scaleU`/`scaleV` factors preserve the sign of the 2x2 determinant,
+so calling `surfaceNormal()` on the already-converted `centreJ`/`J` instead
+of the raw Jacobian would still have produced the *correct sign* at every
+point this unit's own test checks. That would have been a latent bug, not a
+loudly-failing one — correct by algebraic coincidence for the sign this
+unit needs, wrong in general (and wrong for `normal.x`/`normal.y`, which a
+future consumer such as WU-27's shading is expected to need), and exactly
+the kind of thing `CORRECTIONS.md`'s own lessons (C-011, C-017) warn against
+trusting without deriving the general case. Retaining `rawCentreJ`/`rawJ`
+(the direct `lattice.jacobian()` return) alongside the converted
+`centreJ`/`J`, and passing only the raw value to `tagFor`, costs nothing
+extra (no new lattice evaluation — see below) and avoids relying on that
+coincidence at all.
+
+**Facing computed once per source pixel, from the same centre evaluation
+the supersampling decision already makes, and reused across that pixel's
+own sub-samples when supersampled (`n > 1`) for `n == 1`'s own reused case;
+recomputed (still with no extra lattice evaluation beyond what the existing
+`n > 1` branch already pays for `K`) at each sub-sample's own `(u, v)`
+otherwise.** Concretely: `rawCentreJ = lattice.jacobian(u0, v0)` is computed
+once per source pixel (as `lattice.jacobian(u0, v0)` already was,
+unnamed, before this session); `rawJ` is `rawCentreJ` when `n == 1` (the
+existing reuse) or a fresh `lattice.jacobian(u, v)` at the sub-sample's own
+`(u, v)` when `n > 1` (the same evaluation `J`'s own `n > 1` branch already
+performs, now also captured before conversion). This does not special-case
+away from a self-fold falling within one magnified source pixel's own
+sub-samples — `tagFor(rawJ)` is called with each sub-sample's own `rawJ`,
+not a single value shared across an `n > 1` pixel's sub-samples — since
+nothing about `chooseSupersample()`'s magnification trigger (4.6) rules
+that out, and inventing a shortcut here was not this unit's job to invent
+unexamined.
+
+**Files:** `src/core/binner.hpp` (two new declarations,
+`generateFragmentsRowRangeTagByFacing()`/`generateFragmentsTagByFacing()`,
+additive; existing declarations' text unchanged), `src/core/binner.cpp`
+(the per-sample loop body extracted into a new private function template,
+`generateFragmentsRowRangeImpl()`; the two existing public functions become
+thin wrappers around it with unchanged behaviour; two new public functions
+call it with a facing-based tag selector), `tests/test_binner.cpp` (one new
+test, `test_self_fold_front_and_back_get_different_tags()`, against a real
+`buildSphereLattice()` self-fold — the same `angleSpanH == 2*pi` sphere and
+the same two control vertices, front-most and antipodal-fold-boundary,
+`DECISIONS.md` ADR-063 and `tests/test_jacobian.cpp`'s own
+`test_surface_normal_sign_matches_facing_convention()` already hand-derive
+and check the sign at, this time checking the *tag*
+`generateFragmentsTagByFacing()` assigns rather than the raw normal). +196/-14
+lines across the three files — within `SESSION-PROTOCOL.md`'s "3 source
+files plus its test, ~400 lines" cap.
+
+**Accept: built and tested in the cloud sandbox, per this project's own
+precedent for a core-only unit (ADR-060's WU-28a build; ADR-063's WU-26
+build).** Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git`,
+confirmed matching the real repository's own `git tag`/`git log`/`git
+status -sb` (`wu-21d-green` at `HEAD`, `bba3634`, clean, in sync) before any
+file was touched — confirmed directly in the sandbox too (`git rev-parse
+HEAD`, `git merge-base --is-ancestor wu-21d-green HEAD`), not only against
+the device-bridge checks above. `CMakeLists.txt` confirmed directly (not
+assumed) before scoping began: `src/core/binner.cpp` is listed unconditionally
+in `add_library(scatter-core STATIC ...)` (line ~132), with no
+`BLACKMAGIC_SDK_DIR`/`APPLE` guard anywhere near it, and `test_binner` is a
+plain `scatter_test(test_binner)` (line ~198) linking only `scatter-core` —
+core-only, confirmed rather than assumed, exactly the discipline
+`WORK-UNITS.md`'s own WU-28c entry and ADR-059's scoping conversation both
+already called for.
+
+Full 8-configuration matrix — GCC 13.3.0 and Clang 18.1.3 (`clang++
+--version` checked directly this session, matching ADR-063/ADR-064's own
+figure rather than assumed from them), Release and Debug,
+`SCATTER_TILE_LOG2` 4 and 5 — all green, zero warnings under this project's
+full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror` set
+(one first attempt at the tile-4 configurations failed with a
+`"SCATTER_TILE_LOG2" redefined` `-Werror` error — this session's own harness
+mistake, passing `-DSCATTER_TILE_LOG2=4` via `CMAKE_CXX_FLAGS` on top of
+`CMakeLists.txt`'s own `-DSCATTER_TILE_LOG2=${SCATTER_TILE_LOG2}` definition
+instead of through the project's own documented
+`cmake -B build -DSCATTER_TILE_LOG2=4` cache-variable path (`CMakeLists.txt`
+line ~166); not a defect in any delivered file, fixed by rerunning the
+matrix correctly before quoting these results), plus GCC 13 with
+`-fsanitize=address,undefined -fno-sanitize-recover=all`: clean, no
+sanitizer report, all 22 tests passing. `ctest`: 22 of 22 targets passing in
+every configuration, no regressions anywhere outside `test_binner` itself.
+`test_binner` alone: 38401 checks passing (up from the pre-WU-28c baseline —
+the new `test_self_fold_front_and_back_get_different_tags()` adds checks
+inside its own matched-fragment loop; every pre-existing `test_binner` check
+is unchanged and still passes, confirming the refactor into
+`generateFragmentsRowRangeImpl()` did not alter the plain-tag path's own
+behaviour). Steve's own real-terminal build/`ctest`/commit/tag/push
+(`wu-28c-green`) is the remaining step — see `HANDOFF.md`.
+
+Does not reopen ADR-059, ADR-060, ADR-061, ADR-062 or ADR-063 — `Frag::tag`'s
+own meaning ("priority / surface id", `core/types.hpp`) is unchanged, the
+k-buffer's own tag-keyed storage/resolve (WU-28a/WU-28b) is untouched, and
+`surfaceNormal()`'s own implementation, sign convention and "not normalised"
+decision (WU-26/ADR-063) are all consumed exactly as built, not altered.
+Closes the real-content gap ADR-062/C-020 named: a caller building a
+self-folding surface can now call `generateFragmentsTagByFacing()` with
+distinct `frontTag`/`backTag` values so its front and back land in different
+k-buffer slots — WU-28d (wiring this into `tests/test_decklink_live_sphere.cpp`
+so the effect is visible on real SDI hardware) remains the next, separately
+DeckLink-linked unit, per ADR-062's own two-units-not-one split.
+
+**ADR-066 — Library/lattice frame content: address map plus validity mask;
+no stored depth or normals.** Promoted from `docs/sources/WU-SM-01.md` §3.9
+(ADR-SM-003), tiered [A] for the FVP-era premises (Starlight "may be fitted
+to any Mirage in the field" with no library rebuild; the crate reads shape
+information off the existing ESU path rather than owning the disk format;
+the demonstration-effects floppy runs against the unmodified default shape
+table 0 and default library shapes) and [A/C] for the conclusion itself — "a
+bolt-on crate cannot change a disk format it does not own." Corroborated
+independently by `docs/sources/WU-SM-02.md` §2, which separates three
+distinct claims that had been travelling together under "does Mirage have a
+z-buffer": library content, run-time depth, and framestore depth. Only the
+first is settled by this finding. The third — whether the *destination
+store* itself carries a depth plane to compare against — is open; this ADR
+does not speak to it (see ADR-074).
+
+Binds scatter-dve's own lattice/library container: the per-shape frame is an
+address map (per-source-sample 3D position, run forward to a projected
+destination — already this project's own design from WU-06 onward, now
+confirmed matching the historical machine rather than coincidentally
+resembling it) plus one validity-mask channel, and nothing else. No
+per-sample normal or depth plane belongs in the lattice format.
+
+**Open, not settled: mask width.** `docs/sources/WU-SM-02.md` §7 Task A5
+leaves open whether the historical validity mask is a single bit or a wider
+soft stencil — S5's own skin store carries a 2–4 bit keying/stencil
+component per surface element (WU-SM-02 E15), but whether that is the house
+pattern for Mirage's own library track specifically is unresolved pending
+further primary sources. Keep the lattice container a plane list, not two
+fixed planes, so a wider mask can be added later without a format break
+(WU-SM-01 §7.2's own recommendation) — but this ADR does not fix the mask at
+one bit, and makes no [P] choice here. (The continuation prompt that opened
+this work unit described this ADR as "address map plus soft stencil"; that
+overstates what §7 Task A5 actually settles — corrected here to "validity
+mask, width open.")
+
+Does not reopen any existing ADR. `core/lattice.hpp`'s current shape (the
+address map alone, no stored normal/depth channel — already the design
+`core/lattice.hpp`'s own header comment reserves WU-26's normal and this
+ADR's arbitration-tolerance gradient to be *derived* from, per ADR-062's
+citation of it) already matches this finding and needs no code change.
+
+**ADR-067 — WORLD-rooted general axis tree replaces the fixed REF/OBJECT
+pair.** Promoted from `docs/sources/WU-SM-01.md` §5.6.1 (ADR-SM-009), [A]
+for the historical topology — an immovable `WORLD` root with no controls of
+its own, "all axes must be suspended from some other axis"; a default chain
+`REF 3 → REF 2 → REF 1 → OBJECT` hanging from it; two bare "gantry" axes
+(`8.0`/`9.0`) as reconnectable scaffolds for grouping lights; `a.b` axis
+identifiers (`0.0` object, `0.1`–`0.3` the three reference axes, `1.0`–`6.0`
+the six lights, `1.1`/`2.1` the two point/beam lights' own reference axes);
+fifteen legal reconnection points with "no self-edge, no cycle" as the only
+constraint — and [P] for adopting this as scatter-dve's own scene-graph
+design (WU-SM-01 §5.6.1's own design-implication note, explicitly
+superseding the two-live-TRS-frame REF/OBJECT model of ADR-SM-006).
+
+This is a documentation-only promotion: it records that any future
+effect/axis data model in scatter-dve should be a general parent-child axis
+tree rooted at an immovable `WORLD` node, seeded with the historical default
+topology above, addressable by the historical `a.b` identifier as a stable
+external name — not a change to any file in this repository today, since no
+axis/effect data model has been built yet past the lattice/Jacobian/binner/
+splat/resolve core. Binding on whichever future work unit builds one.
+
+**ADR-068 — Starlight shading composited write-side, in 3D view space,
+before projection; resolve-time shading is unavailable.** Promoted from
+`docs/sources/WU-SM-01.md` §3.9.2 (ADR-SM-014, resolved [A] from S5's own
+FIG. 1 signal order — skin store → chisel/adder → floating viewpoint →
+**STARLIGHT → 3D→2D converter** → masking → picture store — and from S3's
+own wording that the replacement border/soft-switch card "applies the
+required lighting pattern digitally to the digitised input video which
+passes through this card") and `docs/sources/WU-SM-02.md` §5.1 (ADR-SM-021),
+which draws the direct consequence for scatter-dve: resolve-time shading is
+not available without carrying normals into the accumulator, which this
+project's own integer accumulation path (I4/I6) and ADR-066 above jointly
+rule out.
+
+Binds any future Starlight/lighting work unit (WU-27, WU-34 below): the
+source sample is shaded in view space before the 3D→2D projection step, and
+the *shaded* value — not the raw source colour — is what gets splatted.
+Consistent with this project's own existing pipeline shape: shading is one
+more per-sample step ahead of `binner.cpp`'s projection/splat, not a
+`resolve.cpp` addition.
+
+**ADR-069 — WU-27 renamed: Starlight's lighting model is Phong, not
+Blinn-Phong.** Promoted from `docs/sources/WU-SM-01.md` §4.6.1–4.6.3
+(ADR-SM-015), [A]. US 5,103,217 (S5, Cawley) gives the illumination formula
+in closed form:
+
+```
+I = Ia·Ka + ( Ip / (r + k) ) · ( Kd·cos A + Ks·cosⁿ B )
+```
+
+`cos A` is between the surface normal and the light vector; `cos B` is
+between the **line of sight and the reflected ray** — the original 1975
+Phong formulation, not Blinn's 1977 half-vector reformulation. Distance
+falloff is **linear with an additive constant `k`** (S5's own "a small
+integer, say 2" for `n`), not inverse-square. The line-of-sight vector `LP`
+is fixed — an explicit orthographic-view assumption (S5: "may be assumed to
+be fixed") — not a per-pixel view vector. `model(L, zone)` is almost
+certainly a look-up table indexed on `cos B` (WU-SM-01 §4.6.3, [C] but
+well-supported: S5's own chisel circuit, FIG. 5, uses exactly this idiom —
+"a function generator... may include a look-up table" — and the eight named
+models, `Model 1`…`4`, `Ramp`, `Posterise`, `2 ring`, `4 ring`, are
+unnameable as closed-form reflection laws but trivial as tabulated functions
+of one variable), not a runtime `pow()` call.
+
+Building Blinn-Phong, inverse-square falloff, or a per-pixel view vector
+would put highlights in visibly different places from the machine — this is
+the single highest-value correction in this promotion, per the continuation
+prompt that opened this work unit.
+
+`WORK-UNITS.md`'s WU-27 is renamed from "Blinn-Phong, linear light,
+two-sided" to "Phong, linear light, two-sided" accordingly. WU-27 has never
+carried `Files:`/`Accept:` content past its one-line backlog title — this
+ADR does not invent scoping for it. Whoever picks up WU-27 next must scope
+it fresh against this ADR and ADR-070/ADR-071, not against the old
+Blinn-Phong premise.
+
+**ADR-070 — Starlight shading is evaluated per coarse-grid facet, not per
+pixel; the filtering ladder and grid shift are literal, not a generic
+blur.** Promoted from `docs/sources/WU-SM-01.md` §3.9.1 (ADR-SM-011), [A],
+corroborated independently by S5 FIG. 3 ([A]: circuit 32 computes the unit
+normal `NP` from three adjacent samples in a shifting retiming-buffer
+window, "defining a small facet of the skin of the object, including the
+point P").
+
+The intensity factor is *applied* per pixel (S5's control circuit 38
+multiplies RGB by `I`; the EP 0248626 abstract: "each pixel is adjusted...
+in response to a light intensity factor") but *evaluated* per coarse-grid
+facet from a three-sample neighbourhood and interpolated. Both statements
+are true of the same system; earlier scatter-dve sessions' "per-pixel
+lighting" reading (`docs/architecture.md`, carried from the since-corrected
+EP 0320166A1 attribution — see CORRECTIONS.md C-022) conflated the two.
+
+The filtering ladder is exposed literally, not implemented as a generic
+blur:
+
+| Filtering | Behaviour |
+|---:|---|
+| `0` | full interpolation across coarse grids |
+| `+1` | flat shading per coarse grid |
+| `+2` | flat shading across 2×2 coarse grids |
+| `+3` | flat shading across 3×3 coarse grids |
+| `−1` (default) | smoothing filter limiting the rate of change of light intensity across grids |
+| `−2` | as `−1`, more filtered |
+
+Grid shift (`0`/`1`/`2`, default `0`) applies a coarse grid's own computed
+pattern to the previous grid (or the one before that) horizontally — S3's
+own documented use is correcting "the wrong shading level... creeping around
+a corner" at filtering `+1`…`+3`. `docs/sources/WU-SM-01.md` §3.9.1 reads
+this as the signature of the finite-difference facet normal being
+attributed to one point of a three-sample neighbourhood rather than to the
+discontinuity itself — implement the ladder and the shift as this project's
+own literal reproduction of that mechanism, not smoothed away.
+
+**Open note for whoever scopes WU-27/WU-34:** the coarse-grid facet normal
+above is a *different* quantity from `core/jacobian.hpp`'s `surfaceNormal()`
+(WU-26, ADR-063) — WU-26's normal is exact and analytic, from the lattice's
+own tangent vectors, with none of the one-cell attribution artefact grid
+shift exists to correct. Reproducing the historical grid-shift behaviour
+faithfully needs the historical finite-difference facet construction, not a
+resample of WU-26's already-exact normal; whether scatter-dve reproduces the
+artefact or uses the better analytic normal is a real design choice this ADR
+does not make.
+
+**ADR-071 — Starlight material is owned by `(light, zone)`, not by
+surface.** Promoted from `docs/sources/WU-SM-01.md` §4.5.1 (ADR-SM-012),
+[A]. Reflective properties are attributed to the light sources, not the
+surface — S3 §4.4.2, in as many words: there is no surface-material menu;
+instead each light carries a spectral/diffuse ratio and a reflection-law
+model per zone. Two lights aimed at the same surface point can reflect as if
+the surface were matte for one and gloss for the other — documented as a
+deliberate feature, not a limitation.
+
+Binds any future material/shading data model: BRDF-like parameters (the
+diffuse/specular ratio, the specular model selection) are indexed by
+`(light, zone)`, never by geometry or surface id. Do not refactor this into
+a conventional per-surface material system even though that is the more
+familiar shape — `docs/sources/WU-SM-01.md` §7.6's own explicit warning.
+
+**ADR-072 — Sheet resolve: accumulate within a sheet; blend between sheets
+by a transparency coefficient `T`.** Promoted from
+`docs/sources/WU-SM-02.md` §3.4, §4, §4.0 (ADR-SM-016, ADR-SM-020,
+ADR-SM-022). Tiers: same-sheet accumulation is [A] (UK 2,119,594 as recited,
+and this project's own existing ADR-001); that a between-sheet coefficient
+exists at all, as an explicit and defeatable operator control rather than an
+emergent property of write order, is [A] (S1 p.11: `Manual Transp`,
+`Auto Transp` and `Opaque` are named controls over "front/back overlap"
+transparency, `Opaque` explicitly overriding the other two); the exact
+resolve formula below is [P] (WU-SM-02's own proposal, not a historical
+statement).
+
+The rule: contributions from the same sheet accumulate exactly as ADR-001
+already establishes — a resampling rule, correct under minification,
+untouched by this ADR. Between different sheets at a destination sample, the
+nearer sheet contributes `(1 − T)` and the farther contributes `T`; `T = 0`
+reproduces hard occlusion (`Opaque`); the unarbitrated accumulate-then-
+normalise case is `T = 0.5`. `T` has three documented, mutually exclusive
+sources: `Manual Transp` (one operator-set value for the whole picture),
+`Auto Transp` (derived from the shape), and `Ext. Key` (per-pixel, from an
+external video input) — `Opaque` forces `T = 0` and overrides the other two.
+
+Same-sheet-vs-different-sheet membership is proposed ([P], WU-SM-02 §4.1) as
+a tolerance derived from the local depth gradient — `Lattice::jacobian()`'s
+own `∂z` (see ADR-070/WU-26) — rather than a fixed scalar:
+`|z_new − z_stored| < κ · ‖∂z/∂(u,v)‖ · footprint`. This widens correctly at
+grazing angles (where a fixed tolerance would seam) and stays tight at
+silhouettes (where a fixed tolerance would bleed a far sheet through). `κ`
+is a single free tunable; the design is explicitly stated to degrade
+gracefully to a fixed scalar if evidence says otherwise.
+
+**This ADR does not describe scatter-dve's already-shipped
+`KBufferResolveMode` (`Off`/`Opaque`/`Blend`, WU-28a/WU-28b, ADR-059/
+ADR-060/ADR-061), and does not reopen it.** That mechanism was built and
+sandbox-green before this research existed, and ADR-059 itself records that
+it was invented from scratch — "this scoping session is genuinely inventing
+new design territory here, not porting one" — because the real Mirage
+patent (US 4,563,703) discloses no general multi-surface mechanism. WU-28b's
+own shipped blend formula (ADR-061: sort occupied slots front-to-back,
+composite farthest-to-nearest using plain `composite()` as the only
+arithmetic primitive) has no transparency coefficient, no `Manual`/`Auto`/
+`Ext. Key` distinction, and no depth-gradient sheet tolerance — it does not
+implement the rule this ADR records. See ADR-074 for how this gap is
+tracked going forward (WU-35). Not logged in `CORRECTIONS.md`: WU-28a/WU-28b
+were never claimed to be historically derived in the first place, so there
+is no earlier claim to correct.
+
+**ADR-073 — Front and back are two independently selected video sources,
+chosen per sample by facing.** Promoted from `docs/sources/WU-SM-01.md`
+§3.9.4.3 (ADR-SM-018), [C, strong — four independent threads plus rendered
+evidence]. Not a transition A/B pair: S2's own Input menu lists `FRONT A` /
+`BACK A` / `FRONT B` / `BACK B` plus independent `FREEZE`/`FRONT FROZEN`/
+`BACK FROZEN`; Mirage emits `FRONT/BACK CONTROL` to an external input matrix
+and front/back switcher; `ENG 48` is a dedicated *front/back switch delay*
+(typically 993, range 0–1023) timed into the video path; and a held off-air
+frame of a CYLINDER effect (S7) shows the near wall's exterior carrying one
+picture and, through the open top, the far wall's interior carrying
+materially different content — not the same picture reversed.
+
+Binds any future front/back data model and rendering path: each source
+sample selects between two independently-freezable video feeds by the sign
+of its surface normal (this project's own `surfaceNormal().z < 0`
+convention, ADR-027/ADR-063 — already the mechanism WU-28c's
+`generateFragmentsTagByFacing()` uses for k-buffer tag assignment, though
+today with a caller-supplied `frontTag`/`backTag` pair rather than two
+distinct video sources). A future unit (WU-33 below) is needed to actually
+wire two source rasters into the pipeline; this ADR records the historical
+mechanism WU-33 scopes against, not an implementation.
+
+**ADR-074 — Between-sheet arbitration mechanism is not settled; a future
+implementation must sit behind one swappable interface.** Promoted from
+`docs/sources/WU-SM-02.md` §3.2–3.4, §7 (D2), §9 (ADR-SM-017). This is the
+single most important entry in this promotion, per the continuation prompt
+that opened this work unit: it exists to stop anyone building past an open
+question by accident.
+
+Three candidate mechanisms remain on the table. **M1**, a traversal-order
+painter's algorithm — cheap, period-plausible, but excluded as the *sole*
+mechanism (`docs/sources/WU-SM-01.md` §3.9.4.1) because the shipped shape
+library contains as-shipped defaults — `PAGE TURN`, `VORTEX`, the
+`STARBURST`s, `TILE UNIVERSE`, `EVOLVING MOBIUS STRIP` — that no single scan
+order renders correctly. **M1′**, painter's-order-with-alpha-blending — also
+excluded (`docs/sources/WU-SM-02.md` §3.4): an emergent write-order result
+cannot be selectively overridden the way `Opaque` overrides `Manual`/
+`Auto Transp`, and the declared mutual exclusion between `Opaque` and
+`Trail` (E13) is inexplicable under any write-order-only mechanism but is
+forced under a depth-plane mechanism, since `Trail`'s retained content
+carries stale depth — **[C], but strong, promoted above everything else in
+the source document's own evidence review.** **M2**, a depth plane and
+compare, as demonstrated in S5's own skin-store machine (masking circuit 78:
+replace / discard / blend-when-approximately-equal) — currently favoured,
+pending confirmation from UK 2,158,671 in full (Task A1, not yet actioned).
+
+**Binding requirement, independent of which mechanism is eventually
+confirmed:** the arbitration stage must sit behind a single swappable
+interface, so that M1, M2 or a hybrid can be substituted without touching
+the splat (`docs/sources/WU-SM-02.md` §7, D2 — "non-negotiable while the
+question is open"). scatter-dve's already-shipped WU-28a/WU-28b k-buffer
+(ADR-059–ADR-061) is **not** built behind such an interface — it is a
+concrete, invented-from-scratch resolve path, correct on its own stated
+terms (ADR-059) but predating this research and not a swappable M1/M2/M3
+substrate. Retrofitting that interface onto the shipped code, and
+reconciling WU-28b's placeholder blend formula with ADR-072's transparency-
+coefficient rule, is future work — see WU-35 below.
+
+Does not reopen ADR-059, ADR-060 or ADR-061, and does not change WU-28a/
+WU-28b/WU-28c/WU-28d's status. Does not implement the arbitration stage —
+that remains explicitly out of scope for this documentation-only unit, per
+the continuation prompt's own instruction not to build past this open
+question.

@@ -664,3 +664,59 @@ sight, not routine output. Fixed the same session: `wu-26-green` deleted
 locally and on `origin`, the seven files committed for real, `wu-26-green`
 recreated on the commit that actually contains them, both pushed — see
 `HANDOFF.md`.
+
+**C-022 — `docs/architecture.md`'s Phase 7/lighting text named the wrong
+model and the wrong evaluation granularity; no wrong patent citation was
+actually present to fix.**
+*Claimed:* `docs/architecture.md` line 20 ("Per-pixel lighting and shading
+(the 'Starlight' equivalent) in a later phase") and line 464 ("Phase 7 —
+Starlight. Normals from the lattice, Blinn-Phong with 4–8 lights..."). The
+continuation prompt that opened WU-32 additionally asserted this text
+"scopes Starlight from the wrong patent" (EP0320166A1).
+*Correct:* checked directly against the real repository (`docs/
+gpu-route-assessment.md` does not exist; the relevant text lives in
+`docs/architecture.md` §4.7/§10/§13) before writing anything. Two real
+errors: the model is **Phong**, not Blinn-Phong — S5 (US 5,103,217) gives
+`cos B` between the line of sight and the reflected ray, the original Phong
+formulation, not Blinn's half-vector one (ADR-069). And shading is
+*evaluated* per coarse-grid facet and *interpolated*, not evaluated
+per pixel (ADR-070) — line 20's "per-pixel lighting and shading" overstates
+what the intensity factor's per-pixel *application* actually means. But the
+"wrong patent" half of the claimed correction does not hold: `docs/
+architecture.md` §13's own provenance section already cites **US 5,103,217
+(Cawley)** as "the closest published document to the Starlight lighting
+option" and never cites EP0320166A1 anywhere in this repository — grepped
+directly, no match. The EP0320166A1 misattribution documented in
+`docs/sources/WU-SM-01.md` §2.1 describes an *earlier* scatter-dve working
+assumption that this repository's current `docs/architecture.md` text does
+not actually carry. What *is* missing from §13 is the real Starlight patent
+identified by this research — **EP 0248626 / US 4,899,295 (Nonweiler,
+priority 3 June 1986)** — not yet obtained, added as a citation rather than
+a fix. `docs/architecture.md` lines 20 and 464–465 corrected this session;
+§13 gained the S6 citation. See ADR-069/ADR-070.
+
+**C-023 — the 1080p50 performance headroom conclusion (ADR-007) predates
+findings that push in both directions and cannot be inherited unexamined.**
+*Claimed:* ADR-007's "10.4 Mpx/s versus 103.7 for 1080p50, a factor of ten
+of headroom" and `docs/architecture.md` §11's per-stage cycle budget (splat
+60 cycles/px, normalise+composite 30 cycles/px) as grounds for confidence
+that 1080p50 is reachable.
+*Correct:* not wrong as stated at the time — this is not a computational
+error the way C-005 was — but its scope has since changed under it. I8
+(nothing culled, back faces always splat) means destination contention
+roughly doubles wherever two sheets overlap, which for a closed shape is
+most of its area; ADR-072/ADR-074's future arbitration stage adds a wider
+read-modify-write per splat (colour, weight, and now depth/tag-slot state)
+where WU-28's k-buffer is in use; against that, ADR-070's coarse-grid
+shading is *cheaper* than the per-pixel evaluation the original budget
+implicitly assumed, since a facet's `I` is computed once and interpolated
+rather than recomputed per pixel. Net effect on the 1080p50 conclusion is
+genuinely unknown — the pushes do not obviously cancel, and re-deriving the
+budget was flagged as its own task in
+`docs/sources/WU-SM-02.md` §5.2 (Task D6). `ADR-007` is not reopened and
+`docs/architecture.md` §11's own budget table is not rewritten here, since
+this correction has no computed replacement figure to offer yet — only the
+recorded fact that the old one should not be cited as settled until D6 is
+done. Whoever picks up WU-34 (or a dedicated performance-re-derivation unit)
+should re-run the budget against I8/ADR-070/ADR-072 before quoting a
+1080p50 conclusion either way.
