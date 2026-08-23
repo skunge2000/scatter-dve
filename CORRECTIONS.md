@@ -835,3 +835,37 @@ a *design* session's own findings, not a *build* session's recall of them;
 confirming "which buffer does this parameter actually point into" line by
 line is the only way to catch a wiring error like this, prose summaries
 (including this project's own ADRs) are not a substitute for it.
+
+**C-026 — this session's own close-out `git add` block named
+`video/deinterlace.hpp`/`.cpp`, missing the `src/` prefix every other
+reference to these two new files in the same session (including this
+session's own real `git status --short` output, captured directly)
+already had right.**
+*Claimed (`HANDOFF.md`'s original "Steve's own next steps" block, and
+this session's own chat message restating it):* `git add
+video/deinterlace.hpp video/deinterlace.cpp ...`.
+*Correct:* the files live at `src/video/deinterlace.hpp` and
+`src/video/deinterlace.cpp` — confirmed by this same session's own `git
+status --short` (`?? src/video/deinterlace.cpp`, `??
+src/video/deinterlace.hpp`, captured and reported earlier in the same
+session's own close-out) and by every other path reference in
+`CMakeLists.txt`, `DECISIONS.md` ADR-079 and this file's own C-025 entry,
+all of which say `src/video/...` correctly. The close-out block's own
+`git add` line alone dropped the prefix — an inconsistency within the
+same session's own output, not a stale assumption carried from an
+earlier one. Steve ran the command as given and hit `fatal: pathspec
+'video/deinterlace.hpp' did not match any files` immediately, which is
+what surfaced it — no build or code claim was wrong, only this one
+command line. Fixed within the same turn: corrected `git add` line given
+directly in chat and written into `HANDOFF.md`'s own close-out block on
+the real repository via the device bridge. **General lesson for future
+sessions, extending `SESSION-PROTOCOL.md`'s own anti-drift rule 9 and
+C-016's lesson about sandbox-vs-real-repository claims:** "double-check
+every file path against a real `git status --short`" means the exact
+string that goes into the close-out command block, character for
+character, checked once more immediately before sending it — not merely
+having looked at the right `git status --short` output earlier in the
+same session and trusting memory or a paraphrase of it when typing the
+final command out. A session can hold the correct information and still
+hand over the wrong command if the two are never diffed against each
+other directly.

@@ -3,200 +3,257 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 46 (WU-23b scoping — Weston 3-field de-interlace: source
-confirmed, multi-frame-history question resolved, unit split into
-WU-23b1/WU-23b2; no code this session).
+**Session:** 47 (WU-23b1 build — Weston 3-field de-interlace filter core,
+`video::Deinterlacer`: real code written, a real data-flow error in the
+immediately preceding session's own scoping found and corrected, built
+and verified green across this project's own full portable-unit matrix).
 
-**Tag:** `wu-23a2b-green` is real, confirmed on the real repository this
-session (see below) — Steve's own tag/push from Session 45 already
-landed. Nothing to tag this session; this was scoping only.
+**Tag:** `wu-23a2b-green` is still the newest real tag on the repository
+(confirmed this session, see below). This session's own work is **not
+yet tagged** — real code, built and tested in the cloud sandbox, but not
+yet built/tested at Steve's own real terminal, which
+`SESSION-PROTOCOL.md`'s own "sandbox edits are not delivered until
+pushed"/anti-drift rule 8 requires before `wu-23b1-green` exists. See
+"Steve's own next steps" below.
 
 ## Before doing anything else in the next session
 
-Run `git tag --sort=creatordate`, `git log --oneline -10`, `git status
---short` and `git status -sb` directly against `~/src/scatter-dve` via
-the device bridge, the same as every session before this one — do not
-trust this file's own account of tag/commit state without checking it
-against the real repository first.
+Run `git tag --sort=creatordate`, `git log --oneline -10`, `git rev-parse
+HEAD origin/main` and `git status --short` directly against
+`~/src/scatter-dve` (via the device bridge, or at a real terminal) — do
+not trust this file's own account without checking it against the real
+repository first.
 
 ## This session in full
 
-Opened with a continuation prompt whose own job was scoping only, per
-`SESSION-PROTOCOL.md`'s "one session, one work unit" sizing: confirm the
-real Weston 3-field source, resolve the multi-frame-history question
-Session 45's own handoff and `DECISIONS.md` ADR-075 left open, and give
-WU-23b real `Files:`/`Accept:` lines (splitting further if needed). No
-code written this session, as instructed.
+Opened with a continuation prompt whose job was to build WU-23b1
+(`video::Deinterlacer`, the Weston 3-field de-interlace filter core),
+scoped but not built by the immediately preceding session
+(`DECISIONS.md` ADR-078).
 
 **Repository state, confirmed directly before reading anything else:**
 `git tag --sort=creatordate` (newest: `wu-23a2b-green`), `git log
---oneline -10` (`HEAD` = `6855c38`, "WU-23a2b: field mode's own
-runFrame()-level driver, runFrameField() (ADR-077)"), `git status -sb`
-(`## main...origin/main`, clean, no ahead/behind) — all run directly
-against `~/src/scatter-dve` via the device bridge. Matches the
-continuation prompt's own expected state exactly; **`HANDOFF.md`'s own
-prior "Tag: none yet" line was stale** (Steve's own real-terminal tag
-and push from Session 45 had already landed by the time this session
-opened) — not a `CORRECTIONS.md`-worthy error, just this file's own
-overwrite-each-session nature catching up.
+--oneline -10` (`HEAD` = `13b7d13`, "WU-23b scoping: Weston 3-field
+de-interlace source confirmed, video::Deinterlacer design, split into
+WU-23b1/WU-23b2 (ADR-078)"), `git rev-parse HEAD origin/main` (both
+`13b7d13ea66e769877c145437d9f47a73902bd25`), `git status --short` (empty,
+clean tree) — all run directly against `~/src/scatter-dve` via the device
+bridge, matching the continuation prompt's own expected state exactly.
 
-**Source confirmed.** Fetched and read `libavfilter/vf_w3fdif.c`
-directly (not assumed from the continuation prompt's own summary):
-Weston 3-field, BBC R&D's algorithm (Jim Easterbrook's implementation of
-Martin Weston's process), FFmpeg filter by Mark Himsley — confirmed, not
-`vf_bwdif.c`. Every element of the continuation prompt's own algorithm
-summary checked out against the real source: both coefficient sets
-(simple 2+3 taps, complex 4+5 taps, scaled 2^15), the reflect-based edge
-handling, uniform plane treatment, frame-rate vs field-rate output
-modes, and the explicit `prev`/`cur`/`next` sliding-window driving
-model. See `DECISIONS.md` ADR-078 for the full account.
+**Fetched and re-read `libavfilter/vf_w3fdif.c` directly** (not from
+ADR-078's own paraphrase — `SESSION-PROTOCOL.md` rule 6), per the
+continuation prompt's own explicit instruction. Coefficients, scale
+(2^15), the reflect-by-±2 edge convention, uniform plane treatment and
+the frame-rate-mode choice all checked out exactly as ADR-078 stated.
 
-**Multi-frame-history question resolved.** Read
-`src/io/decklink_capture_consumer.hpp`/`.cpp` and `core/resolve.hpp`
-directly: no persistent cross-frame state exists anywhere in this
-project today. `CaptureConsumer::processOne()` is stateless per call
-except for the current lattice and the most recently produced *output*
-frame — no source-side history. Every `core/resolve.hpp` entry point
-(`runFrame()`/`runFrameBytes()`/`runFrameFile()`/`runFrameField()`) is a
-stateless free function. `core/ring_buffer.hpp`'s `RingBuffer` (WU-20a)
-is the nearest precedent — a generic, platform-independent, reusable
-component a DeckLink-specific caller later owns as a member — but it is
-a cross-thread handle queue, not a filter's own sliding-window state, so
-it is a precedent for *how* to build the new component, not something
-WU-23b reuses directly. **Decision: a new standalone stateful
-component, `video::Deinterlacer` (`video/deinterlace.hpp`/`.cpp`, new,
-not yet built), owning its own three-field history internally**, placed
-in `video/` (alongside `interlace.hpp`, `chroma.hpp`) rather than
-`core/`, since it is video-format-level processing with no lattice/warp
-involvement — reusable identically by the live-capture path (as a new
-owned member of `CaptureConsumer`) and any future file-sequence driver.
-See ADR-078 for the full reasoning, including the integer-arithmetic/
-edge-convention recommendation (signed 64-bit accumulation, this
-project's own round-half-up descale idiom, w3fdif's own reflect-edge
-convention adopted as-is and scoped narrowly to this one filter) and the
-open stream-start question left for WU-23b2.
+**Found a real error in ADR-078's own design, not just a paraphrase
+looseness: the data-flow half was wrong and could not implement the real
+algorithm.** ADR-078 described `video::Deinterlacer` as fed one
+already-field-split, half-height Raster444 per call (a single field
+parity's own temporal sequence). Tracing `deinterlace_plane_slice()` and
+`filter_frame()` line by line showed the real filter's high-pass term
+reads `cur`'s own frame a *second* time, at the *other* parity's rows —
+meaning `cur` must be a full-height weave frame (both parities really
+present), not a field-native one — and that in frame-rate mode `adj` is
+unconditionally `prev`, never `next` (confirmed by tracing three real
+pushes through `filter_frame()`'s own shift, including its
+duplicate-first-frame stream-start convention). Full account:
+`CORRECTIONS.md` C-025. Not a coefficient or edge-handling error — those
+parts of ADR-078 were right.
 
-**Unit split, confirmed necessary against the 3-source-file cap, not
-assumed going in.** The filter's own core math and history buffer
-(`video/deinterlace.hpp`/`.cpp`, 2 files, plus its own test) is
-self-contained and independently testable, no DeckLink dependency.
-Wiring it into the live-capture path needs at minimum
-`io/decklink_capture_consumer.hpp`/`.cpp`, likely also
-`core/resolve.hpp`/`core/pipeline.cpp` depending on how the output-side
-re-interlace decimate ends up shaped — a real design question left for
-that unit's own scoping session, not guessed here. Split into
-**WU-23b1** (filter core, given real `Files:`/`Accept:` this session,
-ready to build next) and **WU-23b2** (live-capture wiring plus the
-output-side re-interlace decimate, not yet scoped — genuinely depends on
-WU-23b1's own actual interface once built).
+**Froze the corrected interface and wrote the code, `DECISIONS.md`
+ADR-079:** `class Deinterlacer` (`video/deinterlace.hpp`/`.cpp`),
+constructed with a fixed `FieldParity` (which stream it serves) and a
+`DeinterlaceCoefficients` (simple/complex), `bool push(const Raster444&
+weaveFrame, Raster444& outFrame)` — `bool` + caller-owned out-parameter,
+matching this codebase's own `runFrameFile()`/`extractField()`/
+`interleaveFields()`/`runFrame()` convention rather than introducing
+`std::optional<Raster444>` as a return type (`Raster444` has no default
+constructor; `std::optional<Raster444>` is still used internally for the
+three history slots, the same tool `core/ring_buffer.hpp`'s `RingBuffer`
+already uses for a different reason). Coefficient sum properties (unity
+low-pass gain, zero high-pass gain) encoded as `static_assert`s in
+`video/deinterlace.cpp` itself, re-verifying the real source's own values
+every time this file compiles. Descale is round-half-up on a signed
+64-bit sum (I4/I6), narrowed to `Sample` by plain conversion — wrapping,
+not clamping, `video/chroma.hpp`'s own already-documented precedent for a
+negative-lobe integer filter, honouring I2.
 
-Wrote `DECISIONS.md` ADR-078 (full design/scoping account),
-`WORK-UNITS.md` (replaced the single WU-23b stub with real WU-23b1
-`Files:`/`Accept:` lines and a WU-23b2 placeholder), and this file to
-the real repository via the device bridge, then re-staged all three from
-the device and diffed against this session's own edited copies before
-writing this sentence — `SESSION-PROTOCOL.md`'s own rule 8.
+**Wrote `tests/test_deinterlace.cpp`:** a separately-written reference
+reconstruction function (per-pixel, vector-based, its own copy of the
+reflect/round-half-up arithmetic, never calling into
+`video/deinterlace.cpp`) checked against `Deinterlacer`'s own real output
+for a 6-frame marked sequence, both coefficient sets, both field
+parities, at a small hand-tractable geometry; two explicit hand-computed
+edge-row values (cross-checked with a standalone Python script during
+this session, not just derived once and trusted) for both coefficient
+sets; and a 720×576 (this project's own 625i50 SD standard — per Steve's
+own explicit stay-in-SD-domain scope decision, not 1080p) sanity sequence
+against the same independent reference. 120 checks, all passing.
+
+**Registered in `CMakeLists.txt`:** `src/video/deinterlace.cpp` added to
+`scatter-core`'s source list; `scatter_test(test_deinterlace)` added
+alongside `test_field_pipeline`.
+
+**Built and tested in this session's own Linux cloud sandbox, the full
+matrix:** GCC 13.3.0 and Clang 18.1.3 (both confirmed present, exact
+versions the continuation prompt named), Release and Debug,
+`SCATTER_TILE_LOG2` 4 and 5 (8 configurations), plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes (2 more) — **10 configurations, all green, zero warnings under the
+full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`
+set** (one real `-Wsign-conversion` error found and fixed along the way:
+`std::array::operator[]` needs an unsigned index; `coefs.low[j]`/
+`coefs.high[j]` needed `std::size_t(j)`, not bare `int j`). `ctest`
+showed 26/26 passing in every configuration (24 pre-existing plus
+`test_testpat` plus this unit's own new `test_deinterlace`) — no
+AArch64 cross-compile needed, this unit touches no platform-specific
+surface, the same scope prior portable units used.
+
+**Edited `WORK-UNITS.md`'s WU-23b1 entry** (edited-as-scope-firms-up, not
+append-only) to describe the corrected data flow directly, so a future
+reader does not need to cross-reference C-025 just to know what the class
+actually does; its own `Accept:` line's wording is unaffected in
+substance (see C-025's own closing paragraph). Status now "built this
+session, unverified" pending a real terminal build/`ctest` run.
+
+Wrote `video/deinterlace.hpp`, `video/deinterlace.cpp`,
+`tests/test_deinterlace.cpp`, `CMakeLists.txt`, `WORK-UNITS.md`,
+`DECISIONS.md` and `CORRECTIONS.md` to the real repository via the device
+bridge, then re-staged all seven from the device and diffed against this
+session's own edited copies before writing this sentence —
+`SESSION-PROTOCOL.md`'s own rule 8.
 
 ## Where we are
 
-**Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
-complete and tagged** (`wu-23a2b-green`, confirmed real this session).
-**WU-23b is now scoped, not built:** WU-23b1 (`video::Deinterlacer`
-filter core) has real `Files:`/`Accept:` lines and is the natural next
-pick; WU-23b2 (live-capture wiring) is named but deliberately not
-scoped yet. `WU-24`/`WU-25` untouched. `DECISIONS.md` now runs through
-ADR-078; `INVARIANTS.md` unchanged through I11; `CORRECTIONS.md`
-unchanged through C-024 (nothing this session rose to a correction).
+**WU-23b1 is built, not yet green.** Real code, 10/10 cloud-sandbox
+configurations passing including sanitizers, but `SESSION-PROTOCOL.md`'s
+own bar for `wu-23b1-green` is a real build/`ctest` run at Steve's own
+terminal (this project's own standing convention — the Mac is the
+build-configuration `docs/architecture.md` section 6 actually targets,
+the cloud sandbox is this project's own pre-flight check, not a
+replacement for it). `DECISIONS.md` now runs through ADR-079;
+`INVARIANTS.md` unchanged through I11; `CORRECTIONS.md` now runs through
+C-025.
 
 ## Next work unit
 
-**WU-23b1** (`video::Deinterlacer` — Weston 3-field filter core,
-`video/deinterlace.hpp`/`.cpp`, `tests/test_deinterlace.cpp`) is the
-natural next pick: fully scoped this session (`DECISIONS.md` ADR-078,
-`WORK-UNITS.md`), no DeckLink dependency, buildable and testable
-entirely in the cloud sandbox the same way WU-23a was. Re-verify the
-coefficient sets and line-offset structure directly against the real
-`libavfilter/vf_w3fdif.c` source again before writing code — this
-session's own confirmation is not a substitute for that at build time,
-the same "do not rely on recall" discipline (`SESSION-PROTOCOL.md` rule
-6) every prior session has applied to its own prior findings.
-Everything named in Session 43's own "Next work unit" section (WU-28d,
-WU-27, WU-33, WU-35, WU-37) is unchanged and still pickable if the
-interlace thread is set aside instead.
+**WU-23b2** (live-capture wiring: a new owned `video::Deinterlacer`
+member in `io/decklink_capture_consumer.cpp`, plus the output-side
+re-interlace decimate) is the natural next pick once WU-23b1 is confirmed
+green at the real terminal — genuinely depends on WU-23b1's own actual
+interface, now built (`push(const Raster444&, Raster444&)`, both field
+parities need their own instance since each instance serves one fixed
+anchor parity). Not scoped with `Files:`/`Accept:` yet — that unit's own
+scoping session should target 576i25/625i50 as its own real-hardware
+verification standard, not 1080i (flagged again here per the immediately
+preceding session's own note, not assumed to carry forward silently), and
+should resolve the stream-start question ADR-078 left open for it
+(though note: `video::Deinterlacer`'s own internal stream-start behaviour
+— the duplicate-first-frame convention — is now fully resolved and built,
+per ADR-079; WU-23b2's own open question is what the *caller*
+(`CaptureConsumer`) does before `Deinterlacer` has produced its first
+real output, a different question). Everything named in Session 43's own
+"Next work unit" section (WU-28d, WU-27, WU-33, WU-35, WU-37) is
+unchanged and still pickable if the interlace thread is set aside
+instead.
+
+**Steve's own explicit stay-in-SD-domain scope decision (WU-24/WU-25
+skipped until he says otherwise) is unchanged and still in force** —
+carried forward from the immediately preceding session, not touched this
+session, reiterated here per that session's own request not to let it be
+lost silently.
 
 ## Open questions
 
 Unchanged from Session 42/43's own list (`kCaptureRingCapacity`, Q3, Q4,
 Task A1, Task D6, ADR-070's open question, WU-35's `compositeLayered()`
-question) — this session did not touch any of them. **One new item,
-named but not resolved by this session (ADR-078):** WU-23b2's own
-stream-start question — what `video::Deinterlacer` should do (or what
-`CaptureConsumer` should do with its output) for the first field of a
-capture run, before two frames of history exist to reconstruct from. Not
-answered here; a real design question for WU-23b2's own scoping.
+question), plus WU-23b2's own stream-start question (ADR-078, refined
+above) — this session did not touch any of them.
 
 ## Blocked / red
 
-Nothing red. Nothing newly blocked.
+Nothing red. Nothing newly blocked. WU-23b1 is built but not yet tagged
+(see "Tag" above) — not a blocker, the ordinary state of a unit awaiting
+its own real-terminal build.
 
 ## Environment check
 
-This session did no build/test work at all — scoping and documentation
-only, confirmed via `git`/file reads against the real repository through
-the device bridge. The standing condition from Session 43/44/45 (C-024:
-`tools/close.sh` cannot currently succeed for any unit, on Steve's real
-terminal, because of the PSU/two-device-architecture mismatch — see
-`DECISIONS.md` ADR-034/035/037 and `CORRECTIONS.md` C-024) is unchanged
-and not relevant this session, since nothing was built or tagged.
+Built and tested in this session's own Linux cloud sandbox only — GCC
+13.3.0, Clang 18.1.3, both present and used, exact versions the
+continuation prompt named. Real-terminal build (the M1 Max, AppleClang)
+not yet done this session; see "Steve's own next steps" below. The
+standing condition from prior sessions (C-024: `tools/close.sh` cannot
+currently succeed for any unit, on Steve's real terminal, because of the
+PSU/two-device-architecture mismatch — `DECISIONS.md` ADR-034/035/037,
+`CORRECTIONS.md` C-024) is unchanged: this unit has no DeckLink
+dependency of its own and does not even link `scatter-decklink`, but
+`test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
+check still runs on every close-out regardless, so the manual-tag path
+below is required, not `./tools/close.sh`.
 
 ## Append to DECISIONS.md
 
-**ADR-078** — already appended in full this session (WU-23b scoping:
-Weston 3-field source confirmed; multi-frame-history resolved to
-`video::Deinterlacer`; split into WU-23b1/WU-23b2). See `DECISIONS.md`.
+**ADR-079** — already appended in full this session (WU-23b1 build:
+`video::Deinterlacer`'s exact interface frozen; corrected data-flow
+design carried forward from `CORRECTIONS.md` C-025). See `DECISIONS.md`.
 
 ## Append to CORRECTIONS.md
 
-Nothing this session. (The stale "Tag: none yet" line in the prior
-`HANDOFF.md` was caught and corrected by this file's own overwrite, per
-`SESSION-PROTOCOL.md`'s own design for that file — not a
-`CORRECTIONS.md`-worthy error, since nothing this project *claimed* as a
-technical fact was shown wrong.)
+**C-025** — already appended in full this session (ADR-078's own
+`video::Deinterlacer` data-flow description did not match the real
+source and could not implement the algorithm; corrected, full account in
+`DECISIONS.md` ADR-079). See `CORRECTIONS.md`.
 
 ## Closed out this session
 
-**WU-23b scoping.** No code. Real `Files:`/`Accept:` lines for WU-23b1
-written into `WORK-UNITS.md`; the full design account in `DECISIONS.md`
-ADR-078; WU-23b2 named but deliberately left unscoped. This is a
-complete, legitimate session outcome per `SESSION-PROTOCOL.md`'s own
-"one session, one work unit" sizing, applied here to a unit whose real
-work this session was confirming the source, resolving the architectural
-question, and designing — not a formality rushed past to reach code.
+**WU-23b1 build.** `video/deinterlace.hpp`/`.cpp` (new),
+`tests/test_deinterlace.cpp` (new), `CMakeLists.txt` (registration).
+`DECISIONS.md` ADR-079, `CORRECTIONS.md` C-025, `WORK-UNITS.md`'s WU-23b1
+entry corrected and marked "built, unverified". 10/10 cloud-sandbox
+configurations green (GCC 13.3.0 + Clang 18.1.3 × Release/Debug × tile
+2^4/2^5, plus GCC 13 ASan/UBSan × both tile sizes), 26/26 tests passing
+in every configuration, zero warnings. Not yet tagged — needs a real
+terminal build/`ctest` run first, per `SESSION-PROTOCOL.md`'s own
+"sandbox edits are not delivered until pushed" discipline extended to
+"cloud-sandbox green is not real-terminal green" for the same reason.
 
 ## Steve's own next steps
 
-**Nothing to build, test, tag or push this session — this was scoping
-only.** Confirm the tree reflects only documentation changes:
+**Do not run `./tools/close.sh` — see `CORRECTIONS.md` C-024, unchanged.**
+This unit has no DeckLink dependency of its own, but
+`test_decklink_device`'s own duplex-check exception still runs on every
+close-out and `close.sh` treats any `ctest` failure as blocking.
+
+Build and test manually at your own real terminal:
 
 ```
 cd ~/src/scatter-dve
-git status --short
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-Expected: `DECISIONS.md`, `WORK-UNITS.md` and `HANDOFF.md` modified.
-Nothing else — no source or test files touched.
-
-If you're happy with the WU-23b1/WU-23b2 split and the
-`video::Deinterlacer` design in `DECISIONS.md` ADR-078, commit this
-scoping work (no tag — nothing was built or tested, so there is nothing
-for a `wu-NN-green` tag to certify):
+Confirm nothing **other than** `test_decklink_device`'s own
+`test_at_least_one_device_is_full_duplex` check fails (everything else,
+including the new `test_deinterlace`, should pass — it did in all 10 of
+this session's own cloud-sandbox configurations). If so, commit, tag and
+push by hand:
 
 ```
 cd ~/src/scatter-dve
-git add DECISIONS.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-23b scoping: Weston 3-field de-interlace source confirmed, video::Deinterlacer design, split into WU-23b1/WU-23b2 (ADR-078)"
+git add src/video/deinterlace.hpp src/video/deinterlace.cpp tests/test_deinterlace.cpp CMakeLists.txt WORK-UNITS.md DECISIONS.md CORRECTIONS.md
+git commit -m "WU-23b1: Weston 3-field de-interlace filter core, video::Deinterlacer (ADR-079); corrects ADR-078's own data-flow design (C-025)"
+git tag -a wu-23b1-green -m "WU-23b1: video::Deinterlacer filter core green"
 git push origin main
+git push origin --tags
 ```
 
-No `git tag` step this time — that's for a session that actually builds
-and verifies code, next time.
+(File paths above match this session's own `git status --short` at the
+time of writing — re-confirm against a real `git status --short` before
+running the `git add` line. **This session's own first draft of this
+block used `video/deinterlace.hpp`/`.cpp` — missing the `src/` prefix —
+despite this file's own "This session in full" section, and the real
+`git status --short` output this session captured directly, both already
+showing the correct `src/video/...` paths; Steve caught it when `git add`
+failed with "pathspec did not match any files." See `CORRECTIONS.md`
+C-026.**)
