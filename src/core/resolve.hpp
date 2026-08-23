@@ -422,6 +422,58 @@ struct PipelineParams {
 void runFrame(const Lattice& lattice, const SourceRaster& src,
               const PipelineParams& params, video::Raster444& dest);
 
+// ---------------------------------------------------------------------------
+// Field mode -- WU-23a2b (DECISIONS.md ADR-077). architecture.md 5's own
+// "Interlace" note: "de-interlace to frames for warping, re-interlace on
+// output... Provide a field mode that warps each field independently...
+// what Mirage actually did." This is that mode's own runFrame()-level
+// driver, wiring together the two halves WU-23a/WU-23a2a already built:
+// core/binner.hpp's generateFragmentsFieldRows() (WU-23a2a, ADR-076) and
+// video/interlace.hpp's extractField()/interleaveFields() (WU-23a,
+// ADR-075).
+// ---------------------------------------------------------------------------
+
+// Runs PASS 1 (generateFragmentsFieldRows()) and PASS 2 (this file's own
+// normalise/composite path, unchanged) once per field parity -- `lattice`
+// is the *same* warp both times, only which of src's own rows are visited
+// differs (rowOffset 0 or 1, stride 2, generateFragmentsFieldRows()'s own
+// contract) -- each producing a full destWidth x destHeight raster: a
+// field's own samples can scatter to any destination row under a general
+// warp, so neither per-parity resolve is field-height-shortened, the same
+// reasoning that already sizes generateFragmentsFieldRows()'s own outBins
+// to the destination raster (ADR-076). extractField() then decimates each
+// parity's own full-resolution result down to its own parity rows of the
+// *destination* frame -- fieldRowCount() evaluated against
+// params.destHeight, not src.height, since it is dest's own rows being
+// selected from, not src's (ADR-077) -- and interleaveFields() recombines
+// the two into `dest`. See ADR-076 for why both extractField() and
+// interleaveFields() are needed here: interleaveFields() alone cannot do
+// "even/odd row selection" out of two full-resolution rasters, since its
+// own precondition (video/interlace.hpp) requires two already
+// field-sized ones.
+//
+// dest is caller-sized to params.destWidth x params.destHeight, exactly
+// runFrame()'s own contract above.
+//
+// Single-threaded only, this unit (ADR-077): params.threads and
+// params.pool are not consulted -- each parity's own PASS 1/2 runs the
+// same single-threaded shape runFrame()'s own threads<=1 branch does,
+// called twice. A threaded field-mode path is a future unit's own job,
+// not scheduled here, the same incremental staging WU-16a through WU-19a
+// already used for runFrame() itself.
+//
+// Unchecked preconditions, this unit's own deliberately narrow scope
+// (ADR-077): params.kBufferMode must be Off and params.weightOut must be
+// nullptr. Both are runFrame()-level extras whose own semantics assume
+// exactly one PASS-2 resolve per frame; what either would even mean
+// across field mode's own two independently-resolved parities sharing
+// one destination index space is not decided here -- the same "not this
+// unit's job to invent an answer nobody has asked for" restraint
+// ADR-026/ADR-029 already used for the k-buffer's own background question
+// and compositeLayered()'s own two-layer scope, respectively.
+void runFrameField(const Lattice& lattice, const SourceRaster& src,
+                    const PipelineParams& params, video::Raster444& dest);
+
 // Full in-memory path -- architecture.md section 3's complete signal path
 // (v210 unpack, chroma upsample, runFrame() above, chroma downsample, v210
 // pack), operating on a caller-supplied packed-v210 byte buffer instead of

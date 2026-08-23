@@ -7416,3 +7416,142 @@ Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
 ADR, including ADR-075 itself — this entry settles the question ADR-075
 explicitly left open, it does not revise anything ADR-075 already
 decided.
+
+**ADR-077 — WU-23a2b build: `runFrameField()`, field mode's own
+`runFrame()`-level driver. Confirms ADR-076's own scoping (one `Lattice`,
+`extractField()` against `params.destHeight`, `core/resolve.hpp`/
+`core/pipeline.cpp` placement); freezes the threading-scope call and two
+`kBufferMode`/`weightOut` restraint decisions ADR-076 left open.**
+
+This session opened with a continuation prompt whose own job was a real
+scoping proposal — the driver's exact signature, which height
+`fieldRowCount()` is evaluated against, the threading-scope call, and the
+new test file's own name and Accept: criteria — worked out from the real
+code, confirmed with Steve directly, *before* any code was written, then
+built.
+
+**Signature: one `Lattice`, not two, confirmed from the real code.**
+`generateFragmentsFieldRows()` (WU-23a2a) already takes a single
+`Lattice&` plus `rowOffset`; ADR-076 already described the driver as
+calling it "once per parity", varying only `rowOffset`. `void
+runFrameField(const Lattice&, const SourceRaster&, const
+PipelineParams&, video::Raster444&)` — the same `dest` contract
+`runFrame()` already has.
+
+**`fieldRowCount()` evaluated against `params.destHeight`, confirmed.**
+Each parity's own `generateFragmentsFieldRows()` + resolve produces a
+full `destWidth x destHeight` raster (a field's own samples can scatter
+to any destination row under a general warp, the same reasoning that
+already sizes `generateFragmentsFieldRows()`'s own `outBins` to the
+destination raster, not the source); `extractField()` decimates *that*
+raster, so its own frame-height argument is `params.destHeight`, not
+`src.height` — it is the destination's own rows being selected from, not
+the source's.
+
+**Placement: declared in `core/resolve.hpp`, implemented in
+`core/pipeline.cpp`, confirmed.** ADR-021/ADR-026's own precedent for a
+new orchestration entry point with no state of its own to expose, applied
+again.
+
+**Threading: single-threaded only, this unit, confirmed.**
+`runFrameField()` does not read `params.threads`/`params.pool`; each
+parity's own PASS 1/2 calls the existing private `resolveOneTile()`
+(`core/pipeline.cpp`, unchanged) directly, in the exact shape
+`runFrame()`'s own `threads<=1` branch already uses, called twice
+(`rowOffset` 0 and 1) into two temporary full-resolution rasters before
+`extractField()`/`interleaveFields()` assemble the result. A threaded
+field-mode path is deferred, not scheduled — the same incremental
+staging WU-16a through WU-19a already used before threading a new
+orchestration path.
+
+**Two restraint decisions surfaced while implementing, not anticipated in
+ADR-076's own scoping text, resolved the same way ADR-026/ADR-029 already
+resolve an undecided question: narrow the scope rather than invent an
+answer.** `resolveOneTile()` also drives `PipelineParams::kBufferMode`
+and `PipelineParams::weightOut` when a caller sets them. Passing either
+through to `runFrameField()`'s own two per-parity calls unexamined would
+be silently wrong, specifically for field mode:
+
+- `kBufferMode` wired through as-is would crash — `resolveOneTile()`
+  dereferences a caller-supplied `TileKBufferAccum*` unconditionally
+  whenever `params.kBufferMode != Off`; `runFrameField()` passes
+  `nullptr` for it, matching the plain-mode call shape every other
+  `kBufferMode == Off` caller already uses.
+- `weightOut` wired through as-is would silently corrupt, not crash —
+  each of the two per-parity resolves covers the *same* `destWidth x
+  destHeight` index space, so the second parity's own write would
+  clobber the first's, leaving the buffer holding only one parity's own
+  capture, with no design decision anywhere for what "capture weight for
+  field mode" should even mean across two independently-resolved
+  parities sharing one buffer.
+
+Chosen: `runFrameField()` requires `params.kBufferMode == Off` and
+`params.weightOut == nullptr`, documented as unchecked preconditions
+(`core/resolve.hpp`) — the same "not this unit's job to invent an answer
+nobody has asked for" restraint ADR-026 already used for the k-buffer's
+own background question and ADR-029 for `compositeLayered()`'s own
+two-layer scope. A future unit that actually needs weight capture or
+k-buffer resolve under field mode has a real design question to answer
+(what capturing two parities' worth of weight into one buffer should
+mean), not inherited scope creep from this one.
+
+**Files:** `core/resolve.hpp` (new `runFrameField()` declaration),
+`core/pipeline.cpp` (new `#include "video/interlace.hpp"`; new
+`runFrameField()` definition, reusing the existing private
+`resolveOneTile()` unchanged — no new PASS-2 arithmetic, the same "share
+the one tile-resolve function, do not hand-duplicate it" discipline
+WU-16a's own file comment already established, now a fourth caller
+alongside the `threads<=1` oracle loop and `runThreaded()`'s two
+pool-ownership branches); `tests/test_field_pipeline.cpp` (new).
+`CMakeLists.txt`: `scatter_test(test_field_pipeline)` registered — not
+counted against the file cap, this project's own established accounting.
+
+**Accept, both checked directly:**
+
+1. Identity round-trip — WU-23a's own first Accept: criterion,
+   deliberately deferred to here (ADR-075, `HANDOFF.md`'s Session-43
+   entry): a marked 16x8 frame (kept at or below `kLatticeSize` per
+   `CORRECTIONS.md` C-008, even height, matching
+   `tests/test_zoneplate.cpp`'s own `test_i7_identity_full_pipeline()`
+   precedent for the same reason), warped through `runFrameField()`
+   under an identity lattice, reproduces the original frame bit-exactly
+   — all three planes, not luma alone: unlike `test_i7`'s own v210
+   round-trip check, `runFrameField()` never leaves 4:4:4, so there is
+   no chroma filter anywhere in this path to make Cb/Cr merely legal
+   rather than exact.
+2. Wiring/accounting — a genuine 1.5x magnifying, off-centre affine warp
+   (64→96), confirming the driver's own assembly doesn't silently
+   duplicate or drop rows: checked against an independent recomputation
+   through the same public primitives
+   (`generateFragmentsFieldRows()`, `splatTile()`, `sumBanks()`,
+   `composite()`) that never calls `core/pipeline.cpp`'s own private
+   `resolveOneTile()` — the same "independent recomputation through
+   public primitives, not a copy of the private one" shape
+   `tests/test_coverage_capture.cpp`'s own
+   `test_capture_matches_independent_recomputation()` already used —
+   checked both as a whole-frame equality and, more granularly, row by
+   row against each parity's own independently-extracted reference.
+
+**Status:** built and verified in this session's own Linux cloud sandbox
+(Ubuntu 24.04, a fresh clone of `origin/main` at
+`wu-23a2a-green`/`c07f38b`, confirmed clean before any file was touched).
+Full 8-configuration matrix (GCC 13.3.0 / Clang 18.1.3, Release/Debug,
+`SCATTER_TILE_LOG2` 4/5) all green, zero warnings under this project's
+full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`
+set, plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all`
+at both tile sizes, clean. No AArch64 cross-compile — this unit touches
+no platform-specific surface, the same scope
+WU-16a/WU-19a/WU-23a/WU-23a2a's own portable-only units already used.
+`ctest`: 25 of 25 (24 pre-existing, unaffected, plus this unit's own new
+`test_field_pipeline`). `test_field_pipeline` alone: 27654 checks
+passing. Steve's own real-terminal build/`ctest` and manual tag/push are
+the remaining steps — see `HANDOFF.md`, and see "Do not use
+`tools/close.sh`" there and `CORRECTIONS.md` C-024 for why this is a
+manual tag, not `./tools/close.sh 23a2b`.
+
+Does not reopen `docs/architecture.md`, `INVARIANTS.md`, or any earlier
+ADR, including ADR-075/ADR-076 themselves — this entry builds what those
+left scoped and outlined, it does not revise anything either already
+settled. Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is
+now complete; WU-23b (de-interlace to frame, Weston 3-field) remains
+gated on its own algorithm research, unstarted.

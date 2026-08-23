@@ -253,6 +253,14 @@ target_include_directories(test_kbuffer_resolve PRIVATE ${CMAKE_CURRENT_SOURCE_D
 # A/B above).
 scatter_test(test_scan_order_invariance)
 
+# WU-23a2b -- field mode's own runFrame()-level driver, runFrameField()
+# (DECISIONS.md ADR-077). Portable, zero DeckLink dependency, no new
+# scatter-core source file (core/resolve.hpp/core/pipeline.cpp already
+# build into scatter-core above) -- builds its own small marked frame and
+# affine lattices directly, no tools/testpat.hpp needed (same pattern as
+# test_kbuffer_storage/test_scan_order_invariance above).
+scatter_test(test_field_pipeline)
+
 # ---------------------------------------------------------------------------
 # test_v210_neon -- WU-17. The NEON-suffixed functions it calls are declared
 # in src/video/v210.hpp only under #if defined(__ARM_NEON) (AArch64 always

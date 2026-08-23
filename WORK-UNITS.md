@@ -1837,26 +1837,68 @@ own portable-only units already used. `ctest`: 24 of 24 (unchanged count
 checks passing. Steve's own real-terminal build/`ctest` and manual
 tag/push are the remaining steps — see `HANDOFF.md`.
 
-### WU-23a2b — Field mode: runFrame()-level driver `todo`
-Not started. Wires `generateFragmentsFieldRows()` (WU-23a2a) and
-`video/interlace.hpp`'s `extractField()`/`interleaveFields()` (WU-23a)
-together into an actual field-mode entry point: run the field-aware
-binner/splat/resolve once per parity into a full-resolution destination
-raster, `extractField()` each down to its own parity rows, then
-`interleaveFields()` to recombine into the final interlaced frame — see
-`DECISIONS.md` ADR-076 for why both functions are needed on the output
-side. Declared in `core/resolve.hpp`, implemented in `core/pipeline.cpp`,
-per ADR-026's own precedent for new orchestration entry points. Needs its
-own `Files:`/`Accept:` scoping session — likely just those two files plus
-a new test (no shared identity-lattice test helper exists to reuse;
-`tests/test_binner.cpp` and `tests/test_zoneplate.cpp` each duplicate
-their own locally, `test_zoneplate.cpp`'s own comment says this is
-deliberate). The Accept: criterion this unit should carry is the one
-WU-23a's own first Accept: criterion deliberately deferred (ADR-075,
-`HANDOFF.md`'s Session-43 entry): an interlaced test frame with a
-per-row marker, warped through field mode under the identity lattice,
-reproduces the original frame bit-exactly once both fields' outputs are
-combined.
+### WU-23a2b — Field mode: runFrame()-level driver `green` (`wu-23a2b-green`, pending Steve's manual tag)
+See `DECISIONS.md` ADR-077 for the full design. Wires
+`generateFragmentsFieldRows()` (WU-23a2a) and `video/interlace.hpp`'s
+`extractField()`/`interleaveFields()` (WU-23a) together into
+`runFrameField()`: run the field-aware binner/splat/resolve once per
+parity into a full-resolution destination raster, `extractField()` each
+down to its own parity rows (sized against `params.destHeight`, not
+`src.height` — ADR-077), then `interleaveFields()` to recombine into the
+final interlaced frame — see `DECISIONS.md` ADR-076 for why both
+functions are needed on the output side. Declared in `core/resolve.hpp`,
+implemented in `core/pipeline.cpp`, per ADR-026's own precedent for new
+orchestration entry points. Single-threaded only, this unit —
+`params.threads`/`params.pool` are not consulted; a threaded field-mode
+path is deferred, not scheduled. `params.kBufferMode` must be `Off` and
+`params.weightOut` must be `nullptr` — both `runFrame()`-level extras
+whose own semantics assume exactly one PASS-2 resolve per frame, not
+decided here for field mode's own two independently-resolved parities
+sharing one destination index space (ADR-077).
+
+**Files:** `core/resolve.hpp` (new `runFrameField()` declaration),
+`core/pipeline.cpp` (new `#include "video/interlace.hpp"`; new
+`runFrameField()` definition, reusing the existing private
+`resolveOneTile()` unchanged — no new PASS-2 arithmetic), `tests/
+test_field_pipeline.cpp` (new); plus `CMakeLists.txt`
+(`scatter_test(test_field_pipeline)` registered — not counted against the
+file cap).
+
+**Accept:** the check WU-23a's own first Accept: criterion deliberately
+deferred (ADR-075, `HANDOFF.md`'s Session-43 entry) — a marked interlaced
+test frame, warped through field mode under the identity lattice,
+reproduces the original frame bit-exactly (all three planes — this path
+never leaves 4:4:4, so unlike a v210 round trip there is no chroma
+filter to make Cb/Cr merely legal rather than exact) once both fields'
+outputs are combined via `runFrameField()`; and a wiring/accounting
+check under a real, off-centre, magnifying affine warp, confirming the
+driver's own assembly (two `generateFragmentsFieldRows()` calls, two
+PASS-2 resolves, two `extractField()` calls, one `interleaveFields()`
+call) does not silently duplicate or drop rows, checked against an
+independent recomputation through the same public primitives
+(`generateFragmentsFieldRows()`, `splatTile()`, `sumBanks()`,
+`composite()`), both as a whole-frame equality and row by row against
+each parity's own independently-extracted reference.
+
+*Status:* built and verified in this session's own Linux cloud sandbox
+(Ubuntu 24.04, a fresh clone of `origin/main` at `wu-23a2a-green`/
+`c07f38b`, confirmed clean before any file was touched). Full
+8-configuration matrix (GCC 13.3.0 / Clang 18.1.3, Release/Debug,
+`SCATTER_TILE_LOG2` 4/5) all green, zero warnings under this project's
+full `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`
+set, plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all`
+at both tile sizes, clean. No AArch64 cross-compile — this unit touches
+no platform-specific surface, the same scope WU-16a/WU-19a/WU-23a/
+WU-23a2a's own portable-only units already used. `ctest`: 25 of 25 (24
+pre-existing, unaffected, plus this unit's own new `test_field_pipeline`).
+`test_field_pipeline` alone: 27654 checks passing. Steve's own
+real-terminal build/`ctest` and manual tag/push are the remaining steps —
+see `HANDOFF.md`, and see `CORRECTIONS.md` C-024 for why this is a manual
+tag, not `./tools/close.sh 23a2b`.
+
+**Phase 6's own field-mode thread (WU-23a/WU-23a2a/WU-23a2b) is now
+complete.** WU-23b, below, remains gated on its own Weston 3-field
+algorithm research, unstarted.
 
 ### WU-23b — De-interlace to frame (Weston 3-field), then re-interlace `todo`
 Not started. Steve's own stated preference, unchanged from this unit's

@@ -87,11 +87,26 @@
 // branch above still funnels through the one resolveOneTile(), now with two
 // additional, nullptr-when-off scratch parameters mirroring accum/
 // tileCells' own shape, extending I6 through this unit's new code.
+//
+// WU-23a2b (Phase 6, DECISIONS.md ADR-077) adds runFrameField() (core/
+// resolve.hpp), field mode's own runFrame()-level driver: PASS 1 via
+// core/binner.hpp's generateFragmentsFieldRows() (WU-23a2a, ADR-076) in
+// place of generateFragments(), run once per parity, each resolved through
+// this file's own resolveOneTile() exactly as runFrame()'s threads<=1
+// branch already does (single-threaded only, this unit -- see
+// runFrameField()'s own comment below); video/interlace.hpp's
+// extractField()/interleaveFields() (WU-23a, ADR-075) then decimate and
+// recombine the two full-resolution per-parity results into one interlaced
+// frame. Reuses resolveOneTile() unchanged -- no new PASS-2 arithmetic --
+// the same "share the one tile-resolve function, do not hand-duplicate it"
+// discipline WU-16a's own file comment already established for its own two
+// paths, now a fourth caller.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
 #include "core/splat.hpp"
 #include "video/chroma.hpp"
+#include "video/interlace.hpp"
 #include "video/v210.hpp"
 
 #include <algorithm>
@@ -545,6 +560,71 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     ThreadPool localPool(params.threads);
     runThreaded(lattice, src, params, dest, localPool, tilesX, totalTiles,
                 tilePixelsN);
+}
+
+// ---------------------------------------------------------------------------
+// runFrameField() -- WU-23a2b (DECISIONS.md ADR-077).
+// ---------------------------------------------------------------------------
+
+void runFrameField(const Lattice& lattice, const SourceRaster& src,
+                    const PipelineParams& params, video::Raster444& dest) {
+    const int tilesX = tileCount(params.destWidth);
+    const int tilesY = tileCount(params.destHeight);
+    const std::size_t tilePixelsN = std::size_t(kTilePixels);
+
+    // One field parity's own PASS 1 (generateFragmentsFieldRows(),
+    // WU-23a2a -- rowOffset 0 selects source rows 0, 2, 4, ..., 1 selects
+    // 1, 3, 5, ...) + PASS 2 (resolveOneTile() above, unchanged), into a
+    // temporary full destWidth x destHeight raster -- exactly runFrame()'s
+    // own threads<=1 oracle-loop body above, with
+    // generateFragmentsFieldRows() standing in for generateFragments() as
+    // PASS 1's own entry point. Single-threaded only, this unit (see
+    // runFrameField()'s own doc comment, core/resolve.hpp, ADR-077):
+    // params.threads/params.pool are not read here, the same incremental
+    // staging WU-16a through WU-19a already used before threading a new
+    // orchestration path. kAccum/tileKCells are passed as nullptr --
+    // resolveOneTile() only dereferences them when params.kBufferMode !=
+    // Off, and this unit's own precondition (core/resolve.hpp) requires
+    // Off, so this is exactly WU-10's own original plain-mode call shape.
+    auto resolveOneParity = [&](int rowOffset) {
+        TileBins bins(params.destWidth, params.destHeight);
+        generateFragmentsFieldRows(lattice, src, params.maxK, params.supersample,
+                                    params.tag, rowOffset, bins);
+
+        video::Raster444 full(params.destWidth, params.destHeight);
+        TileAccum accum;
+        std::vector<AccumCell> tileCells(tilePixelsN);
+        const std::array<const TileBins*, 1> soloSource{&bins};
+
+        for (int ty = 0; ty < tilesY; ++ty) {
+            for (int tx = 0; tx < tilesX; ++tx) {
+                resolveOneTile(soloSource, params, full, accum, tileCells,
+                                /*kAccum=*/nullptr, /*tileKCells=*/nullptr, tx, ty);
+            }
+        }
+        return full;
+    };
+
+    const video::Raster444 topFull = resolveOneParity(0);
+    const video::Raster444 bottomFull = resolveOneParity(1);
+
+    // Output side (ADR-076): each parity's resolve above already covers the
+    // full destination raster -- a field's own samples can scatter to any
+    // destination row under a general warp -- so extractField() below picks
+    // out that parity's own rows of the *destination* frame, sized against
+    // params.destHeight (not src.height -- fieldRowCount()'s first argument
+    // is a frame height, and it is dest's own rows being selected here, not
+    // src's).
+    video::Raster444 topField(
+        params.destWidth,
+        video::fieldRowCount(params.destHeight, video::FieldParity::Top));
+    video::Raster444 bottomField(
+        params.destWidth,
+        video::fieldRowCount(params.destHeight, video::FieldParity::Bottom));
+    video::extractField(topFull, video::FieldParity::Top, topField);
+    video::extractField(bottomFull, video::FieldParity::Bottom, bottomField);
+
+    video::interleaveFields(topField, bottomField, dest);
 }
 
 void runFrameBytes(const Lattice& lattice,
