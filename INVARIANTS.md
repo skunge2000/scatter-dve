@@ -17,10 +17,13 @@ sub-black, super-white, filter ringing, normalisation overshoot at fold edges �
 passes through untouched. Legalisation is a separate function belonging at
 transmission, not in a DVE.
 
-**I3 — Offset-binary 16-bit internal colour.**
-10-bit code shifted left 6. Black sits at its BT.601/709 code, 64 (4096 after
-the shift); chroma at its achromatic code, 512 (32768). No signed arithmetic
-anywhere in the colour path.
+**I3 — Offset-binary 16-bit internal RGB colour (ADR-085; supersedes this
+invariant's original YCbCr-internal text).**
+10-bit code shifted left 6. Black sits at code 4096 (`kBlack`) on every
+channel — R, G and B are all full-range, unlike the superseded design's Y
+(full-range) plus Cb/Cr (offset around the achromatic code, 512/32768); no
+channel needs a mid-point offset any more. No signed arithmetic anywhere in
+the colour path.
 
 *Terminology:* do not call the 64 offset a "pedestal". Pedestal is analogue
 NTSC setup, 7.5 IRE above blanking, absent from PAL and from all digital
@@ -28,9 +31,16 @@ component representations. In BT.601/709 black and blanking are the same level
 and the space below 64 is footroom.
 
 **I4 — 64-bit integer colour accumulators.**
-Worst case for a single fragment is 65535 × 65535 ≈ 4.29 × 10⁹, already at the
-uint32 boundary before any multi-fragment coverage. Weight accumulators may be
-int32.
+Worst case for a single fragment, on any one of the three colour channels
+independently, is 65535 × 65535 ≈ 4.29 × 10⁹, already at the uint32 boundary
+before any multi-fragment coverage. Re-derived directly against
+`core/types.hpp` under ADR-085's RGB migration rather than assumed to carry
+over either way: the bound comes only from each channel's own `Sample`/
+`Weight` storage-type range (I2 already lets any channel reach it in full),
+never from where that channel's nominal resting point sits, so it was
+already identical for Y, Cb and Cr and stays identical for R, G and B —
+unaffected by moving from one full-range channel plus two nominally-offset
+ones to three full-range ones. Weight accumulators may be int32.
 
 **I5 — Normalise before compositing.**
 Divide accumulated colour by accumulated weight first, then composite using

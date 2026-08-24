@@ -8625,3 +8625,184 @@ before finalising. `core/binner.cpp`/`.hpp`/`core/resolve.hpp` touch no
 DeckLink-linked file, so this is a real, standard `scatter-core`
 build/test run — see `HANDOFF.md` for the exact commands and why Steve's
 own real-terminal run is still the final word regardless.
+
+**ADR-085 — Internal colour representation becomes native RGB throughout
+the pipeline, superseding I3's YCbCr-internal design; hard cutover, scoped
+as its own new phase (Phase 9, `WORK-UNITS.md`).**
+
+Accepted this session (WU-38), after Steve reviewed the proposal directly
+and approved it as written, over the incremental/shadow-path alternative
+(add RGB alongside YCbCr, prove parity, cut over module by module, retire
+YCbCr last). The proposal was drafted in the session that shipped WU-34b/
+ADR-084, immediately afterward, prompted by that unit's own transient
+per-sample YCbCr→RGB→multiply→YCbCr round trip (the Starlight shading
+multiply): rather than optimise where that round trip happens, Steve's own
+instruction was to make RGB the pipeline's actual internal representation,
+matching the real Mirage machine's own architecture. Consistent with that
+draft's own §8 ("a separate, fresh initiative and is not layered onto
+today's build... starting fresh against the real repository state, the
+same way every session in this project does") and with `HANDOFF.md`'s own
+Session-53 account (which records WU-34b/ADR-084 as that session's whole
+closed-out deliverable), the draft was deliberately kept out of that
+session's own close-out — written to `docs/proposals/ADR-085-draft-RGB-native.md`
+but never integrated into the state files, and never committed. Confirmed
+directly this session, before anything else: `git status --short` at this
+session's own start read `?? docs/proposals/`, and `git log --all -- docs/proposals/`
+returns nothing — so there is no prior commit to cite for the draft's own
+origin, and this unit's own close-out commits it for the first time,
+alongside this entry and the rest of WU-38's changes, in one commit. What
+follows is that draft's content, accepted as written, except I4 (re-derived
+below this session, not assumed either way, per this unit's own brief).
+
+**Motivation (unchanged from the draft).** ADR-003 ("integer accumulators,
+int64 for colour") and ADR-005 ("4:2:2 v210 only for I/O; 4:4:4
+internally") were never fidelity claims about Mirage's own real
+architecture — ADR-003 chose integer accumulators for cross-thread
+determinism, ADR-005 solved a chroma-fringing problem specific to warping
+4:2:2 directly, and neither considered RGB at all. I3 froze "offset-binary
+16-bit internal colour" as this project's own early engineering
+convenience, at a point before anyone here knew what Mirage's real
+internal representation was. Steve has since supplied that fact directly
+(the same domain knowledge ADR-084 already used): Mirage was RGB-native
+throughout its whole signal path, with both the analogue/composite and the
+4:2:2 digital I/O converted to/from RGB at the boundary alone. This ADR
+replaces a convenience decision with the real one, now that the real one
+is known.
+
+**What does not change.** The 4:2:2 v210 wire protocol is unaffected —
+input and output stay v210 10-bit 4:2:2 exactly as ADR-005 and
+`docs/architecture.md`'s own "out of scope: 4:4:4 or RGB I/O" line already
+state; that line is about the transport, not the internal representation.
+ADR-005's own chroma-fringing argument still holds unchanged: chroma is
+upsampled 4:2:2→4:4:4 once at the front and downsampled once at the back,
+for exactly the reason ADR-005 gives (independent per-sample destinations
+in a forward scatter mean chroma lands at non-integer positions relative
+to luma; warping 4:2:2 directly produces fringing that follows the
+geometry). What changes is what happens to that 4:4:4 result immediately
+afterward: today it *is* the internal representation for the whole
+pipeline; under this ADR it becomes an intermediate that gets converted to
+RGB once, right at the front boundary, before PASS 1 ever runs — and the
+inverse conversion happens once, at the back boundary, immediately before
+chroma downsample. I1 (forward scatter), I5 (normalise before
+compositing), I7 (identity round-trip bit-exact), I9 (no stored normal/
+depth) and I10 (shading pre-projection) are all colour-space-agnostic and
+unaffected in substance — I7 in particular becomes the critical regression
+test for this whole migration and needs re-proving against the new
+representation, not assumed to still hold.
+
+**I3, superseded directly.** `INVARIANTS.md`'s new text: "Offset-binary
+16-bit internal RGB colour. 10-bit code shifted left 6. Black at code 4096
+on every channel (`kBlack`) — no achromatic mid-point offset any channel
+needs; R, G and B are all full-range, unlike the superseded design's Y
+(full-range) plus Cb/Cr (offset around `kChromaZero`). No signed
+arithmetic anywhere in the colour path." The terminology footnote on the
+64/`kBlack` offset not being a "pedestal" (C-004) is unaffected and
+carries forward unchanged.
+
+**I4, re-derived this session directly against the real accumulator code,
+not assumed either way.** The draft flagged this as a genuinely open
+question: today's bound (65535 × 65535 ≈ 4.29 × 10⁹ per fragment) was
+described as derived "against one full-range channel (Y) and two channels
+offset around a mid-point (Cb/Cr)," and asked whether three full-range
+channels (RGB) change it. Checked directly against `src/core/types.hpp`
+rather than re-derived from that framing alone: `AccumCell` holds three
+independent `ColourAccum` (`int64_t`) fields (`Y, Cb, Cr` today; `R, G, B`
+under this ADR) plus one separate `WeightAccum` (`int32_t`); `kMaxFragContribution
+= ColourAccum(65535) * ColourAccum(kWeightMax)` (`kWeightMax = 65535`) is
+one constant, applied identically to all three colour fields — there is no
+per-channel distinction anywhere in the real code between a "full-range"
+channel and one "offset around a mid-point." The bound comes purely from
+each field's own storage-type range (`Sample`, `uint16_t`, representable
+`[0, 65535]`) times the maximum representable `Weight`, and I2 (no
+clipping, no legalisation, ever) already lets *any* channel — chroma
+included — reach that full range under filter ringing or fold-edge
+overshoot; nothing in this codebase has ever given chroma a narrower
+excursion ceiling than luma. So the draft's own premise for why
+re-derivation might be needed does not hold up against the real
+accumulator code: the bound was already channel-agnostic, for Y, Cb and Cr
+alike, before this ADR. Consequence: moving from one full-range channel
+plus two nominally-offset channels to three full-range ones changes
+nothing about the per-channel bound. R, G and B each get the same
+independent int64 accumulator, the same `kMaxFragContribution` (4 294 836 225,
+unchanged), and the same ≈2.147 × 10⁹-fragment-per-cell headroom
+(`INT64_MAX / kMaxFragContribution ≈ 2.147 × 10⁹`, against the "of order
+1000" fragments per cell `docs/architecture.md` §4.4 gives as the
+realistic case under 32:1 compression) that Y, Cb and Cr each already
+independently had. **int64 accumulators remain provably sufficient,
+unchanged, with headroom identical to today's on every channel.** Weight
+accumulators (`WeightAccum`, `int32`) are entirely unaffected — I4's own
+weight-headroom sentence is colour-representation-independent already and
+needs no change. This is a real, checked derivation, not a default: per
+this unit's own brief, had it come out the other way — headroom no longer
+provably sufficient, or some other genuine ambiguity — that would have
+gone to Steve directly rather than being resolved here; it did not come
+out that way.
+
+**Scope — every file this touches, per the draft's own inspection in the
+session that wrote it (broader than, and not the same query as, `WU-39`'s
+own re-verification below — see that unit's entry for the narrower,
+independently-grepped `Frag`/`AccumCell`-specific file list).**
+`src/core/types.hpp` (`Frag`/`AccumCell` `Y, Cb, Cr` → `R, G, B`, I3's
+literal implementation). `src/core/binner.cpp`/`.hpp` (`sampleBilinear()`
+reads RGB directly; WU-34b's `applyShading()`/ADR-084 simplifies from a
+full YCbCr→RGB→multiply→YCbCr round trip to a bare per-channel multiply;
+`ColourStandard`/`coeffsFor()` need a new home once both shading and the
+I/O boundary need them). `src/core/resolve.hpp`/`.cpp` (PASS 2's splat/
+accumulate/normalise/composite math reshapes from `Y`/`Cb`/`Cr` fields to
+`R`/`G`/`B`; the arithmetic shape is unchanged, only what the three
+channels mean is). `src/video/v210.cpp`, `src/video/chroma.cpp`/`.hpp`
+(the new boundary conversion: v210 unpack → chroma upsample → new
+YCbCr→RGB on input; new RGB→YCbCr → chroma downsample → v210 pack on
+output; I2's clip-to-protocol-limits behaviour almost certainly stays at
+the YCbCr boundary around pack/unpack, since v210's protocol limits are
+inherently YCbCr code values with no literal RGB equivalent — flagged for
+confirmation, not decided here). `docs/architecture.md` (the Design
+Invariants table and §3 signal-path diagram both need rewriting).
+Tests — the draft's own count, "21 of the 35 files in `tests/`," touching
+`Y`/`Cb`/`Cr` fields or comparisons directly: `test_binner`, `test_chroma`,
+`test_chroma_neon`, `test_coarse_shading`, `test_coverage_capture`,
+`test_deinterlace`, `test_ewa`, `test_field_pipeline`, `test_interlace`,
+`test_jacobian`, `test_kbuffer_resolve`, `test_kbuffer_storage`,
+`test_layered_composite`, `test_lighting`, `test_morph`, `test_pageturn`,
+`test_pipeline_bytes`, `test_ramp_roundtrip`, `test_row_band`,
+`test_scan_order_invariance`, `test_splat`.
+
+**Migration decision: hard cutover — Steve's explicit choice, over the
+incremental/shadow-path alternative.** Trade-off, stated plainly: no
+shadow path means no bit-for-bit parity proof step and no "suite stays
+green throughout" property — the suite goes red across most of its
+affected files for the duration of this work and comes back green only
+once the whole cutover is complete. That is a deliberate, larger-than-
+normal single undertaking. It does not fit `SESSION-PROTOCOL.md`'s normal
+work-unit shape (3 source files, ~400 lines, green at the end of every
+unit) — it needs its own phase, with the normal "green after every unit"
+expectation explicitly suspended for the internal steps of that phase and
+restored at the phase's end, the same way `WORK-UNITS.md` already groups
+work into named phases. **Standing exception, binding on this phase:**
+starting with `WU-39`, this phase's internal units are not expected to
+leave the build green at the end of each one — a deliberate, accepted
+consequence of this decision, not a failure to flag as one. "Green after
+every unit" resumes once the phase's last unit (`WU-44`) lands. Every
+session working this phase must still report real state honestly in
+`HANDOFF.md` regardless — red is fine to report, a false green is not.
+
+**Work breakdown, now real work units.** The draft's own §6 sketch is
+turned into ordered entries in a new `WORK-UNITS.md` Phase 9 this session
+(`WU-39` through `WU-44`); `WU-38`, this entry's own unit, is Phase 9's
+own first, documentation-only unit. See `WORK-UNITS.md` for each unit's
+own scope; `WU-39` additionally carries this session's own real,
+repository-wide grep for its specific rename's blast radius, not an
+estimate.
+
+**Open sub-questions carried forward from the draft, one now resolved:**
+I4's magnitude bound under all-full-range RGB — resolved above, no change,
+int64 sufficient. Still open, for whoever starts the relevant unit: where
+`ColourStandard`/`coeffsFor` should live once both shading and the I/O
+boundary need them (likely a shared colour-conversion module near
+`types.hpp`, not decided here); whether the boundary conversion is
+per-frame or needs the same parameterisation WU-34c's deferred per-frame
+scene ownership already needs, since both land in `core/pipeline.cpp`
+around the same call site; and the fixture-value re-derivation strategy
+for the affected tests (hand-derive each independently, matching WU-34b's
+own test-design precedent, versus a mechanical fixture transform — the
+former is safer and is what this project has done every time so far).

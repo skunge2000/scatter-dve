@@ -2904,6 +2904,165 @@ the LUTs plug into.
 
 ---
 
+## Phase 9 — RGB-native internal colour (hard cutover)
+
+New this session (WU-38, `DECISIONS.md` ADR-085). Internal colour
+representation becomes native RGB throughout the pipeline, superseding
+I3's YCbCr-internal design — the 4:2:2 v210 I/O boundary is unaffected
+(ADR-005 stands). Decided as a hard cutover, not an incremental/
+shadow-path migration: **this phase's internal units (`WU-39`–`WU-43`)
+are not expected to leave the build green at the end of each one** — a
+deliberate, accepted consequence of that decision (ADR-085 §5), not a
+failure to flag as one. "Green after every unit" resumes once `WU-44`
+lands.
+
+### WU-38 — Phase 9 kickoff: accept ADR-085, finalise I3/I4, open Phase 9 `green`
+Documentation-only, per its own opening brief, the same shape WU-32/WU-36
+already established for this kind of unit: Steve reviewed and accepted
+`docs/proposals/ADR-085-draft-RGB-native.md` directly this session, over
+the incremental/shadow-path alternative, as a hard cutover; this unit
+formally enters that decision into the project's own state files before
+any production code changes.
+
+**Files:** `DECISIONS.md` (ADR-085 appended — the draft's content accepted
+as written, except I4, re-derived this session directly against
+`core/types.hpp` rather than assumed either way — see that entry for the
+full derivation), `INVARIANTS.md` (I3 replaced with the draft's own RGB
+text; I4 replaced with the re-derived text — same numeric bound and
+headroom as today, unchanged, not a coincidence: re-derived from first
+principles, see ADR-085), `WORK-UNITS.md` (this Phase 9 heading and entry;
+`WU-39` through `WU-44` stubbed `todo` from ADR-085 §6's breakdown, `WU-39`
+additionally scoped with a real, grepped file list — see its own entry),
+`docs/proposals/ADR-085-draft-RGB-native.md` (already existed, uncommitted,
+at this session's own start — see `DECISIONS.md` ADR-085's own account;
+committed for the first time as part of this unit's own close-out,
+alongside the four files above), `HANDOFF.md`.
+
+**Accept:** the four-configuration build matrix (Release/Debug ×
+`SCATTER_TILE_LOG2` 4/5) confirmed green in the cloud sandbox this
+session — 28/28 tests, all four configurations, actually run rather than
+assumed from "no source file touched" alone, matching WU-32/WU-36's own
+precedent. See `HANDOFF.md` for the run.
+
+**Not done, and explicitly not this unit's job:** touches no `src/`/
+`tests/` file — no part of ADR-085 §6's breakdown is implemented here,
+only scoped into the real work-unit entries below (`WU-39`–`WU-44`); does
+not rewrite `docs/architecture.md` (`WU-43`'s own job); does not resolve
+any of ADR-085 §7's open sub-questions beyond I4 (resolved this session,
+see `DECISIONS.md`) — the rest stay open for whoever starts each
+downstream unit.
+
+*Status:* `green` — no build-affecting change; see `HANDOFF.md` for the
+run.
+
+### WU-39 — `core/types.hpp`: `Frag`/`AccumCell` `Y`/`Cb`/`Cr` → `R`/`G`/`B` rename `todo`
+**New this session (WU-38, ADR-085 §6 item 1) — scoped, not built,
+including a real repository-wide grep for its own blast radius (not
+estimated from ADR-085's own draft, which counted a broader "touches
+`Y`/`Cb`/`Cr`" query, not this rename specifically — see `DECISIONS.md`
+ADR-085's own scope section for that broader count).** I3/I4 are already
+finalised (`DECISIONS.md` ADR-085, `INVARIANTS.md`) — this unit is the
+mechanical rename alone: `Frag::Y/Cb/Cr` → `R/G/B`, `AccumCell::Y/Cb/Cr` →
+`R/G/B`, `kMaxFragContribution`'s own comment/derivation carried forward
+unchanged (I4's bound does not move). `kChromaZero` (`types.hpp`) becomes
+dead once no channel needs an achromatic mid-point offset — remove it or
+keep it as a documented historical constant is this unit's own small open
+call, not decided here.
+
+**Real files referencing `Frag` and/or `AccumCell` directly, grepped this
+session (`grep -rlw 'Frag'`/`'AccumCell'` across `src/` and `tests/`,
+cross-checked line by line against each match's real context; one false
+positive excluded — `src/io/com_ptr.hpp` only *mentions* "AccumCell" in a
+naming-convention comment, never uses the type):**
+production (10; 2 comment-only) — `src/core/types.hpp`,
+`src/core/binner.cpp`, `src/core/binner.hpp`,
+`src/core/coarse_shading.hpp` (comment-only: "Frag::Y/Cb/Cr" in its own
+file-header prose), `src/core/pipeline.cpp`, `src/core/pipeline.hpp`
+(comment-only), `src/core/resolve.cpp`, `src/core/resolve.hpp`,
+`src/core/splat.cpp`, `src/core/splat.hpp`;
+tests (12) — `tests/test_binner.cpp`, `tests/test_coverage_capture.cpp`,
+`tests/test_field_pipeline.cpp`, `tests/test_kbuffer_resolve.cpp`,
+`tests/test_kbuffer_storage.cpp`, `tests/test_layered_composite.cpp`,
+`tests/test_pageturn.cpp`, `tests/test_row_band.cpp`,
+`tests/test_scan_order_invariance.cpp`, `tests/test_smoke.cpp`,
+`tests/test_splat.cpp`, `tests/test_zoneplate.cpp`. Smaller, and
+differently shaped, than ADR-085's own "21 of 35" figure, which counted
+every file touching *any* `Y`/`Cb`/`Cr`-shaped data — including
+`Raster444`'s own same-named `Y`/`Cb`/`Cr` planes (`src/video/raster.hpp`),
+a distinct struct this unit does not rename (that conversion is `WU-40`'s
+own job, at the v210/chroma boundary) — not this rename's own blast
+radius specifically.
+
+**Not scoped past this note:** exact field-by-field diff per file, and
+whether `tests/test_row_band.cpp`'s `decode()`-by-signature helper (`f.Y`,
+`f.Cb` — C-015) needs a shape change beyond the rename, are real scoping
+work for whoever picks this up. Depends on nothing upstream; every
+downstream unit (`WU-40`–`WU-44`) depends on this one landing first, per
+ADR-085 §5's own ordering.
+
+### WU-40 — `src/video/v210.cpp`/`chroma.cpp`/`.hpp`: RGB boundary conversion, both directions `todo`
+**New this session (WU-38, ADR-085 §6 item 2).** Adds the new conversion
+stage ADR-085 describes: v210 unpack → chroma upsample → **new:
+YCbCr→RGB** on the input side; **new: RGB→YCbCr** → chroma downsample →
+v210 pack on the output side. `Raster444` (`src/video/raster.hpp`) keeps
+its own `Y`/`Cb`/`Cr` planes exactly as today up to and including chroma
+upsample (unaffected by `WU-39`'s rename — a distinct struct) — this unit
+is where a new RGB-shaped container gets produced from it, once, at the
+boundary; whether that is a new struct, a repurposed `Raster444`, or
+something else is this unit's own first design question, not decided
+here. I2's clip-to-protocol-limits behaviour almost certainly stays
+exactly where it is today, at the YCbCr boundary immediately around pack/
+unpack, since v210's protocol limits (codes 4–1019) are inherently YCbCr
+code values with no literal RGB equivalent — flagged for confirmation,
+not decided here either. Depends on WU-39.
+
+### WU-41 — `src/core/binner.cpp`/`.hpp`: `sampleBilinear()` reads RGB; `applyShading()` simplifies `todo`
+**New this session (WU-38, ADR-085 §6 item 3).** `sampleBilinear()` reads
+RGB directly once `WU-40` delivers an RGB-shaped source. WU-34b's
+`applyShading()` (ADR-084) simplifies from a full YCbCr→RGB→multiply→
+YCbCr round trip to a bare per-channel multiply by intensity, since the
+colour arriving at that call site is already RGB. `ColourStandard`/
+`coeffsFor()` (BT601/BT709, ADR-084) no longer belong solely to shading —
+the I/O boundary (`WU-40`) needs them too; where they should live
+(promoted to a shared colour-conversion module near `types.hpp` is
+ADR-085's own suggestion, not decided here) is this unit's own first
+design question. Depends on WU-39, WU-40.
+
+### WU-42 — `src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped to R/G/B `todo`
+**New this session (WU-38, ADR-085 §6 item 4).** PASS 2's splat/
+accumulate/normalise/composite math is written in terms of `Y`/`Cb`/`Cr`
+fields today; reshapes to `R`/`G`/`B`. The arithmetic *shape* (weighted
+accumulate, divide by weight, offset-binary-safe) does not change per
+ADR-085/I4's own re-derivation — only what the three channels mean does.
+Depends on WU-39.
+
+### WU-43 — `docs/architecture.md`: Design invariants table (§2) and signal-path diagram (§3) rewritten for RGB `todo`
+**New this session (WU-38, ADR-085 §6 item 5).** Documentation-only
+against already-landed code — picked up once `WU-39`–`WU-42` are in, so
+the document describes what actually shipped rather than the plan.
+Depends on WU-39, WU-40, WU-41, WU-42.
+
+### WU-44 — ~21 dependent test files re-derived for RGB, worked through in natural clusters `todo`
+**New this session (WU-38, ADR-085 §6 item 6) — this phase's own last
+unit; the "green after every unit" suspension (ADR-085 §5) ends here.**
+Every fixture whose expected values encode the colour space under test
+needs re-deriving, not just recompiling — matching WU-34b's own "mirror
+the math independently, never call the production function" test-design
+precedent (ADR-084), per ADR-085's own stated preference over a
+mechanical fixture transform. Worked through in clusters rather than one
+file at a time, since fixture values need re-deriving together per
+cluster (ADR-085 §6): v210/chroma; binner/EWA/jacobian; resolve/kbuffer/
+layered-composite; pipeline/threading/row-band/field; lighting/
+coarse-shading. The real file list is `WU-39`'s own grep plus whichever
+further files `WU-40`–`WU-42` touch beyond `Frag`/`AccumCell` directly
+(`Raster444`-based fixtures in particular) — not re-counted here; whoever
+starts this unit should re-grep rather than trust either this note or
+ADR-085's own "21 of 35" estimate. Depends on WU-39–WU-42 (the production
+code every fixture's expected value is checked against). Phase 9 is
+complete, and "green after every unit" resumes, once this unit lands.
+
+---
+
 ## Cross-cutting documentation units
 
 Units that import external research into `DECISIONS.md`/`INVARIANTS.md`/
