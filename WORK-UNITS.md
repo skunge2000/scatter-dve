@@ -1901,10 +1901,14 @@ complete.** WU-23b split into WU-23b1 (filter core, `video::Deinterlacer`,
 scoped `DECISIONS.md` ADR-078, built `DECISIONS.md` ADR-079, tagged
 `wu-23b1-green`) and WU-23b2 (live-capture wiring), itself split into
 WU-23b2a (the new `runFrameBytesDeinterlaced()` orchestration entry
-point — scoped `DECISIONS.md` ADR-080, built this session, cloud-sandbox
-green, Steve's own real-terminal build/tag still pending) and WU-23b2b
-(`CaptureConsumer` wiring, gated on WU-23b2a's own actual interface, not
-started).
+point — scoped `DECISIONS.md` ADR-080, built and cloud-sandbox green,
+Steve's own real-terminal build/tag/push landed as `wu-23b2a-green`) and
+WU-23b2b (`CaptureConsumer` wiring — scoped `DECISIONS.md` ADR-080,
+extended by this session's own ADR-081, written this session against
+WU-23b2a's own actual built interface, entirely unbuilt — this unit is
+DeckLink-linked, so no compiler in this project's own cloud sandbox can
+check it; Steve's own real-terminal build is its first compile of any
+kind).
 
 ### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `built, unverified`
 Built this session (`DECISIONS.md` ADR-079). Scoped in the immediately
@@ -2081,35 +2085,52 @@ edits are not delivered until pushed" discipline) — needs Steve's own
 real-terminal `cmake --build`/`ctest` run and manual tag before
 `wu-23b2a-green`. See `HANDOFF.md`.
 
-### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `todo`
+### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `written, entirely unbuilt`
 Scoped this session (`DECISIONS.md` ADR-080) alongside WU-23b2a, above —
 genuinely depends on WU-23b2a's own actual `runFrameBytesDeinterlaced()`
-signature once built, the same "scope the wiring unit after the
-component it wires exists" sequencing WU-23a2a/WU-23a2b already used.
+signature, now built and cloud-sandbox green. Written this same session,
+once WU-23b2a's own interface was confirmed directly against the real
+header. **This unit is DeckLink-linked (`io/decklink_capture_consumer.hpp`/
+`.cpp` link the Blackmagic DeckLink SDK) — no compiler anywhere in the
+cloud sandbox this session drafted it in can see this code, at all, under
+any configuration. "Written" here means exactly that and nothing more:
+reasoned through against the real, current header/source and against
+WU-23b2a's own actual built interface, not built, not tested, not
+cloud-sandbox green. Steve's own real-terminal `cmake --build` is this
+code's first compile of any kind.** See `HANDOFF.md` for the full
+account.
 
-**Design (`DECISIONS.md` ADR-080):** `CaptureConsumer` owns exactly one
-`video::Deinterlacer` member — not two; a single instance already
-produces one full progressive frame per push with every row present
-(anchor parity verbatim, the other reconstructed), and a second,
-opposite-anchor instance would only earn its keep for field-rate output,
-which ADR-078 already ruled out — constructed with `FieldParity::Top`
-(matching `video/interlace.hpp`'s own "Top is first-transmitted field"
-convention already used without incident through WU-23a/WU-23a2; this
-project has never independently confirmed `bmdModePAL`'s own SDK-reported
-field dominance against real hardware, but which parity is "anchor" is a
-labelling choice, not a correctness requirement). `DeinterlaceCoefficients`
-(Simple/Complex) is a new `CaptureConsumer` constructor parameter, left
-for this unit's own build session to pick with Steve — no accept
-criterion has stated a preference yet. `processOne()` calls
-`scatter::runFrameBytesDeinterlaced()` in place of `scatter::runFrameBytes()`;
-on a `false` return (stream start — the very first popped frame of this
-consumer's own lifetime only, per ADR-080's trace of `Deinterlacer`'s own
-state machine, never a recurring cost), `m_latestFrame` is left
-completely untouched (extending, not inventing, `copyLatestFrame()`'s own
-existing "nothing produced yet" semantics) and the frame is counted by a
-new, fourth `CaptureConsumerStats` counter, not `framesFailed` — this is
-not an error and is never retried; the counter's own exact name is this
-unit's own build-time detail, not frozen by the ADR.
+**Design (`DECISIONS.md` ADR-080, extended by ADR-081):** `CaptureConsumer`
+owns exactly one `video::Deinterlacer` member — not two; a single
+instance already produces one full progressive frame per push with every
+row present (anchor parity verbatim, the other reconstructed), and a
+second, opposite-anchor instance would only earn its keep for field-rate
+output, which ADR-078 already ruled out — constructed with
+`FieldParity::Top` (matching `video/interlace.hpp`'s own "Top is
+first-transmitted field" convention already used without incident
+through WU-23a/WU-23a2; this project has never independently confirmed
+`bmdModePAL`'s own SDK-reported field dominance against real hardware,
+but which parity is "anchor" is a labelling choice, not a correctness
+requirement) and whichever `DeinterlaceCoefficients` the constructor is
+given. **`DeinterlaceCoefficients`: `Complex`, Steve's own explicit
+choice, raised and settled this session per ADR-080's own instruction not
+to default it silently — see `DECISIONS.md` ADR-081.** `CaptureConsumer`'s
+constructor takes it as a required parameter, no default, so every
+caller (including `tests/test_decklink_capture_consumer.cpp`) states it
+explicitly. `processOne()` calls `scatter::runFrameBytesDeinterlaced()`
+in place of `scatter::runFrameBytes()`; its own `false` return (stream
+start — the very first popped frame of this consumer's own lifetime
+only, per ADR-080's trace of `Deinterlacer`'s own state machine, never a
+recurring cost) is communicated to `run()` as a genuine third outcome of
+a new private `ProcessResult` enum class (`Processed`/`Failed`/
+`StreamStart`) that `processOne()` now returns in place of `bool` —
+ADR-081 records why an enum was picked over a second `bool` or an
+out-parameter. On `StreamStart`, `m_latestFrame` is left completely
+untouched (extending, not inventing, `copyLatestFrame()`'s own existing
+"nothing produced yet" semantics) and no coverage callback fires; `run()`
+counts it against a new, fourth `CaptureConsumerStats` counter,
+`framesStreamStart` — not `framesFailed` — this is not an error and is
+never retried.
 
 **Files:** `io/decklink_capture_consumer.hpp` (edited: new owned
 `video::Deinterlacer` member, new stats counter, new
@@ -2133,7 +2154,18 @@ the cap — already real-hardware-gated exactly as this unit needs).
   comment already documents; `stats()` may legitimately stay at zero in
   that case, warned about rather than failed on.
 
-*Status:* todo, blocked on WU-23b2a above.
+*Status:* written this session — `io/decklink_capture_consumer.hpp`/`.cpp`
+implement the frozen ADR-080 design plus this session's own ADR-081
+(`DeinterlaceCoefficients::Complex`, the `ProcessResult` enum and
+`framesStreamStart` counter), and `tests/test_decklink_capture_consumer.cpp`
+was updated for the new required constructor parameter and the
+three-term accounting invariant. **Entirely unbuilt — no compiler in
+this project's own Linux cloud sandbox can see DeckLink-linked code at
+all; this is reasoned-through-against-the-real-source, not verified.**
+Steve's own real-terminal `cmake --build`/`ctest` is this code's first
+compile of any kind — a clean pass is not guaranteed the way it was for
+WU-23b2a. See `HANDOFF.md` for the exact build/test/commit/tag/push
+sequence.
 
 ### WU-24 — Adaptive supersampling `todo`
 ### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`

@@ -79,12 +79,25 @@
 // here from a raw pointer to a std::function, since what WU-22c needs handed
 // across is ownership of a freshly filled buffer, not a pointer into memory
 // this consumer thread is about to reuse next frame.
+//
+// WU-23b2b (DECISIONS.md ADR-080, extended by ADR-081) wires this project's
+// own Weston 3-field de-interlace filter (video::Deinterlacer, WU-23b1) into
+// this class: processOne() below now calls scatter::runFrameBytesDeinterlaced()
+// (core/resolve.hpp, WU-23b2a) in place of scatter::runFrameBytes(), driving
+// one owned Deinterlacer member across this consumer's own whole lifetime.
+// runFrameBytesDeinterlaced()'s own false return (stream start -- the very
+// first popped frame this consumer's own Deinterlacer ever sees, never a
+// recurring cost) is a genuine third processOne() outcome, distinct from
+// both success and failure -- see ProcessResult below and ADR-081 for why an
+// enum return was picked over the other shapes ADR-080 left open, and the
+// new framesStreamStart counter on CaptureConsumerStats.
 
 #pragma once
 
 #include "core/resolve.hpp"
 #include "io/com_ptr.hpp"
 #include "io/decklink_input.hpp"
+#include "video/deinterlace.hpp"
 #include "video/v210.hpp"
 
 #include "DeckLinkAPI.h"
@@ -106,8 +119,17 @@ namespace scatter::io {
 // claim that reading more than one of them is a single atomic snapshot.
 struct CaptureConsumerStats {
     std::atomic<int> framesPopped{0};     // every successful CaptureFrameRing::tryPop()
-    std::atomic<int> framesProcessed{0};  // StartAccess/GetBytes/runFrameBytes/EndAccess all succeeded
+    std::atomic<int> framesProcessed{0};  // StartAccess/GetBytes/runFrameBytesDeinterlaced/EndAccess all succeeded and produced a frame
     std::atomic<int> framesFailed{0};     // popped but QueryInterface/StartAccess/GetBytes/EndAccess failed, or bad geometry
+    // WU-23b2b (ADR-080/081): popped and every step through EndAccess
+    // succeeded, but this consumer's own Deinterlacer had no prior frame
+    // yet -- the very first popped frame of this instance's own lifetime
+    // only (runFrameBytesDeinterlaced() returned false; core/resolve.hpp's
+    // own documented contract). Not counted as framesFailed: this is not an
+    // error and is never retried. m_latestFrame is left completely
+    // untouched for this one frame -- see processOne()'s own
+    // ProcessResult::StreamStart, below.
+    std::atomic<int> framesStreamStart{0};
 };
 
 class CaptureConsumer {
@@ -138,6 +160,17 @@ public:
     // unlike the lattice (see setLattice() below, WU-21f), destination
     // geometry has no update path and was never asked for one.
     //
+    // coeffs (WU-23b2b, DECISIONS.md ADR-080, extended by ADR-081): which of
+    // the real Weston filter's two coefficient sets this consumer's own
+    // owned Deinterlacer is constructed with -- Simple (2 low-pass + 3
+    // high-pass taps) or Complex (4 + 5 taps). No default: ADR-080
+    // deliberately left this choice open rather than picking one silently,
+    // so every caller states it explicitly (Steve's own choice, raised and
+    // settled this session: Complex -- see ADR-081). Fixed for this
+    // consumer's own whole lifetime, the same "no caller has asked for this
+    // to vary mid-stream" convention destWidth/destHeight above already
+    // use.
+    //
     // coverageCallback defaults to nullptr (WU-22c, ADR-058): the opt-in
     // hook described above this class. When null, processOne() does not
     // allocate or fill a coverage buffer at all -- params.weightOut stays
@@ -146,6 +179,7 @@ public:
     // that does not pass this parameter sees zero cost and zero behaviour
     // change versus this unit's own pre-WU-22c shape.
     CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
+                     video::DeinterlaceCoefficients coeffs,
                      CoverageCallback coverageCallback = nullptr);
     ~CaptureConsumer();
 
@@ -186,8 +220,26 @@ public:
     void setLattice(Lattice lattice);
 
 private:
+    // WU-23b2b (ADR-080, extended by ADR-081): processOne()'s own three
+    // now-possible outcomes, communicated to run() as an enum class return
+    // rather than a plain bool, a second bool, or an out-parameter -- the
+    // other shapes ADR-080 explicitly left open for this unit to pick
+    // between. Chosen because run()'s own dispatch is genuinely a three-way
+    // branch on "what happened," not a flag to check alongside a separate
+    // yes/no, and a scoped enum return keeps that dispatch a single
+    // exhaustive switch (see run(), decklink_capture_consumer.cpp) rather
+    // than two conditionals whose combination has an unreachable fourth
+    // case to reason about. Private: no caller outside run()/processOne()
+    // itself has a use for it. See DECISIONS.md ADR-081 for the full
+    // account of this decision.
+    enum class ProcessResult {
+        Processed,    // StartAccess/GetBytes/runFrameBytesDeinterlaced/EndAccess all succeeded and produced a frame
+        Failed,       // popped but QueryInterface/StartAccess/GetBytes/EndAccess failed, or bad geometry
+        StreamStart,  // succeeded, but this consumer's own Deinterlacer had no prior frame yet (ADR-080) -- not an error, never retried
+    };
+
     void run();  // consumer thread body
-    bool processOne(ComPtr<IDeckLinkVideoInputFrame> frame);
+    ProcessResult processOne(ComPtr<IDeckLinkVideoInputFrame> frame);
 
     CaptureFrameRing& m_ring;
 
@@ -197,6 +249,20 @@ private:
     const PipelineParams m_params;
     const std::size_t m_dstRowBytes;
     const CoverageCallback m_coverageCallback;  // WU-22c; null unless caller opts in
+
+    // WU-23b2b (ADR-080): this consumer's own owned Deinterlacer -- one
+    // instance for this object's whole lifetime, not two (ADR-080's own
+    // "one instance, not two" decision: a single instance already produces
+    // one full progressive frame per push with every row present, and a
+    // second, opposite-anchor instance would only earn its keep for
+    // field-rate output, which this project has ruled out) -- constructed
+    // with FieldParity::Top as its anchor parity (video/interlace.hpp's own
+    // "Top is first-transmitted field" convention, already used without
+    // incident through WU-23a/WU-23a2) and whichever DeinterlaceCoefficients
+    // the constructor above was given. Touched only from this consumer's
+    // own consumer thread, inside processOne() -- not guarded by a mutex,
+    // the same single-writer-thread convention m_stats already relies on.
+    video::Deinterlacer m_deinterlacer;
 
     std::thread m_thread;
     std::atomic<bool> m_stopping{false};

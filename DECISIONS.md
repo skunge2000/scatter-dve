@@ -8096,3 +8096,66 @@ unchanged by this session. Does not reopen `core/resolve.hpp`'s existing
 declarations or `PipelineParams` -- `runFrameBytesDeinterlaced()` is
 purely additive, the same "new sibling, not a changed one" shape this
 project has used throughout Phase 6.
+
+**ADR-081 — WU-23b2b build: `DeinterlaceCoefficients` set to `Complex`
+(Steve's own explicit choice); `processOne()`'s new third outcome
+communicated to `run()` via a private `ProcessResult` enum class, not a
+second bool or an out-parameter.**
+
+ADR-080 scoped WU-23b2b in full but explicitly left two build-time
+decisions open rather than default either one silently. Both settled
+this session, in this single entry per ADR-080's own "your call on
+which reads better" allowance, since both are small build-time details
+of the same unit rather than separate architectural questions.
+
+**1. `DeinterlaceCoefficients`: `Complex`.** Raised with Steve directly,
+per ADR-080's own instruction not to default it. Decision: `Complex` (4
+low-pass + 5 high-pass taps), not `Simple`. `CaptureConsumer`'s
+constructor takes it as a required parameter with no default --
+`io/decklink_capture_consumer.hpp`/`.cpp` -- so every caller, including
+`tests/test_decklink_capture_consumer.cpp`, states it explicitly rather
+than inheriting a silent default. Fixed for a given `CaptureConsumer`
+instance's whole lifetime, matching `destWidth`/`destHeight`'s own "no
+caller has asked for this to vary mid-stream" convention; nothing about
+this decision prevents a future unit from exposing it as a runtime
+option if a caller ever needs both.
+
+**2. `processOne()`'s three outcomes reach `run()` via a new private
+`ProcessResult` enum class (`Processed`, `Failed`, `StreamStart`), not a
+second `bool` or an out-parameter.** `processOne()`'s return type
+changes from `bool` to `CaptureConsumer::ProcessResult`;
+`run()` dispatches on it with a single exhaustive `switch`, one case per
+`CaptureConsumerStats` counter (`framesProcessed`, `framesFailed`, the
+new `framesStreamStart`). Chosen over the alternatives ADR-080 left on
+the table:
+
+- *A second `bool` (e.g. `bool streamStart`) alongside the existing
+  return.* Rejected: two independent booleans have four combinations,
+  only three of which are meaningful (`streamStart && !success` is
+  unreachable but has to be reasoned about anyway at every call site,
+  including this unit's own `run()` and any future caller of
+  `processOne()`), where a three-way enum has exactly as many values as
+  there are real outcomes and nothing to rule out.
+- *An out-parameter.* Rejected: `processOne()`'s three outcomes are
+  mutually exclusive alternatives, not a primary result plus optional
+  extra detail -- the shape an out-parameter fits (e.g.
+  `PipelineParams::weightOut` above, WU-22c) -- and threading one
+  through here would cost a call-site parameter for information the
+  return value can carry directly.
+
+`ProcessResult` is declared `private` inside `CaptureConsumer`
+(`io/decklink_capture_consumer.hpp`): no caller outside `run()`/
+`processOne()` itself has a use for it, the same "expose only what a
+caller needs" convention this class already applies to `processOne()`
+itself. The new counter is named `framesStreamStart`, incremented in
+`run()`'s own `ProcessResult::StreamStart` case, documented on
+`CaptureConsumerStats` alongside the three it joins.
+
+Does not reopen ADR-080's own design (one `Deinterlacer` instance,
+`FieldParity::Top` anchor, `m_latestFrame` left untouched on stream
+start, no coverage callback fired on stream start) -- this entry settles
+only the two points ADR-080 itself named as open. Nothing ADR-080
+assumed about the real header/source shape turned out wrong once
+`io/decklink_capture_consumer.hpp`/`.cpp` were actually edited this
+session -- see `HANDOFF.md` for confirmation; no `CORRECTIONS.md` entry
+this session.

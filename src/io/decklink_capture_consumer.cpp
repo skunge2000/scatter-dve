@@ -4,6 +4,10 @@
 // design. WU-22c (ADR-058) adds the coverageCallback plumbing below -- see
 // decklink_capture_consumer.hpp's own doc comment on CoverageCallback for
 // the design; this file only wires it into the constructor and processOne().
+//
+// WU-23b2b (ADR-080, extended by ADR-081) wires video::Deinterlacer in --
+// see decklink_capture_consumer.hpp's own class-level comment and this
+// file's own processOne()/run() below for the design.
 
 #include "io/decklink_capture_consumer.hpp"
 #include "core/resolve.hpp"
@@ -20,12 +24,14 @@
 namespace scatter::io {
 
 CaptureConsumer::CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
+                                  video::DeinterlaceCoefficients coeffs,
                                   CoverageCallback coverageCallback)
     : m_ring(ring),
       m_lattice(std::move(lattice)),
       m_params(params),
       m_dstRowBytes(scatter::v210::rowBytesMin(m_params.destWidth)),
-      m_coverageCallback(std::move(coverageCallback)) {}
+      m_coverageCallback(std::move(coverageCallback)),
+      m_deinterlacer(video::FieldParity::Top, coeffs) {}
 
 CaptureConsumer::~CaptureConsumer() { stop(); }
 
@@ -64,14 +70,26 @@ void CaptureConsumer::run() {
         }
 
         ++m_stats.framesPopped;
-        if (processOne(std::move(*item)))
-            ++m_stats.framesProcessed;
-        else
-            ++m_stats.framesFailed;
+        // WU-23b2b (ADR-080/081): a single exhaustive switch over
+        // processOne()'s own three-way ProcessResult, replacing the
+        // pre-WU-23b2b processed-xor-failed if/else -- see
+        // decklink_capture_consumer.hpp's own ProcessResult comment for why
+        // this shape was picked.
+        switch (processOne(std::move(*item))) {
+            case ProcessResult::Processed:
+                ++m_stats.framesProcessed;
+                break;
+            case ProcessResult::Failed:
+                ++m_stats.framesFailed;
+                break;
+            case ProcessResult::StreamStart:
+                ++m_stats.framesStreamStart;
+                break;
+        }
     }
 }
 
-bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
+CaptureConsumer::ProcessResult CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     // CaptureSource (WU-20b) only ever requests bmdFormat10BitYUV, on the
     // initial EnableVideoInput() call and on every format-change restart
     // alike (io/decklink_input.hpp's own class comment, ADR-047) -- so every
@@ -79,7 +97,7 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     // anyway, defensively, the same "ask rather than assume" caution this
     // project applies throughout its own DeckLink-touching code, not because
     // any code path upstream is expected to hand this class anything else.
-    if (frame->GetPixelFormat() != bmdFormat10BitYUV) return false;
+    if (frame->GetPixelFormat() != bmdFormat10BitYUV) return ProcessResult::Failed;
 
     // Trusted directly, per frame -- see this file's own header comment for
     // why this is not checked against the display mode CaptureSource::create()
@@ -87,7 +105,7 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     const int srcWidth = int(frame->GetWidth());
     const int srcHeight = int(frame->GetHeight());
     const auto srcRowBytes = std::ptrdiff_t(frame->GetRowBytes());
-    if (srcWidth <= 0 || srcHeight <= 0 || srcRowBytes <= 0) return false;
+    if (srcWidth <= 0 || srcHeight <= 0 || srcRowBytes <= 0) return ProcessResult::Failed;
 
     // WU-21f: a local copy of the current lattice, taken before touching the
     // capture frame's own buffer at all -- keeps the StartAccess/EndAccess
@@ -108,14 +126,14 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     // finding, confirmed unchanged for input by ADR-046/047/048's own
     // re-reads of the real SDK headers).
     ComPtr<IDeckLinkVideoBuffer> buffer(IID_IDeckLinkVideoBuffer, frame);
-    if (!buffer) return false;
+    if (!buffer) return ProcessResult::Failed;
 
-    if (buffer->StartAccess(bmdBufferAccessRead) != S_OK) return false;
+    if (buffer->StartAccess(bmdBufferAccessRead) != S_OK) return ProcessResult::Failed;
 
     void* mem = nullptr;
     if (buffer->GetBytes(&mem) != S_OK || mem == nullptr) {
         buffer->EndAccess(bmdBufferAccessRead);
-        return false;
+        return ProcessResult::Failed;
     }
 
     // WU-22c (ADR-058): a per-call copy of m_params, only ever diverging from
@@ -139,12 +157,40 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     // EndAccess, so this call happens here, before EndAccess below -- not
     // after, and not against a copy taken out of the bracket first. See this
     // file's own header comment for why no pool buffer is used instead.
+    //
+    // WU-23b2b (ADR-080): runFrameBytes() replaced with
+    // runFrameBytesDeinterlaced(), driving this consumer's own owned
+    // m_deinterlacer -- same bracket, same "call while still inside
+    // StartAccess/EndAccess" reasoning as before. Unlike runFrameBytes(),
+    // this has a real bool return to check: false means stream start
+    // (ADR-080's own trace of Deinterlacer::push()'s state machine) -- dst
+    // is guaranteed completely untouched in that case
+    // (core/resolve.hpp's own documented contract), so it must not be
+    // published as this frame's own result below.
     std::vector<std::uint8_t> dst(m_dstRowBytes * std::size_t(m_params.destHeight));
-    scatter::runFrameBytes(latticeSnapshot, static_cast<const std::uint8_t*>(mem), srcRowBytes,
-                            srcWidth, srcHeight, callParams, dst.data(),
-                            std::ptrdiff_t(m_dstRowBytes));
+    const bool produced = scatter::runFrameBytesDeinterlaced(
+        m_deinterlacer, latticeSnapshot, static_cast<const std::uint8_t*>(mem), srcRowBytes,
+        srcWidth, srcHeight, callParams, dst.data(), std::ptrdiff_t(m_dstRowBytes));
 
-    if (buffer->EndAccess(bmdBufferAccessRead) != S_OK) return false;
+    if (buffer->EndAccess(bmdBufferAccessRead) != S_OK) return ProcessResult::Failed;
+
+    if (!produced) {
+        // Stream start (ADR-080/081): the very first popped frame that ever
+        // reaches this point in this consumer's own lifetime -- push()'s
+        // own state machine (video/deinterlace.hpp) guarantees this returns
+        // false only on the very first call ever made against
+        // m_deinterlacer, never again afterward. dst was never touched, and
+        // coverageBuf (if any) was never filled either --
+        // runFrameBytesDeinterlaced() returns before runFrame() itself is
+        // ever called on this path (core/pipeline.cpp). Not an error, never
+        // retried: m_latestFrame is left exactly as copyLatestFrame()'s own
+        // existing "nothing produced yet" semantics already describe on a
+        // genuine cold start (extended, not invented, per ADR-080) -- so it
+        // is deliberately left untouched here, and no coverage callback
+        // fires either, for the same reason: there is nothing real for it
+        // to observe on this one frame.
+        return ProcessResult::StreamStart;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -152,16 +198,16 @@ bool CaptureConsumer::processOne(ComPtr<IDeckLinkVideoInputFrame> frame) {
     }
 
     // WU-22c (ADR-058): fired only after the frame is fully processed and
-    // published above -- coverageBuf was filled by the same runFrameBytes()
-    // call that produced m_latestFrame, so a callback observing this
-    // coverage buffer is always looking at coverage for the same frame
-    // copyLatestFrame() would hand back if called right now. Moved, not
-    // copied -- see decklink_capture_consumer.hpp's own doc comment on
-    // CoverageCallback for why ownership transfer, not a borrowed pointer,
-    // is this hook's own shape.
+    // published above -- coverageBuf was filled by the same
+    // runFrameBytesDeinterlaced() call that produced m_latestFrame, so a
+    // callback observing this coverage buffer is always looking at coverage
+    // for the same frame copyLatestFrame() would hand back if called right
+    // now. Moved, not copied -- see decklink_capture_consumer.hpp's own doc
+    // comment on CoverageCallback for why ownership transfer, not a
+    // borrowed pointer, is this hook's own shape.
     if (m_coverageCallback) m_coverageCallback(std::move(coverageBuf));
 
-    return true;
+    return ProcessResult::Processed;
 }
 
 }  // namespace scatter::io

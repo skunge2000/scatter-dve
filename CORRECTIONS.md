@@ -910,3 +910,106 @@ assumption in `WORK-UNITS.md` about *where* the wiring's own complexity
 would come from, not a design decision any earlier ADR froze. See
 `DECISIONS.md` ADR-080 for the corrected design and the file split it
 produces (WU-23b2a/WU-23b2b).
+
+**C-028 — WU-23b2b's own `Files:` line (`WORK-UNITS.md`, ADR-080) named
+only `tests/test_decklink_capture_consumer.cpp` as needing an edit for
+`CaptureConsumer`'s new required `DeinterlaceCoefficients` constructor
+parameter; two more real call sites existed and were missed until
+Steve's own real-terminal build caught them.**
+
+*Claimed (`WORK-UNITS.md`'s WU-23b2b entry, both before and after this
+session's own edit):* `io/decklink_capture_consumer.hpp`/`.cpp` edited,
+plus `tests/test_decklink_capture_consumer.cpp`, "not counted against
+the cap." No other file named as needing a change for the new
+constructor parameter.
+
+*Correct:* `CaptureConsumer` is also constructed directly in
+`tests/test_decklink_live_output.cpp` (WU-21c) and
+`tests/test_decklink_live_sphere.cpp` (WU-21i/WU-22c) — real,
+independent demo/smoke-test entry points, not part of
+`test_decklink_capture_consumer.cpp`'s own translation unit. Both broke
+at Steve's own real-terminal `cmake --build`:
+`test_decklink_live_output.cpp:136` (old 3-argument call, now missing
+the required `coeffs` parameter) and `test_decklink_live_sphere.cpp:565`
+(old 4-argument call with `coverageCallback` positioned where `coeffs`
+now belongs, so the compiler saw a `std::function` where a
+`DeinterlaceCoefficients` was expected). This session's own search for
+"other callers" before writing `HANDOFF.md` never happened at all — the
+close-out reasoned only from `WORK-UNITS.md`'s own `Files:` line, which
+this project's convention (`SESSION-PROTOCOL.md`) treats as authoritative
+for what a unit touches, without separately grepping the repository for
+every real construction site of a class whose constructor signature was
+about to change. Fixed the same session, once Steve reported the build
+error: both files updated to pass
+`scatter::video::DeinterlaceCoefficients::Complex` explicitly (matching
+ADR-081's own choice for every caller in this project), each verified
+written back to the real repository and checksum-confirmed byte for
+byte, same as every other file this session touched.
+
+**General lesson for future sessions, extending C-027's own "read the
+real call sites, don't trust a scoping stub's account of them" lesson
+one level further:** when a work unit changes a *public* function or
+constructor signature (not just its body), `grep`-ing the whole
+repository for every real call site is required before writing the
+close-out — a `Files:` line written during an earlier *scoping* session
+(here, WU-23b2's ADR-080, written before `io/decklink_capture_consumer.hpp`'s
+full set of callers was ever enumerated) is a plan, not a fact already
+checked against the real tree, and this project already has several
+independent demo/smoke-test files that construct the same DeckLink
+classes directly outside their own "official" test file
+(`test_decklink_live_output.cpp`, `test_decklink_live_sphere.cpp`) — a
+pattern worth checking for by name on any future signature change to a
+class either of them touches.
+
+**C-029 — Fixing C-028's build break (adding the required `coeffs`
+argument to `test_decklink_live_output.cpp`/`test_decklink_live_sphere.cpp`)
+was incomplete: both files also carry their own copy of the
+`framesProcessed + framesFailed == framesPopped` accounting invariant,
+now stale, and Steve's own real-terminal `ctest` run caught it failing
+on both.**
+
+*Claimed (this session's own C-028 fix, and the header comment it added
+to both files):* "Otherwise unaffected: this test never reads
+`CaptureConsumerStats::framesStreamStart`" — i.e. fixing the constructor
+call was the whole fix.
+
+*Correct:* both files independently re-implement the same
+`framesProcessed + framesFailed == framesPopped` `CHECK` that
+`tests/test_decklink_capture_consumer.cpp` already had (and that this
+session's own WU-23b2b work correctly widened to a third term there) --
+`test_decklink_live_output.cpp:179` and
+`test_decklink_live_sphere.cpp:710`. Both are genuinely exercised: `run()`
+now counts a `ProcessResult::StreamStart` result against the new
+`framesStreamStart` counter instead of `framesProcessed`, for the very
+first successfully-decoded frame of *any* `CaptureConsumer` instance,
+including the ones these two files construct -- not something specific
+to `test_decklink_capture_consumer.cpp`'s own `CaptureConsumer`. Steve's
+own real ctest run showed exactly this: `test_decklink_live_output`
+(`framesPopped=82`, `framesProcessed=81`, `framesFailed=0` -- the missing
+1 is the stream-start frame) and `test_decklink_live_sphere`
+(`framesPopped=420`, `framesProcessed=419`, `framesFailed=0`, same
+missing 1). Fixed the same session: both `CHECK`s widened to the same
+three-term form `test_decklink_capture_consumer.cpp` already uses, both
+diagnostic `fprintf` lines extended to print `framesStreamStart`, and
+both files' own C-028-era header comment (which asserted the false "this
+test never reads `framesStreamStart`" claim) corrected in place rather
+than left standing next to code that now contradicts it.
+
+**General lesson, sharpening C-028's own lesson rather than repeating
+it:** C-028 already established "grep the whole repository for every
+real call site before closing out a session that changes a public
+signature" -- true, but insufficient on its own, because it only finds
+sites that fail to *compile*. A behavioural change to what a class's
+public state means (here: a state transition that used to be impossible
+now legitimately happens, moving population from one counter to a new
+one) can silently invalidate a caller's own *runtime* invariant even
+when that caller's call site still compiles cleanly against the new
+signature once the argument list is fixed. The correct check after a
+class's behavioural contract changes is not "does every call site still
+compile" but "does every reader of this class's own observable state
+(here, `CaptureConsumerStats`) still hold correct assumptions about it"
+-- broader than a grep for the constructor name alone, and this session
+still did not do it for the first fix. Worth a repository-wide grep for
+every touched struct/counter name, not just the changed function's own
+name, on any future session that adds a new outcome to an existing
+state machine.

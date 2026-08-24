@@ -79,6 +79,15 @@
 // SESSION-PROTOCOL.md rule 2 (one unit, one test, no shared fixture across
 // test translation units) -- same convention every DeckLink test in this
 // project already follows.
+//
+// WU-23b2b (DECISIONS.md ADR-080, extended by ADR-081): CaptureConsumer's
+// constructor now takes a required DeinterlaceCoefficients parameter --
+// this file's own construction call below passes Complex explicitly
+// (Steve's own choice, ADR-081), inserted ahead of the existing
+// coverageCallback parameter (WU-22c), which stays last. The accounting
+// invariant below genuinely does widen to a third term, framesStreamStart
+// (CORRECTIONS.md C-029 corrects an earlier, wrong claim in this same
+// comment that it would not).
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -89,6 +98,7 @@
 #include "io/decklink_device.hpp"
 #include "io/decklink_input.hpp"
 #include "io/decklink_live_output.hpp"
+#include "video/deinterlace.hpp"
 #include "harness.hpp"
 
 #include "DeckLinkAPI.h"
@@ -562,7 +572,12 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
         };
     }
 
-    CaptureConsumer consumer(ring, makeSphereLattice(radius, centerX, centerY), params, coverageCallback);
+    // WU-23b2b (ADR-080/081): DeinterlaceCoefficients has no default --
+    // Complex, Steve's own explicit choice, same as every other caller in
+    // this project -- inserted ahead of coverageCallback, which stays this
+    // constructor's own last (defaulted) parameter.
+    CaptureConsumer consumer(ring, makeSphereLattice(radius, centerX, centerY), params,
+                              scatter::video::DeinterlaceCoefficients::Complex, coverageCallback);
     consumer.start();
 
     auto playback = LiveFramePlayback::create(output, kDisplayMode, kWidth, kHeight, consumer);
@@ -694,16 +709,25 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
 
     const auto& captureStats = capture->stats();
     const auto& consumerStats = consumer.stats();
-    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) ==
+    // WU-23b2b (ADR-080/081): widened to a third term, framesStreamStart --
+    // this file's own earlier header-comment claim that it "never reads
+    // CaptureConsumerStats::framesStreamStart" was wrong; this invariant
+    // reads it implicitly through the sum, and Steve's own real-terminal
+    // ctest run caught the stale two-term version failing (CORRECTIONS.md
+    // C-029): a fresh CaptureConsumer's very first successfully-decoded
+    // frame is always counted here, not by framesProcessed or
+    // framesFailed.
+    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) +
+              std::size_t(consumerStats.framesStreamStart.load()) ==
           std::size_t(consumerStats.framesPopped.load()));
     CHECK(std::size_t(consumerStats.framesPopped.load()) <= std::size_t(captureStats.framesPushed.load()));
 
     std::fprintf(stderr,
                  "test_decklink_live_sphere: framesArrived=%d framesPushed=%d | framesPopped=%d "
-                 "framesProcessed=%d framesFailed=%d\n",
+                 "framesProcessed=%d framesFailed=%d framesStreamStart=%d\n",
                  captureStats.framesArrived.load(), captureStats.framesPushed.load(),
                  consumerStats.framesPopped.load(), consumerStats.framesProcessed.load(),
-                 consumerStats.framesFailed.load());
+                 consumerStats.framesFailed.load(), consumerStats.framesStreamStart.load());
 
     if (consumerStats.framesProcessed.load() == 0) {
         std::fprintf(stderr,

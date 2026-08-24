@@ -31,6 +31,16 @@
 // genuinely live (not frozen) content on the wire. Both are Steve's own
 // hands-on job at the real terminal, the same division of labour WU-15a/
 // WU-15b and WU-19a/WU-19b already established.
+//
+// WU-23b2b (DECISIONS.md ADR-080, extended by ADR-081): CaptureConsumer's
+// constructor now takes a required DeinterlaceCoefficients parameter --
+// this file's own construction call below is updated to pass Complex
+// explicitly (Steve's own choice, ADR-081), consistent with every other
+// caller in this project. The identity-map warp path this test exercises
+// is unchanged by the de-interlace pass now sitting ahead of it in
+// processOne() -- but the accounting invariant below genuinely does widen
+// to a third term, framesStreamStart (CORRECTIONS.md C-029 corrects an
+// earlier, wrong claim in this same comment that it would not).
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -39,6 +49,7 @@
 #include "io/decklink_device.hpp"
 #include "io/decklink_input.hpp"
 #include "io/decklink_live_output.hpp"
+#include "video/deinterlace.hpp"
 #include "harness.hpp"
 
 #include "DeckLinkAPI.h"
@@ -133,7 +144,11 @@ static void test_live_playback_reschedules_continuously_with_no_dropped_or_late_
     params.destWidth = kWidth;
     params.destHeight = kHeight;
 
-    CaptureConsumer consumer(ring, makeIdentityLattice(), params);
+    // WU-23b2b (ADR-080/081): DeinterlaceCoefficients has no default --
+    // Complex, Steve's own explicit choice, same as every other caller in
+    // this project.
+    CaptureConsumer consumer(ring, makeIdentityLattice(), params,
+                              scatter::video::DeinterlaceCoefficients::Complex);
     consumer.start();
 
     auto playback = LiveFramePlayback::create(output, kDisplayMode, kWidth, kHeight, consumer);
@@ -162,16 +177,25 @@ static void test_live_playback_reschedules_continuously_with_no_dropped_or_late_
 
     const auto& captureStats = capture->stats();
     const auto& consumerStats = consumer.stats();
-    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) ==
+    // WU-23b2b (ADR-080/081): widened to a third term, framesStreamStart --
+    // this file's own earlier header-comment claim that it "never reads
+    // CaptureConsumerStats::framesStreamStart" was wrong; this invariant
+    // reads it implicitly through the sum, and Steve's own real-terminal
+    // ctest run caught the stale two-term version failing (CORRECTIONS.md
+    // C-029): a fresh CaptureConsumer's very first successfully-decoded
+    // frame is always counted here, not by framesProcessed or
+    // framesFailed.
+    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) +
+              std::size_t(consumerStats.framesStreamStart.load()) ==
           std::size_t(consumerStats.framesPopped.load()));
     CHECK(std::size_t(consumerStats.framesPopped.load()) <= std::size_t(captureStats.framesPushed.load()));
 
     std::fprintf(stderr,
                  "test_decklink_live_output: framesArrived=%d framesPushed=%d | framesPopped=%d "
-                 "framesProcessed=%d framesFailed=%d\n",
+                 "framesProcessed=%d framesFailed=%d framesStreamStart=%d\n",
                  captureStats.framesArrived.load(), captureStats.framesPushed.load(),
                  consumerStats.framesPopped.load(), consumerStats.framesProcessed.load(),
-                 consumerStats.framesFailed.load());
+                 consumerStats.framesFailed.load(), consumerStats.framesStreamStart.load());
 
     if (consumerStats.framesProcessed.load() == 0) {
         std::fprintf(stderr,

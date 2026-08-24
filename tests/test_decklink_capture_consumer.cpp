@@ -24,6 +24,14 @@
 // This unit's own scope stops at producing warped v210 bytes in memory --
 // it does not reschedule them onto IDeckLinkOutput (WU-21c's own job, not
 // yet built; DECISIONS.md ADR-048).
+//
+// WU-23b2b (DECISIONS.md ADR-080, extended by ADR-081) extends this test:
+// CaptureConsumer now drives a de-interlace pass (video::Deinterlacer)
+// ahead of the warp, so its own constructor takes an explicit
+// DeinterlaceCoefficients (Steve's own choice, this session: Complex -- see
+// ADR-081), and processOne()'s own new stream-start outcome widens the
+// framesProcessed/framesFailed accounting invariant below to a third term,
+// framesStreamStart.
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -31,6 +39,7 @@
 #include "io/decklink_capture_consumer.hpp"
 #include "io/decklink_device.hpp"
 #include "io/decklink_input.hpp"
+#include "video/deinterlace.hpp"
 #include "video/v210.hpp"
 #include "harness.hpp"
 
@@ -109,7 +118,14 @@ static void test_capture_consumer_drains_ring_and_produces_frames() {
     params.destWidth = kWidth;
     params.destHeight = kHeight;
 
-    CaptureConsumer consumer(ring, makeIdentityLattice(), params);
+    // WU-23b2b (ADR-080/081): DeinterlaceCoefficients has no default --
+    // Complex, Steve's own explicit choice this session (ADR-081); this
+    // test's own job is the StartAccess/GetBytes/runFrameBytesDeinterlaced/
+    // EndAccess mechanics and the accounting invariants below, not
+    // re-proving Simple-versus-Complex reconstruction quality (already
+    // covered, algorithmically, by WU-23b1's own test_deinterlace.cpp).
+    CaptureConsumer consumer(ring, makeIdentityLattice(), params,
+                              scatter::video::DeinterlaceCoefficients::Complex);
     consumer.start();
 
     // Bounded run -- the same order of magnitude test_decklink_input.cpp's
@@ -123,20 +139,39 @@ static void test_capture_consumer_drains_ring_and_produces_frames() {
     const auto& consumerStats = consumer.stats();
 
     // Holds unconditionally, real signal or not -- run() only ever counts a
-    // popped item as processed xor failed, never both, never neither.
-    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) ==
+    // popped item as processed xor failed xor stream-start, never more than
+    // one of the three, never none (WU-23b2b, ADR-080/081: processOne()'s
+    // own new ProcessResult::StreamStart widens the pre-WU-23b2b
+    // processed-xor-failed invariant with this third term).
+    CHECK(std::size_t(consumerStats.framesProcessed.load()) + std::size_t(consumerStats.framesFailed.load()) +
+              std::size_t(consumerStats.framesStreamStart.load()) ==
           std::size_t(consumerStats.framesPopped.load()));
     // The consumer cannot have popped more than the capture side pushed --
     // it may pop fewer, if this test's own bounded run stops before the
     // consumer thread drains everything still sitting in the ring.
     CHECK(std::size_t(consumerStats.framesPopped.load()) <= std::size_t(captureStats.framesPushed.load()));
 
+    // WU-23b2b (ADR-080/081): framesStreamStart increments at most once per
+    // CaptureConsumer instance, ever -- Deinterlacer::push()'s own state
+    // machine (video/deinterlace.hpp) returns false only on the very first
+    // call ever made against a given instance, never again afterward. And
+    // whenever any frame has been fully processed, the stream-start frame
+    // must already have happened and been counted: the first popped frame
+    // that ever reaches m_deinterlacer.push() (i.e. survives
+    // QueryInterface/StartAccess/GetBytes) is unconditionally that instance's
+    // own stream-start frame, so framesProcessed > 0 is only reachable after
+    // exactly one framesStreamStart increment.
+    CHECK(consumerStats.framesStreamStart.load() <= 1);
+    if (consumerStats.framesProcessed.load() > 0)
+        CHECK(consumerStats.framesStreamStart.load() == 1);
+
     std::fprintf(stderr,
                  "test_decklink_capture_consumer: framesArrived=%d framesPushed=%d | "
-                 "framesPopped=%d framesProcessed=%d framesFailed=%d over a 5-second bounded run\n",
+                 "framesPopped=%d framesProcessed=%d framesFailed=%d framesStreamStart=%d over a "
+                 "5-second bounded run\n",
                  captureStats.framesArrived.load(), captureStats.framesPushed.load(),
                  consumerStats.framesPopped.load(), consumerStats.framesProcessed.load(),
-                 consumerStats.framesFailed.load());
+                 consumerStats.framesFailed.load(), consumerStats.framesStreamStart.load());
 
     if (consumerStats.framesProcessed.load() == 0) {
         std::fprintf(
