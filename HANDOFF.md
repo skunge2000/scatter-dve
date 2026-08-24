@@ -3,18 +3,15 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 50 (WU-23b2b build — Weston 3-field de-interlace:
-`CaptureConsumer` wiring).
+**Session:** 51 (WU-27 continuation prompt — scoping session first, build
+session second per the prompt's own instruction; both completed).
 
-**Tag:** `wu-23b2a-green` is still the newest real tag on the repository
-as of this session's own start (confirmed directly). This session's own
-new code was written with no compiler anywhere in this session's own
-reach able to see it (see below) — Steve's own real-terminal build has
-since run twice: the first `cmake --build build` failed (C-028, fixed),
-the first `ctest` after that failed two tests on a stale accounting
-invariant this session had not updated (C-029, fixed). **Neither fix has
-itself been rebuilt/retested yet as of this file being written — that is
-still Steve's own next step, below.** Nothing is tagged this session.
+**Tag:** `wu-23b2b-green` was still the newest real tag as of this
+session's own start (confirmed directly: `git tag --sort=creatordate`,
+`git log --oneline -10` showing `HEAD` = `4eaf7de` = `origin/main`,
+`git status --short` clean — no drift from the continuation prompt's own
+snapshot). **Nothing is tagged yet by this session** — that is Steve's own
+next step below, after his own real-terminal build/test confirms green.
 
 ## Before doing anything else in the next session
 
@@ -23,309 +20,205 @@ HEAD origin/main` and `git status --short` directly against
 `~/src/scatter-dve` — do not trust this file's own account without
 checking it against the real repository first.
 
-## This unit is DeckLink-linked — there was no cloud-sandbox build for it, at all
+## This unit is core-only — a real cloud-sandbox build/test WAS possible, and was done
 
-**This session itself could not compile or test any of its own code** —
-`io/decklink_capture_consumer.hpp`/`.cpp` link the Blackmagic DeckLink
-SDK, which exists only on the Mac. Every line was written by reading the
-real, current file contents directly, then reasoning against
-`core/resolve.hpp`'s own `runFrameBytesDeinterlaced()` (WU-23b2a, built
-and tagged) and `video/deinterlace.hpp`'s own `Deinterlacer` class
-exactly as frozen — not by compiling and iterating. **Updated mid-session
-as Steve's own real-terminal runs came back:** `cmake --build build` now
-compiles clean (after C-028's fix); `ctest` has not yet been confirmed
-green (C-029's fix addresses the two failures seen so far, but is itself
-unverified — see "Steve's own next steps"). Do not claim this code is
-fully green/verified until Steve confirms the re-run below.
+Unlike the two sessions before this one (WU-23b2a/WU-23b2b, both
+DeckLink-linked), WU-27 touches no DeckLink-linked file at all. Every new
+and changed file was written, then actually compiled and tested in this
+session's own Linux cloud sandbox — not merely reasoned about from reading
+the source, the situation the previous two sessions were stuck in.
 
 ## This session in full
 
-Opened with a continuation prompt whose own job was building WU-23b2b.
-Confirmed repository state directly before reading anything else: `git
-tag --sort=creatordate` (newest `wu-23b2a-green`, matching the
-continuation prompt's own expected state exactly), `git log --oneline
--10` (`HEAD` = `347ffd6`, "WU-23b2a: runFrameBytesDeinterlaced()
-orchestration entry point (ADR-080)"), `git rev-parse HEAD origin/main`
-(same hash twice, `347ffd6ab3ad5955de21708ef63120af680ef73f`), `git
-status --short` (clean). No drift from the continuation prompt's own
-snapshot — nothing to reconcile.
+Opened with a continuation prompt whose own job was: scope WU-27 first
+(it had never carried real `Files:`/`Accept:`, only WU-36's first-cut
+scoping note), build it second if time allowed. Confirmed repository state
+directly before reading anything else — matched the continuation prompt's
+own snapshot exactly, nothing to reconcile.
 
-**Read directly, not from memory or paraphrase, before writing anything:**
-`SESSION-PROTOCOL.md`, `HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md`
-(ADR-080 in full), `CORRECTIONS.md` (C-026/C-027 in full),
-`WORK-UNITS.md` (WU-23b2b's own entry in full),
-`io/decklink_capture_consumer.hpp`, `io/decklink_capture_consumer.cpp`,
-`core/resolve.hpp` (`runFrameBytesDeinterlaced()`'s own declaration and
-its full comment block), `core/pipeline.cpp` (its definition, to confirm
-exactly when `dstBytes`/`weightOut` are and are not touched on a `false`
-return), `video/deinterlace.hpp` (`Deinterlacer`'s own constructor and
-`push()` signature), `video/interlace.hpp` (`FieldParity`), and
-`tests/test_decklink_capture_consumer.cpp`'s own current accounting
-invariant.
+**Read directly, not from paraphrase:** `SESSION-PROTOCOL.md`,
+`HANDOFF.md`, `INVARIANTS.md` (I10), `DECISIONS.md` (ADR-068 through
+ADR-071, ADR-081 in full), `CORRECTIONS.md` (C-024, C-027, C-028, C-029),
+`WORK-UNITS.md` (WU-27, WU-34, WU-37 entries), `docs/architecture.md` §3,
+`docs/wu-audit-2026-08.md` (WU-27/WU-34 rows, Deliverable 4 and 5),
+`docs/sources/WU-SM-01.md` §4.5, §4.6 and §8 in full (the actual
+hand-worked fixture text, not the one-line gloss in
+`tests/fixtures-historical.md`), `core/jacobian.hpp`, `core/lattice.hpp`,
+`core/binner.hpp`/`.cpp`, `core/types.hpp`, `core/resolve.hpp`,
+`CMakeLists.txt`, `tests/harness.hpp`, `tests/test_jacobian.cpp`.
 
-**Two open design points ADR-080 left for this session, both settled and
-logged as `DECISIONS.md` ADR-081 (one entry, covering both — the two are
-small build-time details of the same unit, not separate architectural
-questions):**
+**Scoping outcome, logged as `DECISIONS.md` ADR-082 (full account there):**
 
-1. **`DeinterlaceCoefficients`: raised with Steve directly, per ADR-080's
-   own instruction not to default it silently. Steve's answer: `Complex`**
-   (4 low-pass + 5 high-pass taps, not `Simple`'s 2+3). `CaptureConsumer`'s
-   constructor takes it as a required parameter, no default.
-2. **`processOne()`'s three now-possible outcomes reach `run()` via a new
-   private `ProcessResult` enum class** (`Processed`/`Failed`/
-   `StreamStart`), replacing the old plain `bool` return — picked over a
-   second `bool` (rejected: an unreachable fourth combination to reason
-   about at every call site) or an out-parameter (rejected: the three
-   outcomes are mutually exclusive alternatives, not a primary result plus
-   optional detail). The new `CaptureConsumerStats` counter is named
-   `framesStreamStart`. Full reasoning in `DECISIONS.md` ADR-081.
+1. **WU-27 split from WU-34**, along "pure Phong evaluator" (this unit) vs.
+   "wiring it into `core/binner.hpp` via a coarse-grid facet" (WU-34) —
+   keeps WU-27 at 2 new source files, well under the 3-file cap, and
+   respects ADR-070's own requirement that shading is evaluated per
+   coarse-grid facet, not per source sample (a genuinely different
+   mechanism from a call inside `core/binner.cpp`'s existing per-sample
+   loop). `core/binner.hpp`/`.cpp` are **untouched** this session.
+2. **Facet normal — raised with Steve directly, per ADR-070's own
+   instruction: historical finite-difference reconstruction**, not WU-26's
+   exact analytic `surfaceNormal()`. Matches this project's own demonstrated
+   preference for faithful reproduction elsewhere. Binds WU-34's own build,
+   not this session's code — logged here since it was decided during this
+   unit's own scoping.
+3. **`model(L, zone)` LUT — confirmed with Steve: build the pluggable
+   interface now, with placeholder curves for all eight named models.**
+   Matches the blocked-work register's own recommendation.
+4. **The primary Nonweiler patent, EP 0248626/US 4,899,295, was obtained
+   and read in full this session** (Steve supplied the PDF). It
+   independently corroborates ADR-069's own closed-form formula from a
+   second primary source, and adds a concrete "view and light coincident
+   ⇒ B = 2A" relation not previously recorded — but it does **not** name or
+   tabulate the eight specular models (Deliverable 5's blocking gap is
+   unchanged; WU-37 remains blocked on a different, still-missing
+   document), and it does **not** correct or reopen ADR-069's own `cos B`
+   LUT claim (that claim is about a different document, S5/Cawley, already
+   held — this patent describes a simpler, earlier, single-model system).
+   Full reasoning in ADR-082, point 4.
 
-**Built (written) WU-23b2b exactly per ADR-080, plus the two ADR-081
-decisions above — no other redesign:**
+**Built exactly per the scope above:**
 
-- `io/decklink_capture_consumer.hpp`: new `#include
-  "video/deinterlace.hpp"`; `CaptureConsumerStats` gains
-  `framesStreamStart`; new private `ProcessResult` enum class;
-  `processOne()`'s declared return type changes `bool` →
-  `ProcessResult`; new owned `video::Deinterlacer m_deinterlacer` member
-  (constructed `FieldParity::Top`, caller's `coeffs`); constructor gains
-  a required `video::DeinterlaceCoefficients coeffs` parameter, inserted
-  before the already-defaulted `coverageCallback` parameter (so
-  `coverageCallback` stays defaultable and `coeffs` cannot be skipped).
-- `io/decklink_capture_consumer.cpp`: constructor initialises
-  `m_deinterlacer(video::FieldParity::Top, coeffs)`; `run()`'s
-  processed-xor-failed `if`/`else` becomes a three-case `switch` on
-  `ProcessResult`; `processOne()`'s body is unchanged through
-  `StartAccess`/`GetBytes`, then calls
-  `scatter::runFrameBytesDeinterlaced(m_deinterlacer, latticeSnapshot,
-  ...)` in place of `scatter::runFrameBytes(...)`, checks its `bool`
-  return, still calls `EndAccess` unconditionally first; on `EndAccess`
-  failure returns `ProcessResult::Failed` as before; on a `false`
-  (stream-start) return with `EndAccess` successful, returns
-  `ProcessResult::StreamStart` **without** touching `m_latestFrame` and
-  **without** firing the coverage callback (confirmed by reading
-  `core/pipeline.cpp`'s `runFrameBytesDeinterlaced()` body directly:
-  it returns before `runFrame()` is ever called on that path, so neither
-  `dstBytes` nor `weightOut`/coverage is ever written); otherwise
-  publishes `m_latestFrame`, fires the coverage callback exactly as
-  before, and returns `ProcessResult::Processed`.
-- `tests/test_decklink_capture_consumer.cpp`: added `#include
-  "video/deinterlace.hpp"`; constructor call now passes
-  `scatter::video::DeinterlaceCoefficients::Complex` explicitly; the
-  `framesProcessed + framesFailed == framesPopped` invariant widened to a
-  third term, `framesStreamStart`; two new checks —
-  `framesStreamStart <= 1` unconditionally, and `framesStreamStart == 1`
-  whenever `framesProcessed > 0` (reasoning: the first popped frame that
-  ever survives `QueryInterface`/`StartAccess`/`GetBytes` is
-  unconditionally the one and only call to `m_deinterlacer.push()` that
-  can ever return `false`, so any processed frame implies exactly one
-  prior stream-start); the diagnostic `fprintf` now also prints
-  `framesStreamStart`.
+- `src/core/lighting.hpp` (new): `LightType` (Point/Beam/Parallel),
+  `SpecularModel` (the eight named models, all placeholder curves),
+  `defaultSpecularCurve()`, `Zone`, `Light`, `LightingScene`, `shade()`.
+- `src/core/lighting.cpp` (new): implementation — reflect/dot/normalize
+  helpers, the eight placeholder curves, `shade()`'s own per-light
+  summation loop.
+- `tests/test_lighting.cpp` (new): fixtures 9, 12, 13, 15, 16 (adapted —
+  see the file's own header comment for exactly what's adapted and why),
+  17, 18, 26, plus `defaultSpecularCurve()` bounds/monotonicity checks.
+  239 checks, all passing.
+- `src/core/jacobian.hpp`: one comment line corrected (stale "WU-27's own
+  two-sided Blinn-Phong shading" → "WU-27's own Phong shading... normalises
+  internally" — `docs/wu-audit-2026-08.md` finding 4's own "natural moment
+  to fix" note). No behavioural change.
+- `CMakeLists.txt`: `src/core/lighting.cpp` added to `scatter-core`'s
+  source list; `scatter_test(test_lighting)` added next to
+  `test_jacobian`.
+- `WORK-UNITS.md`: WU-27 rewritten with real `Files:`/`Accept:`,
+  `Status: green`; WU-34 updated with the split confirmation and the
+  facet-normal decision.
+- `DECISIONS.md`: ADR-082 appended (full account of every decision above).
 
-**Member initialisation order double-checked against declaration
-order** (a real risk with a new non-trivially-constructed member,
-`video::Deinterlacer` has no default constructor): `m_deinterlacer` is
-declared after `m_coverageCallback` and before `m_thread` in the header,
-and the constructor's initialiser list follows that same order — no
-`-Wreorder` risk, verified by inspection since there is no compiler here
-to catch it.
+**Grepped the whole repository before closing out** (the lesson C-028/C-029
+sharpened, applied here even though this unit is almost entirely additive):
+`grep -rn "Blinn-Phong"` and `grep -rln "lighting"` across `src/`, `tests/`
+and every `.md` file. Confirmed `src/core/jacobian.hpp:136` was the only
+stale *code* comment (matching the wu-audit's own finding exactly, now
+fixed); every other "Blinn-Phong" hit is inside `DECISIONS.md`/
+`CORRECTIONS.md`/`docs/` correctly narrating the historical correction
+itself, not a live stale claim. No other file references "lighting" —
+confirms no naming collision with any prior partial work.
 
-**Wrote `src/io/decklink_capture_consumer.hpp`,
-`src/io/decklink_capture_consumer.cpp`,
-`tests/test_decklink_capture_consumer.cpp` and `WORK-UNITS.md` to the
-real repository via the device bridge, then confirmed each byte-for-byte
-against this session's own edited copies via SHA-256 checksum through
-the device bridge's own shell access** (the usual re-stage-and-diff path
-was blocked this session by a stale device sign-in — `device_stage_files`
-returned `untrusted_device`; checksums through `device_bash` served the
-same confirming role) — all four matched exactly.
-
-**Correction mid-session, logged as `CORRECTIONS.md` C-028: Steve's own
-real-terminal `cmake --build build` failed.** `CaptureConsumer`'s
-constructor signature changed (new required `DeinterlaceCoefficients`
-parameter), but this session's own close-out had only updated the one
-call site `WORK-UNITS.md`'s `Files:` line named
-(`tests/test_decklink_capture_consumer.cpp`) — two more real
-construction sites existed and were never searched for:
-`tests/test_decklink_live_output.cpp:136` and
-`tests/test_decklink_live_sphere.cpp:565`. Both fixed in this same
-session once Steve reported the compiler errors: both now pass
-`scatter::video::DeinterlaceCoefficients::Complex` explicitly (matching
-ADR-081), `test_decklink_live_sphere.cpp`'s own call also reordered so
-the pre-existing `coverageCallback` argument moves to its own new,
-later position after `coeffs`. Both written to the real repository and
-checksum-confirmed byte for byte the same way as the first four files.
-See `CORRECTIONS.md` C-028 for the full account and the general lesson
-(grep the whole repository for every real call site before closing out
-a session that changes a public constructor/function signature — a
-`Files:` line written during an earlier *scoping* session is a plan, not
-a fact already checked against the real tree).
-
-**Second correction, same session, logged as `CORRECTIONS.md` C-029:
-Steve's own re-run build succeeded, but `ctest` then failed exactly two
-tests** -- `test_decklink_live_output` and `test_decklink_live_sphere`,
-both on the same stale `CHECK`:
-`framesProcessed + framesFailed == framesPopped`, missing the third term
-`framesStreamStart` this session's own WU-23b2b work had already added
-to `test_decklink_capture_consumer.cpp` but never propagated to these
-other two files' own independent copies of the same invariant. The C-028
-fix's own header-comment claim ("this test never reads
-`CaptureConsumerStats::framesStreamStart`") was flatly wrong -- both
-files read it implicitly through this very `CHECK`, and Steve's own real
-counts proved it (`test_decklink_live_output`: `framesPopped=82`,
-`framesProcessed=81`, `framesFailed=0`, the missing 1 being the
-stream-start frame; `test_decklink_live_sphere`: same pattern,
-`framesPopped=420`/`framesProcessed=419`). Fixed the same session: both
-`CHECK`s widened to the same three-term form
-`test_decklink_capture_consumer.cpp` already uses, both `fprintf`
-diagnostics extended to print `framesStreamStart`, and the wrong header
-comment in both files corrected in place. Both written to the real
-repository and checksum-confirmed. **General lesson, sharpening C-028's
-own:** grepping for a changed function's own name only catches sites
-that fail to *compile* -- a behavioural change to a class's observable
-state (a new outcome moving population from one counter to another) can
-silently break a caller's own runtime invariant even at a call site that
-compiles cleanly. The real check is "does every reader of the changed
-class's own state still hold correct assumptions," not just "does every
-caller still compile" -- this session needed a second, real `ctest`
-failure to find that out, and should have grepped for
-`framesProcessed`/`framesFailed` (the touched counters) repository-wide
-the first time, not just for `CaptureConsumer(` (the changed
-constructor).
-
-`git status --short` against the real repository now shows exactly `M
-CORRECTIONS.md`, `M DECISIONS.md`, `M WORK-UNITS.md`, `M
-src/io/decklink_capture_consumer.cpp`, `M
-src/io/decklink_capture_consumer.hpp`, `M
-tests/test_decklink_capture_consumer.cpp`, `M
-tests/test_decklink_live_output.cpp`, `M
-tests/test_decklink_live_sphere.cpp`, plus this `HANDOFF.md`, and
-nothing else — confirmed immediately before finalising this block, not
-earlier in the session.
+**No `CORRECTIONS.md` entry this session** — nothing the first-cut scoping
+note or any earlier ADR assumed turned out wrong once the real code was
+read; ADR-082 records one place a correction was *considered* (whether the
+new patent contradicts ADR-069's `cos B` claim) and explains directly in
+the ADR why it does not apply, rather than filing a correction for
+something that wasn't actually wrong.
 
 ## Where we are
 
-**WU-23b2b is written; build succeeds; ctest previously failed two
-tests on a stale invariant, now fixed but not yet re-verified.**
-`io/decklink_capture_consumer.hpp`/`.cpp` carry the new
-`ProcessResult`-returning `processOne()`, the owned `m_deinterlacer`
-member and the `Complex`-coefficients constructor parameter;
-`tests/test_decklink_capture_consumer.cpp`,
-`tests/test_decklink_live_output.cpp` and
-`tests/test_decklink_live_sphere.cpp` all now carry the same widened,
-three-term accounting invariant and construct `CaptureConsumer` with
-`DeinterlaceCoefficients::Complex` explicitly. `WORK-UNITS.md`'s
-WU-23b2b entry and the Phase 6 summary paragraph above WU-23b1 both
-reflect the design (not yet the build/ctest history, below).
-`DECISIONS.md` now carries ADR-081 (both open points from ADR-080,
-settled). `CORRECTIONS.md` now carries C-028 (the two missed call sites
-that broke the build) and C-029 (the same two files' own stale
-accounting invariant that then broke `ctest`) — otherwise unchanged
-through C-027; nothing ADR-080 itself assumed about
-`io/decklink_capture_consumer.hpp`/`.cpp`'s own shape turned out wrong.
-`INVARIANTS.md` unchanged through I11. All nine changed/created files
-are staged as local, uncommitted changes on the
-Mac as of this sentence — see "Steve's own next steps" below. **Not yet
-re-confirmed against a real build/test run** — the C-029 fix (and C-028's
-own fix, which did compile cleanly the second time but was never
-retested after C-029's own further edit to the same two files) has not
-itself been rebuilt or rerun; re-run both below before trusting either.
+**WU-27 is written, built and tested green in the cloud sandbox — full
+portable matrix, all ten configurations, no regressions, no sanitizer
+findings:**
+
+| Compiler | Build type | `SCATTER_TILE_LOG2` | Sanitizers | Result |
+|---|---|---|---|---|
+| GCC 13.3.0 | Release | 5 | — | 27/27 tests pass |
+| GCC 13.3.0 | Debug | 5 | — | 27/27 tests pass |
+| GCC 13.3.0 | Release | 4 | — | 27/27 tests pass |
+| GCC 13.3.0 | Debug | 4 | — | 27/27 tests pass |
+| Clang 18.1.3 | Release | 5 | — | 27/27 tests pass |
+| Clang 18.1.3 | Debug | 5 | — | 27/27 tests pass |
+| Clang 18.1.3 | Release | 4 | — | 27/27 tests pass |
+| Clang 18.1.3 | Debug | 4 | — | 27/27 tests pass |
+| GCC 13.3.0 | Debug | 5 | ASan+UBSan | 27/27 tests pass |
+| GCC 13.3.0 | Debug | 4 | ASan+UBSan | 27/27 tests pass |
+
+`test_lighting` itself: 239 checks, all passing, in every configuration.
+This is real, verified-in-sandbox green — **not** the "written but never
+compiled" situation the WU-23b2a/WU-23b2b sessions were in (those touched
+DeckLink-linked files with no compiler in reach). Steve's own real-terminal
+run is still the final word (`SESSION-PROTOCOL.md`'s own "sandbox edits are
+not delivered until pushed" discipline) — see "Steve's own next steps"
+below. `test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
+check is expected to fail on Steve's own real-terminal run regardless (the
+standing PSU/two-device exception, `CORRECTIONS.md` C-024) — not this
+unit's own problem, and this unit doesn't touch anything DeckLink-related
+at all.
+
+All eight changed/created files are written to the real repository via the
+device bridge — see the confirmation note below — but **not yet committed,
+tagged or pushed**. That is Steve's own next step, after his own
+real-terminal build/test confirms green.
 
 ## Next work unit
 
-**WU-23b2b's own real-hardware `Accept:` line still needs Steve's own
-Monitor 3G → Recorder 3G loopback run** (see below) before this thread
-can be called done. Once that lands and is tagged `wu-23b2b-green`, the
-Weston 3-field de-interlace thread (WU-23b1/WU-23b2a/WU-23b2b) is
-complete. Everything named in Session 43's own "Next work unit" section
-(WU-28d, WU-27, WU-33, WU-35, WU-37) is unchanged and still pickable.
-**Steve's own explicit stay-in-SD-domain scope decision (WU-24/WU-25
-skipped until he says otherwise) is unchanged and still in force.**
+**WU-34** (coarse-grid shading: filtering ladder and grid shift) is now the
+natural next pick — it wires `core/lighting.hpp`'s `shade()` into
+`core/binner.hpp`'s per-sample loop via a coarse-grid facet, using the
+historical finite-difference facet normal Steve chose this session
+(`DECISIONS.md` ADR-082, extending ADR-070). Its own first open question,
+not decided this session: coarse-grid cell size (no held source states it).
+Everything else named in earlier sessions' own "Next work unit" sections
+(WU-28d, WU-33, WU-35, WU-37) is unchanged and still pickable — WU-37
+(specular model LUTs) remains blocked exactly as before; this session's
+patent read did not unblock it (see ADR-082 point 4).
 
 ## Open questions
 
-Unchanged from Session 42/43's own list (`kCaptureRingCapacity`, Q3, Q4,
-Task A1, Task D6, ADR-070's own open question, WU-35's
-`compositeLayered()` question) — this session did not touch any of them.
-Both of WU-23b2b's own open points (`DeinterlaceCoefficients`, the
-`processOne()`/`run()` outcome mechanism) are now closed — see ADR-081.
+Unchanged from earlier sessions' own list (`kCaptureRingCapacity`, Q3, Q4,
+Task A1, Task D6) — this session did not touch any of them. WU-27's own two
+open design points (facet normal, LUT-interface plan) are now closed — see
+ADR-082. WU-34's own first open question (coarse-grid cell size) is new,
+not resolved here.
 
 ## Blocked / red
 
-`ctest` was red twice this session on Steve's own real terminal (C-028's
-own build failure; C-029's own two `CHECK` failures after the build
-fix), both now source-fixed but neither re-verified. Not otherwise
-blocked.
+Not blocked. `ctest` was not run on Steve's own real terminal yet this
+session — see "Steve's own next steps" below.
 
 ## Environment check
 
-This session had no DeckLink-capable compiler anywhere in its own reach
-(see above) — the device-bridge sandbox used for git/file operations
-(distinct from any Linux cloud sandbox) had ordinary read/write access
-this session, no `.git/index.lock` stray files encountered, `git push`
-was not attempted (nothing pushed this session). C-024's standing
-condition (PSU out, `tools/close.sh` cannot succeed for any unit on
-Steve's own real terminal because of the PSU/two-device-architecture
+This session had both GCC 13.3.0 and Clang 18.1.3 in its own cloud
+sandbox (confirmed via `gcc --version`/`clang --version` directly before
+building) — the full portable matrix ran for real, not by inference. The
+device-bridge sandbox used for reading/writing files had ordinary
+read/write access this session; no `.git/index.lock` stray files
+encountered issuing `git status`/`git tag`/`git log` reads through it. No
+`git commit` or `git push` attempted this session — nothing pushed. C-024's
+standing condition (PSU out, `tools/close.sh` cannot succeed on Steve's own
+real terminal for any unit because of the PSU/two-device-architecture
 mismatch) is unchanged and unaffected by this session.
 
 ## Append to DECISIONS.md
 
-**ADR-081**, appended this session — see above and the real
-`DECISIONS.md` for the full text. Covers both of ADR-080's own open
-points for this unit: `DeinterlaceCoefficients::Complex` (Steve's
-choice) and the `ProcessResult` enum class mechanism (with the
-`framesStreamStart` counter name).
+**ADR-082**, appended this session — see above and the real `DECISIONS.md`
+for the full text. Covers the WU-27/WU-34 split, the facet-normal decision,
+the LUT-placeholder confirmation, and the full account of what the
+Nonweiler patent (EP 0248626/US 4,899,295) does and does not settle.
 
 ## Append to CORRECTIONS.md
 
-**C-028**, appended this session — see above and the real
-`CORRECTIONS.md` for the full text. `WORK-UNITS.md`'s WU-23b2b `Files:`
-line undercounted the real blast radius of changing `CaptureConsumer`'s
-constructor signature: two more real call sites
-(`tests/test_decklink_live_output.cpp`, `tests/test_decklink_live_sphere.cpp`)
-existed outside its own named test file and broke Steve's own
-real-terminal build. Fixed the same session; general lesson logged for
-future signature changes.
-
-**C-029**, appended this session — see above and the real
-`CORRECTIONS.md` for the full text. The C-028 fix only addressed the
-compile error; both of the same two files also carry their own copy of
-the `framesProcessed + framesFailed == framesPopped` accounting
-invariant, which the new `framesStreamStart` outcome genuinely
-invalidates — caught by Steve's own real `ctest` run, not by this
-session. Fixed the same session; sharper general lesson logged
-(grep for the touched *state*, not just the changed *signature*, after a
-behavioural change to an existing state machine).
+Nothing this session — see "This session in full" above for why (one
+place a correction was considered and explicitly ruled out, reasoned
+through in ADR-082 rather than filed here).
 
 ## Closed out this session
 
-**WU-23b2b, written; build confirmed clean, ctest not yet re-confirmed.**
-`io/decklink_capture_consumer.hpp` (new include, new
-`framesStreamStart` counter, new private `ProcessResult` enum, new owned
-`Deinterlacer` member, new required `coeffs` constructor parameter),
-`io/decklink_capture_consumer.cpp` (constructor, `run()`,
-`processOne()`), `tests/test_decklink_capture_consumer.cpp` (new
-include, `Complex` passed explicitly, widened accounting invariant, two
-new stream-start checks). Also, two rounds of correcting real-terminal
-failures Steve reported: `tests/test_decklink_live_output.cpp` and
-`tests/test_decklink_live_sphere.cpp`, first updated to pass
-`DeinterlaceCoefficients::Complex` explicitly at their own
-`CaptureConsumer` construction call (C-028, fixed a build error), then
-updated again to widen their own copy of the accounting invariant to the
-same three-term form and correct a now-false header-comment claim
-(C-029, fixed two `ctest` failures). `WORK-UNITS.md` updated (WU-23b2b's
-own status line and design paragraph, the Phase 6 summary paragraph).
-`DECISIONS.md` ADR-081 appended. `CORRECTIONS.md` C-028 and C-029
-appended. This `HANDOFF.md`.
+**WU-27, built, tested green in the cloud sandbox (full portable matrix),
+not yet committed.** `src/core/lighting.hpp` (new), `src/core/lighting.cpp`
+(new), `tests/test_lighting.cpp` (new), `src/core/jacobian.hpp` (one
+comment line), `CMakeLists.txt` (two additions), `WORK-UNITS.md` (WU-27
+rewritten, WU-34 updated), `DECISIONS.md` (ADR-082 appended). This
+`HANDOFF.md`.
 
 ## Steve's own next steps
 
-At your own real terminal, **re-run build and test** — you already
-confirmed `cmake --build build` compiles clean (C-028's fix held); what
-failed after that was `ctest`, on the stale accounting invariant C-029
-now fixes. Neither the C-029 edit itself nor its interaction with the
-rest of the suite has been rebuilt or rerun yet:
+At your own real terminal, confirm a real, green (modulo the standing
+duplex exception) build and test run:
 
 ```
 cd ~/src/scatter-dve
@@ -333,38 +226,36 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Expect `test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
-check to fail regardless (the standing PSU/two-device exception,
-`DECISIONS.md` ADR-034/035/037, `CORRECTIONS.md` C-024) — that one is not
-this unit's own problem, and was already the only pre-existing failure
-before this unit touched anything. `test_decklink_live_output` and
-`test_decklink_live_sphere` should now pass their own accounting
-`CHECK`s (C-029) — if either still fails, read what it actually printed
-(`framesPopped`/`framesProcessed`/`framesFailed`/`framesStreamStart`)
-rather than assuming C-029's own fix was sufficient; there may be a
-third thing this session still missed. For `test_decklink_capture_consumer`
-itself, with the Monitor 3G's SDI output patched into the Recorder 3G's
-SDI input (ADR-037's own established loopback rig), also check by eye
-(the test's own `fprintf` line) that `framesStreamStart` reads exactly
-`1` — the automated `CHECK`s already gate on this, but the "increments
-before `framesProcessed` ever does" ordering itself is not independently
-observable from final counts alone, so a glance at the printed line is
-worth it. If anything still fails or the build errors out, that is real
-feedback for the next session, not a reason to force a tag past it — do
-not run `./tools/close.sh`.
+Expect `test_decklink_device`'s own
+`test_at_least_one_device_is_full_duplex` check to fail regardless (the
+standing PSU/two-device exception, `DECISIONS.md` ADR-034/035/037,
+`CORRECTIONS.md` C-024) — not this unit's own problem, and this unit
+touches nothing DeckLink-related at all. Every other test, including the
+new `test_lighting`, should pass — if anything else fails, that is real
+feedback for the next session, not a reason to force a tag past it. **Do
+not run `./tools/close.sh`** — see this project's own standing note in
+`CORRECTIONS.md` C-024: it treats any `ctest` failure as blocking and
+refuses to tag, and the duplex-check exception means it can never succeed
+here regardless of which unit is being closed.
 
 **Only once you've confirmed a real, green (modulo the standing duplex
 exception) build and test run**, close out with:
 
 ```
 cd ~/src/scatter-dve
-git add CORRECTIONS.md DECISIONS.md WORK-UNITS.md src/io/decklink_capture_consumer.cpp src/io/decklink_capture_consumer.hpp tests/test_decklink_capture_consumer.cpp tests/test_decklink_live_output.cpp tests/test_decklink_live_sphere.cpp HANDOFF.md
-git commit -m "WU-23b2b: CaptureConsumer wiring (ADR-080, ADR-081); C-028, C-029"
-git tag -a wu-23b2b-green -m "WU-23b2b: CaptureConsumer wiring (ADR-080, ADR-081); C-028, C-029"
+git add CMakeLists.txt DECISIONS.md HANDOFF.md WORK-UNITS.md src/core/jacobian.hpp src/core/lighting.cpp src/core/lighting.hpp tests/test_lighting.cpp
+git commit -m "WU-27: Phong lighting evaluator, no coarse-grid wiring (ADR-082)"
+git tag -a wu-27-green -m "WU-27: Phong lighting evaluator, no coarse-grid wiring (ADR-082)"
 git push origin main
 git push origin --tags
 ```
 
-**File paths above match this session's own real `git status --short`,
-re-diffed immediately before writing this block, not merely recalled
-from earlier in the session** (`CORRECTIONS.md` C-026's own lesson).
+This exact list of eight paths was checked against a real `git status
+--short` run through the device bridge immediately before this block was
+written (`CORRECTIONS.md` C-026's own general lesson) — it read exactly:
+`M CMakeLists.txt`, `M DECISIONS.md`, `M HANDOFF.md`, `M WORK-UNITS.md`,
+`M src/core/jacobian.hpp`, `?? src/core/lighting.cpp`,
+`?? src/core/lighting.hpp`, `?? tests/test_lighting.cpp`, and nothing
+else — `CORRECTIONS.md` is clean, confirming no entry was needed this
+session. Still worth a quick `git status --short` yourself before pasting
+this block, since time has passed since that check.

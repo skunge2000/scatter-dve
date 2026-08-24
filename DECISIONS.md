@@ -8159,3 +8159,167 @@ assumed about the real header/source shape turned out wrong once
 `io/decklink_capture_consumer.hpp`/`.cpp` were actually edited this
 session -- see `HANDOFF.md` for confirmation; no `CORRECTIONS.md` entry
 this session.
+
+**ADR-082 — WU-27 scoping and build: split from WU-34 along "pure Phong
+evaluator" vs. "coarse-grid wiring into `core/binner.hpp`"; facet normal
+settled (historical finite-difference); `model(L,zone)` LUT built now with
+placeholder curves; the primary Nonweiler patent (EP 0248626/US 4,899,295)
+obtained and read directly this session.**
+
+This session opened as a continuation prompt whose own job was scoping WU-27
+first, building it second if time allowed — WU-27 had never carried real
+`Files:`/`Accept:` content, only WU-36's own first-cut scoping note
+(`docs/wu-audit-2026-08.md`, marked `[C]`). Confirmed real repository state
+directly (newest tag `wu-23b2b-green`, `HEAD` `4eaf7de` == `origin/main`,
+clean tree — no drift from the continuation prompt's own snapshot) before
+reading the five state files, ADR-068 through ADR-071 in full,
+`INVARIANTS.md` I10, `docs/architecture.md` §3, `core/jacobian.hpp`,
+`core/lattice.hpp`, `core/binner.hpp`/`.cpp`, `core/types.hpp`,
+`core/resolve.hpp`, `CMakeLists.txt`, `tests/fixtures-historical.md`'s named
+fixtures, `docs/sources/WU-SM-01.md` §4.5/§4.6/§8 in full (not just the
+promoted-ADR paraphrase), and `docs/wu-audit-2026-08.md`'s WU-27/WU-34/
+Deliverable-5 sections, per `SESSION-PROTOCOL.md` rule 6.
+
+**1. Split decision: WU-27 is the closed-form Phong *evaluator* alone;
+WU-34 is wiring it into `core/binner.hpp` via a coarse-grid facet.**
+`WORK-UNITS.md`'s own WU-36 scoping note listed `core/lighting.hpp`/`.cpp`
+(new) *and* `core/binner.hpp`/`.cpp` (edited) as WU-27's own likely files —
+four source files, one over `SESSION-PROTOCOL.md`'s 3-file cap. Reading
+`core/binner.cpp` directly settled more than the file count: ADR-070
+requires shading evaluated **per coarse-grid facet, not per source
+sample**, with a literal filtering ladder and grid-shift control — a
+genuinely different mechanism from a plain call inside
+`generateFragmentsRowRangeImpl()`'s existing per-sample loop, not a detail
+that shrinks to fit there. `WORK-UNITS.md`'s own WU-34 entry had already
+said as much before this session touched anything ("the coarse grid is
+*how* WU-27's Phong formula gets evaluated across a raster, not a separate
+lighting model") — this session's split makes that literal: WU-27 ships
+`Light`, `Zone`, the `model(L,zone)` LUT and `shade(scene, P, N) -> I` as a
+pure function, tested directly against fixtures, with **zero** changes to
+`core/binner.hpp`/`.cpp`. WU-34 becomes the unit that adds the coarse-grid
+facet loop, calls `shade()` once per facet, and interpolates per the
+filtering ladder — its own signature dependency on `core/lighting.hpp` is
+now frozen the same way any other unit's public entry point is once green.
+This also resolves WORK-UNITS.md's own outstanding "one unit or two"
+question for the WU-27/WU-34 pair: two, with an explicit seam
+(`shade()`'s own signature), not one.
+
+**2. Facet normal (ADR-070's own open note), raised with Steve directly
+per that ADR's own instruction not to default it: historical
+finite-difference reconstruction, not WU-26's exact analytic
+`surfaceNormal()`.** Matches this project's demonstrated preference for
+faithful period reproduction in analogous forks (Weston 3-field de-interlace
+over the more accurate bwdif; `DeinterlaceCoefficients::Complex` over
+`Simple`, ADR-081) — raised the same way rather than assumed to extend
+here. Consequence, binding on WU-34 rather than this session's own code:
+the coarse-grid facet normal is a three-adjacent-sample finite-difference
+construction carrying the one-cell attribution artefact grid shift exists
+to correct, genuinely reproducing that artefact rather than resampling
+WU-26's already-exact normal. Logged here, in this unit's own scoping
+session, because that is when the question was settled; WU-34's own build
+session is where it is actually implemented.
+
+**3. `model(L, zone)` LUT: build the pluggable interface now, with
+placeholder curves for all eight named models — confirmed with Steve, one
+line, per the blocked-work register's own recommendation
+(`docs/wu-audit-2026-08.md` Deliverable 5).** `core/lighting.hpp`'s
+`SpecularModel` enum (`Model1`…`4`, `Ramp`, `Posterise`, `Ring2`, `Ring4`)
+and `defaultSpecularCurve()` implement this: `Model1..4` are `cos^n B` for
+four fixed placeholder exponents (2, 4, 8, 16 — arbitrary, not a historical
+reconstruction), `Ramp` is linear in `cos B` (the one named model
+WU-SM-01 §4.6.3 gives reasonable confidence in, "linear in `cos B`, i.e.
+`n = 1` with no power"), `Posterise` a 4-step quantisation (step count
+arbitrary), `Ring2`/`Ring4` a rectified sinusoid in `acos(cos B)` (shape
+arbitrary — WU-SM-01 §4.6.3 itself calls the ring models "non-physical by
+construction... stylisations that only make sense as table contents," with
+no analogue in the S5 formula to reconstruct from). Every branch is
+commented as a provisional placeholder, not a best-effort guess at the real
+curve. Swapping in real values later needs no interface change.
+
+**4. The primary Nonweiler patent, EP 0248626 A2 (published 09.12.87;
+priority GB 8613447, 03.06.86; = US 4,899,295 per Deliverable 5's own
+citation), obtained and read in full this session — what it does and does
+not settle.** This is the document Deliverable 5 named as blocking the
+eight named models' real curves. Read directly (not summarised from a
+secondary source):
+
+- **Corroborates ADR-069's own closed-form equation independently.** p.6:
+  "I = Ia Ka + Ip/(r+k) [Kd cos A + Ks cos``n`` B]" — verbatim, matching
+  what ADR-069 already promoted from S5/US 5,103,217 (Cawley). Two
+  independent primary documents now agree on the same formula; this is a
+  genuine strengthening, not a new claim.
+- **Adds one concrete simplification not previously recorded:** p.6, "the
+  postion of the viewer and the light source are co-incident, in which case
+  B = 2A." A usable closed-form relation for the fixed-view-vector case
+  when a test or a future caller chooses to set them coincident — used
+  directly in `tests/test_lighting.cpp`'s own fixture-17 hand-worked case
+  (view vector chosen independently of the light there, precisely so the
+  test exercises the general `reflect()`-based `cos B` computation rather
+  than this shortcut, but the shortcut itself is worth having on record).
+- **Does NOT name or tabulate the eight named specular models.** p.7: RAM
+  44 holds one generic, empirically-loaded curve — "provided empirically
+  for different values of A to give the best results... may be loaded with
+  values from a computer" — and p.8 explicitly says "the calculation... is
+  not limited to the model used here," consistent with the eight named
+  models being a later product-level feature layered on top of this
+  patent's own single-model mechanism, not disclosed here. **Deliverable
+  5's blocking gap is therefore unchanged** — WU-37 remains blocked on
+  finding the eight models' real curves, wherever that document turns out
+  to be; this patent is not it, though it is the correctly-identified
+  document Deliverable 5 named as blocking WU-27/WU-37, now discharged as
+  "obtained and read," not "still missing."
+- **Does not correct or reopen ADR-069's own `cos B`-indexed LUT claim.**
+  This patent's own RAM 44 is indexed on `A` (via an arc-cos `A` lookup,
+  producing the whole `Kd cos A + Ks cos``n`` B` term as a function of `A`
+  alone — which only works because this patent's own coincident-view
+  simplification collapses `B` to `2A`). ADR-069's `cos B`-indexed claim is
+  about a *different* document, S5/Cawley (US 5,103,217), whose own FIG. 3
+  circuit (already quoted in `docs/sources/WU-SM-01.md` §4.6.2, held before
+  this session) computes `cos A` and `cos B` as two separate signals into a
+  stage-35 "model" box operating on `cos B` specifically — a fuller,
+  later, six-light system this simpler single-model patent does not
+  describe. Considered logging this as a `CORRECTIONS.md` entry and
+  rejected it: nothing ADR-069 said about S5 turned out wrong; this session
+  only confirmed that a second, different, earlier Quantel patent (Nonweiler
+  rather than Cawley) uses a simpler mechanism, which does not contradict a
+  claim about a different document.
+
+**5. Design choices this build made where the sources leave a real gap,
+none of them escalated (smaller than the two points above, resolved the
+same way ADR-024/059 resolved analogous `architecture.md` gaps — a
+documented default, not a silent one):** straight per-light summation with
+a single ambient floor (`docs/sources/WU-SM-01.md` §4.6.4's own flagged-open
+"straight summation... is the obvious reading, but it is a reading" — the
+only reading fixtures 9 and 12 are consistent with, both checked directly
+in `tests/test_lighting.cpp`); `Point`/`Parallel` lights clamp `cos A` and
+`cos B` to `[0, inf)` (an ordinary one-sided Lambertian/specular surface),
+`Beam` lights use `|cos A|`/`|cos B|` unclamped instead (fixture 13's own
+bidirectionality — the one part of §4.6.4's general clamping question that
+is *not* left open by the sources); the specular term is gated by the same
+clamped `cos A` being strictly positive (ordinary Phong convention, no
+highlight from a light a surface does not face).
+
+**Built this session, matching the scope above exactly:** `src/core/
+lighting.hpp` (new), `src/core/lighting.cpp` (new), `tests/
+test_lighting.cpp` (new). `src/core/jacobian.hpp`: one comment line
+corrected (`surfaceNormal()`'s stale "WU-27's own two-sided Blinn-Phong
+shading" — ADR-069 already renamed the model to Phong before this comment
+was written; `docs/wu-audit-2026-08.md`'s own finding 4 named this as the
+natural moment to fix it; no behavioural change). `CMakeLists.txt`: `src/
+core/lighting.cpp` added to the `scatter-core` source list,
+`scatter_test(test_lighting)` added alongside `test_jacobian`.
+`WORK-UNITS.md`: WU-27 rewritten with real `Files:`/`Accept:`/`Status:
+green`; WU-34 updated to record the split confirmation and the facet-normal
+decision. **No changes to `core/binner.hpp`/`.cpp` — by design, see point 1
+above.**
+
+**Tested in the cloud sandbox, full portable matrix, all green:** GCC
+13.3.0 and Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5,
+plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at
+both tile sizes — 10 configurations, all 27 registered tests (including the
+new `test_lighting`, 239 checks) passing in every one, no sanitizer
+findings. `core/lighting.cpp`/`.hpp` touch no DeckLink-linked file, so this
+is a real, standard `scatter-core` build/test run, not a "written but never
+compiled" situation the last two sessions were in — see `HANDOFF.md` for
+the exact commands and why Steve's own real-terminal run is still the final
+word regardless.

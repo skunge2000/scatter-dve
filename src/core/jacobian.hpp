@@ -133,8 +133,13 @@ inline EwaFootprint ewaFootprint(const Jacobian& j) noexcept {
 // something every caller pays whether or not it needs magnitude, and the
 // one consumer scoped so far (WU-28c, not yet built) needs only the sign of
 // normal.z, not the length. A future consumer needing a unit normal (WU-27's
-// own two-sided Blinn-Phong shading is expected to) normalises this result
-// itself; nothing here precludes that.
+// own Phong shading, core/lighting.hpp's shade(), normalises internally)
+// normalises this result itself; nothing here precludes that. (Corrected
+// WU-27, ADR-082: was "two-sided Blinn-Phong" -- ADR-069 already renamed
+// the model to Phong, not Blinn-Phong, before this comment was written;
+// see docs/wu-audit-2026-08.md's own finding 4 for why this was left
+// stale until WU-27 actually touched the file, per that finding's own
+// "natural moment to fix" note.)
 //
 // Useful internal-consistency fact, checked in tests/test_jacobian.cpp
 // rather than asserted here: a 3D cross product's z-component depends only

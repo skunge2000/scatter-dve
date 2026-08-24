@@ -2246,56 +2246,80 @@ small, already-shipped unit turned out to matter this much. Not a change to
 this unit's own `Files:`/`Accept:` or `Status:` above — WU-26 is not
 reopened.
 
-### WU-27 — Phong, linear light, two-sided `todo`
+### WU-27 — Phong lighting evaluator (closed-form, no coarse grid) `green`
 **Renamed Session 41 (WU-32, `DECISIONS.md` ADR-069) — was "Blinn-Phong,
-linear light, two-sided".** No `Files:`/`Accept:` has ever been written for
-this unit; it has carried only a one-line backlog title since it was first
-named. Scope against `DECISIONS.md` ADR-069 (Phong, not Blinn-Phong: `cos
-B` is line-of-sight-to-reflected-ray, not a half-vector; linear-plus-constant
-falloff, not inverse-square; fixed orthographic view vector; `model(L,zone)`
-as a look-up table on `cos B`, not `pow()`), ADR-070 (evaluated per
-coarse-grid facet with the historical filtering ladder and grid-shift
-controls exposed literally, not per pixel — note ADR-070's own open
-question about whether to reproduce the historical finite-difference facet
-normal or reuse WU-26's exact analytic one) and ADR-071 (material owned by
-`(light, zone)`, not by surface — do not build a per-surface material
-system). Depends on WU-26 (`surfaceNormal()`), already available.
+linear light, two-sided"; re-scoped and built this session (`DECISIONS.md`
+ADR-082) — was "Phong, linear light, two-sided".** The "two-sided" half of
+the old title described back-facing surfaces still splatting (I8), which is
+a `core/binner.hpp` concern, not this unit's own — dropped from the name to
+avoid implying this unit itself does anything with facing.
 
-**First-cut scoping, WU-36 (this sweep, `docs/wu-audit-2026-08.md`),
-[C] — whoever actually builds this must still re-verify against the real
-code, not treat this as frozen `Files:`/`Accept:` the way every other
-unit's own build session writes it fresh:**
+**Scope, settled this session (ADR-082):** WU-27 is the closed-form Phong
+illumination *evaluator* alone — `Light`, `Zone`, the `model(L, zone)` LUT
+interface (ADR-071), and `shade(scene, P, N) -> I` (ADR-069) — with **no**
+`core/binner.hpp` wiring and **no** coarse-grid facet evaluation. ADR-070's
+own per-coarse-grid-facet mechanism (filtering ladder, grid shift, and the
+facet-normal choice below) is a genuinely different mechanism from a plain
+per-sample call, and is WU-34's own job — exactly what WU-34's entry below
+already said before this session touched anything ("the coarse grid is
+*how* WU-27's Phong formula gets evaluated across a raster, not a separate
+lighting model"). This keeps WU-27 at 2 new source files, comfortably under
+`SESSION-PROTOCOL.md`'s 3-file cap, with zero changes to
+`core/binner.hpp`/`.cpp` this unit.
 
-**Likely files:** `src/core/lighting.hpp`/`.cpp` (new — `Light`, `Zone`,
-`model(L, zone)` LUT interface per ADR-071, the closed-form Phong evaluator
-per ADR-069), `src/core/binner.hpp`/`.cpp` (per-sample shading call site,
-ahead of projection, per ADR-068/I10 — already structurally where
-`docs/architecture.md` §3's own signal-path diagram places `[shading]`,
-last step of PASS 1, nothing to restructure there), `tests/test_lighting.cpp`
-(new). Whether WU-27 and WU-34 (coarse-grid evaluation/interpolation) are
-one unit or two is explicitly not decided here — `WORK-UNITS.md`'s own
-WU-34 entry already flags the overlap; resolve at whichever unit is
-scoped first.
+**Files:** `src/core/lighting.hpp` (new), `src/core/lighting.cpp` (new),
+`tests/test_lighting.cpp` (new, doesn't count against the cap). Also
+`src/core/jacobian.hpp` (one comment line only, `surfaceNormal()`'s stale
+"WU-27's own two-sided Blinn-Phong shading" reference corrected — no
+behavioural change; `docs/wu-audit-2026-08.md`'s own finding 4 named this as
+the natural moment to fix it), `CMakeLists.txt` (adds `src/core/lighting.cpp`
+to `scatter-core` and `scatter_test(test_lighting)`).
 
-**Likely first tests, per `tests/fixtures-historical.md`:** fixture 17
-(illumination formula, hand-worked case against ADR-069's closed form —
-"should be among WU-27's first tests once scoped," already noted there),
-fixture 18 (linear, not inverse-square, falloff), fixture 26 (orthographic
-specular — no highlight tracking on lateral move, the direct behavioural
-consequence of ADR-069's fixed view vector), fixture 12 (negative-intensity
-cancellation), fixture 13 (beam bidirectionality), fixture 14 (parallel-light
-direction), fixture 15 (point-source limit), fixture 16 (zone locking).
-Fixture 9 (default lighting state) is a reasonable smoke test once the
-above pass.
+**Accept:** `tests/test_lighting.cpp` passes — fixtures 9, 12, 13, 15, 16
+(adapted), 17, 18 and 26 from `tests/fixtures-historical.md`
+(`docs/sources/WU-SM-01.md` §8), plus `defaultSpecularCurve()` bounds/
+monotonicity checks. Fixtures 14 and 16 are adapted, not literal: both
+depend on the six-named-lights/two-gantry default control-tree topology
+(fixture 8), which needs the axis tree ADR-067 already records as unscoped
+— each test instead exercises the structural property WU-27's own scope
+actually owns (a Parallel light's direction is fixed and P-independent; a
+light's own `zoneIndex` genuinely selects its own zone's curve, independent
+of any other light) — see `tests/test_lighting.cpp`'s own header comment.
+Full portable matrix green in the cloud sandbox (GCC 13.3.0 and Clang
+18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes — 10 configurations, all 27 tests passing in each, no sanitizer
+findings) — Steve's own real-terminal run is still the final word per
+`SESSION-PROTOCOL.md`.
+
+**Design choices this session made and did not have to escalate** (ADR-082
+has the full account): straight per-light summation with a single ambient
+floor (WU-SM-01 §4.6.4's own flagged-open "obvious reading, but a reading"
+— the only reading fixtures 9/12 are consistent with); Point/Parallel
+clamp cosA and cosB to `[0, inf)`, Beam uses `|cosA|`/`|cosB|` unclamped
+(fixture 13's own bidirectionality, the one part of the general clamping
+question WU-SM-01 §4.6.4 does *not* leave open); specular gated by the same
+clamped cosA being positive.
+
+**Escalated to Steve, both settled before building (ADR-082):** (1) the
+coarse-grid facet normal (ADR-070's own open question) — historical
+finite-difference reconstruction, not WU-26's analytic `surfaceNormal()`;
+binds WU-34, not this unit's own code, but logged here since it was decided
+during this unit's own scoping session. (2) the `model(L, zone)` LUT —
+build it now with placeholder curves for all eight named models; the
+primary patent obtained this session (EP 0248626/US 4,899,295) corroborates
+the base formula but does not itself name or tabulate the eight models, so
+the blocking Deliverable 5 gap is unchanged.
+
+**Out of scope, left for later units:** wiring `shade()` into
+`core/binner.hpp`'s per-sample loop via a coarse-grid facet (WU-34); the
+real tabulated curves for the eight named specular models (WU-37,
+unblocked in mechanism only, not content, by this session's patent read);
+how a caller applies the returned intensity factor to RGB — multiply vs.
+S3's own "Spectral MULTIPLY vs ADD" alternative (WU-34's own first
+question, not decided here).
 
 **Predecessors:** WU-26 (hard, `surfaceNormal()` — already available).
-
-**Not resolved by this scoping note, left for WU-27's own build session:**
-the ADR-070 facet-normal-vs-analytic-normal design fork; whether `model(L,
-zone)`'s LUT contents can be genuinely tabulated before the real Starlight
-patent (EP 0248626/US 4,899,295) arrives — see Deliverable 5, blocked-work
-register, for the recommended pluggable-LUT workaround that unblocks the
-closed-form/falloff/view-vector parts of this unit regardless.
 
 ### WU-28a — k-buffer storage: tag-keyed depth slots (PASS 2 accumulate) `green`
 See `DECISIONS.md` ADR-059 for the full scoping session (Session 33 — not
@@ -2602,19 +2626,34 @@ whoever picks WU-33 up scopes it against its real footprint from the start
 rather than discovering it mid-session.
 
 ### WU-34 — Coarse-grid shading: filtering ladder and grid shift `todo`
-**New this session (WU-32, `DECISIONS.md` ADR-070).** Historical finding:
-Starlight's shading is evaluated once per coarse-grid facet (a
+**New this session (WU-32, `DECISIONS.md` ADR-070). Scope confirmed and
+narrowed by WU-27's own build session (`DECISIONS.md` ADR-082): this is now
+the unit that wires `core/lighting.hpp`'s `shade()` into
+`core/binner.hpp`'s per-sample loop, via a coarse-grid facet, not a
+separate lighting model — the overlap this entry already flagged is
+resolved as "two units, explicit seam," not "one unit."** Historical
+finding: Starlight's shading is evaluated once per coarse-grid facet (a
 three-adjacent-sample normal, computed in a shifting window) and
 interpolated to pixels, with a literal filtering control (`−2`…`+3`,
 default `−1`) and a grid-shift control (`0`…`2`) governing how much
 interpolation happens and where a discontinuity's shading value lands.
 Not scoped past this note: coarse-grid cell size is not stated in any held
 source (`docs/sources/WU-SM-01.md` §3.9.1) and is this unit's own first
-question. Overlaps WU-27's own scope (the coarse grid is *how* WU-27's
-Phong formula gets evaluated across a raster, not a separate lighting
-model) — whoever scopes either unit should scope both together or make the
-seam between them explicit. Depends on WU-26; see ADR-070's own open note
-on the facet-normal-vs-WU-26-normal question before starting.
+question. Depends on WU-26 and WU-27 (both `green`; `shade()`'s own
+signature is frozen the same way any other unit's public entry point is —
+read it directly, don't re-derive it).
+
+**Facet normal, settled (ADR-082, extending ADR-070's own open note):
+historical finite-difference reconstruction, not WU-26's exact analytic
+`surfaceNormal()`** — Steve's own explicit choice, raised directly per
+ADR-070's own instruction not to default it, matching this project's
+demonstrated preference for faithful period reproduction elsewhere (Weston
+3-field over bwdif; `Complex` over `Simple` deinterlace coefficients). This
+is what makes the grid-shift control meaningful at all — it corrects the
+one-cell attribution artefact this construction (deliberately) reproduces.
+Also this unit's own first open question, not decided here: whether the
+returned intensity factor multiplies into RGB or follows S3's own
+"Spectral MULTIPLY vs ADD" alternative (`WORK-UNITS.md` WU-27 entry).
 
 ### WU-35 — Sheet arbitration v2: transparency-coefficient resolve behind a swappable interface `todo`
 **New this session (WU-32, `DECISIONS.md` ADR-072/ADR-074), forward-looking
