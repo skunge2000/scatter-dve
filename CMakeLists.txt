@@ -143,6 +143,7 @@ add_library(scatter-core STATIC
     src/core/resolve.cpp
     src/core/pipeline.cpp
     src/core/lighting.cpp
+    src/core/coarse_shading.cpp
     src/core/shapes/cylinder.cpp
     src/core/shapes/sphere.cpp
     src/core/shapes/pageturn.cpp)
@@ -206,6 +207,7 @@ scatter_test(test_interlace)
 scatter_test(test_ramp_roundtrip)
 scatter_test(test_jacobian)
 scatter_test(test_lighting)
+scatter_test(test_coarse_shading)
 scatter_test(test_ewa)
 scatter_test(test_binner)
 scatter_test(test_splat)

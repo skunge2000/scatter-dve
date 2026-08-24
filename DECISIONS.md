@@ -8323,3 +8323,152 @@ is a real, standard `scatter-core` build/test run, not a "written but never
 compiled" situation the last two sessions were in — see `HANDOFF.md` for
 the exact commands and why Steve's own real-terminal run is still the final
 word regardless.
+
+**ADR-083 — WU-34 scoping and build (WU-34a only): coarse-grid cell size
+settled (the existing 129×129 geometry lattice, not a second grid);
+finite-difference facet-normal stencil chosen; filtering ladder and grid
+shift reconstructed as an explicit raw → grid-shift → filter pipeline;
+split from "wire it into `core/binner.hpp`" (WU-34b, deferred); MULTIPLY-
+only scope for applying `I` to RGB.**
+
+This session opened as a continuation prompt whose own job was scoping
+WU-34 first (the next unit after WU-27/ADR-082, its own first open question
+— coarse-grid cell size — explicitly left unresolved by every held source),
+building it second if the scope held together within
+`SESSION-PROTOCOL.md`'s 3-source-file cap. Confirmed real repository state
+directly (newest tag `wu-27-green`, `HEAD` `e2fbea7` == `origin/main`,
+clean tree — no drift from the continuation prompt's own snapshot) before
+reading the five state files, ADR-068 through ADR-071 and ADR-082 in full,
+`INVARIANTS.md` I9/I10, `docs/architecture.md` §3/§4.1/§4.2,
+`docs/sources/WU-SM-01.md` §3.9.1/§3.9.2/§4.6.3/§6.3/§8 in full (not the
+one-line gloss in `tests/fixtures-historical.md`), `core/lighting.hpp`/
+`.cpp`, `core/lattice.hpp`/`.cpp`, `core/jacobian.hpp`, `core/binner.hpp`/
+`.cpp`, `core/types.hpp`, `tests/harness.hpp`, `tests/test_lighting.cpp`
+and `tests/test_jacobian.cpp`, per `SESSION-PROTOCOL.md` rule 6.
+
+**1. Coarse-grid cell size: the existing 129×129 `core::Lattice` geometry
+control lattice, not a second, separately-sized grid.** No held source
+states a shading-specific cell size — `docs/sources/WU-SM-01.md` §3.9.1
+says so explicitly. But the same section ties Starlight's shading coarse
+grid directly to the general "coarse grid" terminology S1's own shape
+diagnostics use (§6.3: "all x and y in the coarse grid are 0.0"), and this
+project's own `docs/architecture.md` §4.1 already identifies that exact
+concept with the 129×129 lattice: "This is the direct descendant of the
+Mirage address map, which held coarse addresses on disc at every 8th pixel
+and every 8th line... Lattice: 129 × 129 control vertices." Two independent
+places in this project's own held material use "coarse grid" for the same
+thing — the decimated control mesh descended from the Mirage address map —
+and nothing anywhere suggests Starlight shading used a second, differently
+sized mesh of its own. Reusing the geometry lattice also matches this
+project's own demonstrated "reuse, don't invent a second structure for the
+same concept" preference (`core/binner.cpp`'s own WU-28c comment: "no extra
+lattice evaluation, the same reuse-not-duplicate reasoning ADR-062/ADR-063
+already applied"). Per the continuation prompt's own tiering guidance, this
+is a "no source states a number, an engineering choice is needed" question,
+not a "which historical behaviour to reproduce" tradeoff — the two readings
+are not in tension with each other the way the facet-normal question
+(ADR-070/082) genuinely was, so this does not need Steve's own sign-off the
+way that one did. Implemented in `core/coarse_shading.hpp`'s
+`CoarseShadingGrid`: one `shade()` evaluation per lattice control vertex,
+`kLatticeSize × kLatticeSize` values, same indexing as `Lattice::at()`.
+
+**2. Facet-normal finite-difference stencil: P plus its immediate forward
++u/+v neighbours (backward difference at the lattice's own last row/column),
+attributed to P, `tv × tu` matching `core/jacobian.hpp`'s own
+`surfaceNormal()` cross-product order for sign consistency.**
+`docs/sources/WU-SM-01.md` §3.9.1 (S5 FIG. 3) states the facet is built
+from "three image elements adjacent to the image point P" and attributed to
+P, not their centroid (fixture 19) — but does not name which two neighbours
+of P the real retiming buffer held. Grid shift's own documented behaviour
+(horizontal-only correction, ADR-070) is the only available constraint: a
+forward-difference stencil in both axes, attributed to its own lower-u
+corner, is one cell short of a horizontal discontinuity in exactly the
+direction grid shift corrects, which is at least consistent with (not
+independently confirmed by) the mechanism grid shift exists to fix. Same
+escalation tier as point 1 — no source names the real stencil, so this is
+this session's own reasoned default, not a faithful-reproduction-vs-better
+tradeoff — logged here rather than defaulted silently, per
+`SESSION-PROTOCOL.md` rule 6. Implemented in `core/coarse_shading.cpp`'s
+`facetNormal()`.
+
+**3. Filtering ladder and grid shift, reconstructed as an explicit
+raw → grid-shift → filter pipeline (`CoarseShadingGrid::build()`):**
+raw per-vertex `shade()` values are computed first; grid shift (ADR-070:
+"applies a coarse grid's own computed pattern to the previous grid...
+horizontally") is applied to the raw field as a column-index offset next
+(`shiftedColumn()`: the value displayed at column `i` is the raw value
+actually computed at column `i - shift`, clamped at the low edge); the
+filtering ladder is applied last, to the already-shifted field. This
+ordering is deliberate, not arbitrary: grid shift's own documented purpose
+is correcting *which* raw value belongs at a given cell before Flat1..
+Flat3x3 group cells together or Smooth1/Smooth2 blur across them — applying
+the ladder first would bake the very attribution error grid shift exists to
+fix into an already-flattened or already-blurred field, which no longer
+has a clean per-cell value left to correct. `Flat1`/`Flat2x2`/`Flat3x3`
+("posterisation/mosaic", WU-SM-01 §3.9.1) resolve to the value at their own
+block's lower-u/lower-v anchor vertex, an arbitrary but consistent choice
+matching point 2's own P-not-centroid attribution; `sample()` looks these
+up directly rather than bilinearly, since blending two already-flattened
+blocks' shared vertices would soften the hard step the source itself
+describes as posterisation. `Smooth1`/`Smooth2` ("smoothing filter
+limiting the rate of change... more filtered", [A] for existence and
+relative ordering, [C] for exact shape) are a box blur of radius 1/2
+respectively over the shifted field — an explicit placeholder radius, the
+same "provisional, not a best-effort reconstruction" tier
+`core/lighting.hpp`'s `defaultSpecularCurve()` already established for the
+eight named specular models. `Full` performs no extra filtering: `sample()`
+bilinearly interpolates the shifted (but otherwise raw) field directly.
+
+**4. Split decision: WU-34a is `CoarseShadingGrid` alone; WU-34b is wiring
+`sample()`'s own output into `core/binner.hpp`'s per-sample loop.** The
+continuation prompt that opened this session anticipated this split by
+name, citing WU-27/WU-34's own precedent (ADR-082): a coarse-grid
+shading-value computation module is a different concern from the
+`core/binner.cpp` per-sample call site that multiplies the interpolated `I`
+into a sample's colour ahead of `Frag` construction. Verified directly
+against the real current source before deciding: `CoarseShadingGrid` plus
+its own header alone are 2 new source files (comfortably under the 3-file
+cap), and `core/binner.hpp`/`.cpp` are large, already-dense files (14.8 KB/
+18.0 KB) whose own per-sample loop (`generateFragmentsRowRangeImpl()`) is
+shared by five different public entry points — reading it directly
+confirmed that inserting a shading lookup there, choosing where a
+per-frame `LightingScene`/`CoarseShadingConfig` come from, and deciding
+whether `CoarseShadingGrid::build()` needs its own threading treatment
+(architecture.md §6, `ADR-041`'s own PASS-1 row-band precedent) is real,
+separate scoping work this session's own file-count budget has no room
+for alongside `CoarseShadingGrid` itself. **Zero changes to
+`core/binner.hpp`/`.cpp` this session — by design, see WU-34b below.**
+
+**5. MULTIPLY-vs-ADD scope: build MULTIPLY only; ADD is documented future
+work.** `docs/sources/WU-SM-01.md` §3.9.2 gives S5 FIG. 1's own explicit
+`STARLIGHT (RGB × I)` signal-path stage and control circuit 38 literally
+multiplying RGB by `I` — the well-evidenced base case. S3's own operator
+panel separately exposes an ADD mode as an alternative control setting
+(`DECISIONS.md` ADR-069's own mapping table, "Spectral MULTIPLY vs ADD"),
+but nothing in this session's held sources tabulates its own exact formula
+the way MULTIPLY's is tabulated. Matches the continuation prompt's own
+"reasonable default scope" framing exactly: this decision affects WU-34b's
+own scope, not WU-34a's, and is logged here because it was decided during
+this unit's own scoping session, the same pattern point 2 of ADR-082 used
+for the facet-normal decision.
+
+**Built this session, matching the scope above exactly:** `src/core/
+coarse_shading.hpp` (new), `src/core/coarse_shading.cpp` (new), `tests/
+test_coarse_shading.cpp` (new). `CMakeLists.txt`: `src/core/
+coarse_shading.cpp` added to the `scatter-core` source list,
+`scatter_test(test_coarse_shading)` added alongside `test_lighting`.
+**No changes to `core/binner.hpp`/`.cpp`/`core/lighting.hpp`/`.cpp` — by
+design, see point 4 above.**
+
+**Tested in the cloud sandbox, full portable matrix, all green:** GCC
+13.3.0 and Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5,
+plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at
+both tile sizes — 10 configurations, all 28 registered tests (including the
+new `test_coarse_shading`, 305 checks — fixtures 10, 11 and 19, each
+checked against an independently hand-mirrored reimplementation of the
+production formula rather than by calling into `coarse_shading.cpp`'s own
+internal helpers) passing in every one, no sanitizer findings.
+`core/coarse_shading.cpp`/`.hpp` touch no DeckLink-linked file, so this is
+a real, standard `scatter-core` build/test run — see `HANDOFF.md` for the
+exact commands and why Steve's own real-terminal run is still the final
+word regardless.

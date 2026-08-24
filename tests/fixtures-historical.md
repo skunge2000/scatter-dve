@@ -21,24 +21,24 @@ own sequence).
 | 6 | S2 notch grid (POS = 1 unit) | *unscoped* | Not runnable — control-surface unit, not yet named |
 | 7 | S2 perspective (56 units default, 1/d²) | *unscoped* | Not runnable — this project's own current projection model has not been reconciled against S2's historical parameterisation (`ADR-SM-008` not promoted) |
 | 8 | Default control tree topology | *unscoped* | Not runnable — no scatter-dve axis-tree implementation exists yet (`DECISIONS.md` ADR-067 is documentation only) |
-| 9 | Default lighting state (one light visible) | WU-27 | Not runnable — WU-27 not yet scoped past `DECISIONS.md` ADR-069/070/071 |
-| 10 | Filtering ladder (`0`…`+3`) | WU-34 | Not runnable — WU-34 not yet scoped |
-| 11 | Grid shift (`Shift 1` moves pattern one cell) | WU-34 | Not runnable — WU-34 not yet scoped |
-| 12 | Negative-intensity cancellation | WU-27 | Not runnable |
-| 13 | Beam bidirectionality | WU-27 | Not runnable |
-| 14 | Parallel-light direction (lights 1/2 vs 3–6) | WU-27 | Not runnable |
-| 15 | Point-source limit → parallel light | WU-27 | Not runnable |
-| 16 | Zone locking (lights 3/5 zone 1, 4/6 zone 2) | WU-27 | Not runnable |
-| 17 | Illumination formula, hand-worked case | WU-27 | Not runnable — this is the fixture that directly exercises `DECISIONS.md` ADR-069; should be among WU-27's first tests once scoped |
-| 18 | Distance falloff is linear, not inverse-square | WU-27 | Not runnable |
-| 19 | Normal from a three-sample facet, attributed to P | WU-34 | Not runnable. **Design tension, not yet resolved:** this is a different quantity from WU-26's exact analytic `surfaceNormal()` — see `DECISIONS.md` ADR-070's own open note |
+| 9 | Default lighting state (one light visible) | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp`, adapted to the structural property (summation reduces correctly when only one light is non-zero) since the literal six-named-lights topology needs the unscoped axis tree (ADR-067); see that file's own header comment |
+| 10 | Filtering ladder (`0`…`+3`) | WU-34a | **Runnable, passing** — `tests/test_coarse_shading.cpp` |
+| 11 | Grid shift (`Shift 1` moves pattern one cell) | WU-34a | **Runnable, passing** — `tests/test_coarse_shading.cpp` |
+| 12 | Negative-intensity cancellation | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp` |
+| 13 | Beam bidirectionality | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp` |
+| 14 | Parallel-light direction (lights 1/2 vs 3–6) | WU-27 | **Runnable, passing (adapted)** — `tests/test_lighting.cpp` checks the structural property (a Parallel light's direction is fixed and P-independent) actually inside WU-27's own scope; the literal "lights 1/2 vs 3–6" default-topology half needs the unscoped axis tree (ADR-067), same caveat as fixture 8 |
+| 15 | Point-source limit → parallel light | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp` |
+| 16 | Zone locking (lights 3/5 zone 1, 4/6 zone 2) | WU-27 | **Runnable, passing (adapted)** — `tests/test_lighting.cpp` checks the structural property (a light's own `zoneIndex` selects its own zone's curve, independent of any other light); same axis-tree caveat as fixture 14 |
+| 17 | Illumination formula, hand-worked case | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp`, directly exercises `DECISIONS.md` ADR-069 |
+| 18 | Distance falloff is linear, not inverse-square | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp` |
+| 19 | Normal from a three-sample facet, attributed to P | WU-34a | **Runnable, passing** — `tests/test_coarse_shading.cpp`; the facet-normal-vs-`surfaceNormal()` design tension this row used to flag is resolved (`DECISIONS.md` ADR-082: historical finite-difference reconstruction, not WU-26's analytic normal; ADR-083: the exact stencil) |
 | 20 | Splat weights sum to unity across 4 pixels | *existing, informally* | `tests/test_splat.cpp` already covers proportional four-pixel splat weighting for this project's own splat path; re-check at WU-33/WU-34 scoping rather than treating as new |
 | 21 | Opaque sphere — no 50/50 blend at the terminator | WU-35 | Not runnable — WU-28a/WU-28b's shipped k-buffer can express `Opaque` mode structurally, but nothing wires real front/back content into it yet (WU-28d, and WU-33 for real content); the transparency-coefficient rule itself is WU-35 |
 | 22 | Minification averages; occlusion does not | WU-35 | Not runnable |
 | 23 | Visible back faces, from S7 | WU-33 + WU-28d | Not runnable — needs WU-33's real front/back sources; WU-28c's tag mechanism (already `wip`) and WU-28d's demo wiring (`todo`) are the occlusion half |
 | 24 | Non-convex self-occlusion (PAGE TURN, SPINY NORMAN) | WU-35 | Not runnable |
 | 25 | Front/back source switching, independent freeze | WU-33 | Not runnable — WU-33 not yet scoped |
-| 26 | Orthographic specular (no highlight tracking on lateral move) | WU-27 | Not runnable |
+| 26 | Orthographic specular (no highlight tracking on lateral move) | WU-27 | **Runnable, passing** — `tests/test_lighting.cpp` |
 | 27 | Same-sheet accumulation at a grazing angle | WU-35 | Not runnable — exercises ADR-072 §4.1's Jacobian-derived tolerance directly |
 | 28 | Two sheets at a silhouette (must not blend) | WU-35 | Not runnable — complement of #27; the two together bracket `κ` |
 | 29 | Scan-order invariance, four `(u, v)` directions | **WU-32 (this unit)** | **Partially delivered.** `tests/test_scan_order_invariance.cpp` covers the row (`v`) traversal axis only, using the existing `generateFragmentsRowRange()` public API with no production-code change; the column (`u`) axis needs a traversal-direction parameter `core/binner.cpp` does not expose today, which is production code outside this documentation-only unit's scope. See that test file's own header. |

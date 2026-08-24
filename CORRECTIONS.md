@@ -1013,3 +1013,47 @@ still did not do it for the first fix. Worth a repository-wide grep for
 every touched struct/counter name, not just the changed function's own
 name, on any future session that adds a new outcome to an existing
 state machine.
+
+**C-030 — WU-27's own close-out (Session 51, `DECISIONS.md` ADR-082)
+built and green-tagged `tests/test_lighting.cpp` covering fixtures 9,
+12, 13, 14 (adapted), 15, 16 (adapted), 17, 18 and 26, but never updated
+`tests/fixtures-historical.md`'s own rows for those fixtures — they still
+read "Not runnable" after WU-27 went green, discovered this session while
+updating the same table's WU-34 rows and noticing the inconsistency
+sitting right next to them.**
+
+*Claimed (`tests/fixtures-historical.md`, unchanged by WU-27's own
+close-out):* fixtures 9 and 12–18 (except 11, 19, 20, owned elsewhere) and
+26 all read "Not runnable", several with reasons naming WU-27 as "not yet
+scoped" — stale the moment ADR-082/WU-27's own `Files:`/`Accept:` went
+green in the same session.
+
+*Correct:* `tests/test_lighting.cpp` exists, is registered in
+`CMakeLists.txt`, and passes (239 checks) in every one of WU-27's own ten
+sandbox configurations, per `HANDOFF.md`'s Session-51 account and this
+project's own `git log`. WU-27's own `Accept:` line in `WORK-UNITS.md`
+already named exactly which fixtures it covers and which are adapted (14
+and 16 test the structural property each fixture's own scope actually
+reaches, not the literal six-named-lights default topology, which needs
+the still-unscoped axis tree, ADR-067) — `tests/fixtures-historical.md`
+simply never had its own rows updated to match. Not a defect in WU-27's
+own build or test content, only in this one cross-cutting tracking table's
+own close-out completeness.
+
+Fixed this session: `tests/fixtures-historical.md`'s rows for fixtures 9,
+10, 11, 12, 13, 14, 15, 16, 17, 18, 19 and 26 all updated to "Runnable,
+passing", each naming its own owning test file and (for 14/16) the same
+adaptation caveat `WORK-UNITS.md`'s own WU-27 entry already documented.
+10, 11 and 19 are this session's own WU-34a fixtures (`DECISIONS.md`
+ADR-083); 9, 12–18 and 26 are WU-27's, fixed here as a correction to the
+prior session's own incomplete close-out, not as new work this session
+did.
+
+**General lesson:** `tests/fixtures-historical.md` is a cross-cutting
+documentation table (`WU-32`, not one of the five state files
+`SESSION-PROTOCOL.md` names), which makes it easy for a session's own
+close-out checklist to miss updating it even when every other required
+file (state files, `DECISIONS.md`, `WORK-UNITS.md`) is handled correctly
+-- worth an explicit check in any future close-out whose unit's own
+`Files:`/`Accept:` names fixtures from this table: does the table's own
+row for each fixture the unit just made runnable actually say so.
