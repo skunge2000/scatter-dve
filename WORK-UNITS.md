@@ -2714,29 +2714,109 @@ what `crossTvTu()` deliberately matches, though this unit's own facet
 normal is finite-difference, not WU-26's analytic one), WU-27 (hard,
 `shade()` — already available).
 
-### WU-34b — Wire coarse-grid shading into `core/binner.hpp`'s per-sample loop `todo`
-**New this session (`DECISIONS.md` ADR-083), the half of the original
-WU-34 line WU-34a above did not build.** Multiplies
-`CoarseShadingGrid::sample()`'s own interpolated `I` into a source sample's
-colour inside `generateFragmentsRowRangeImpl()` (`core/binner.cpp`), ahead
-of `Frag` construction — I10's own binding location, "the *shaded* value...
-is what gets splatted" (ADR-068). MULTIPLY only, per WU-34a's own settled
-scope; ADD mode is not this unit's job either unless re-scoped.
+### WU-34b — Wire coarse-grid shading into `core/binner.hpp`'s per-sample loop `green`
+**Built this session (`DECISIONS.md` ADR-084), the half of the original
+WU-34 line WU-34a did not build.** Multiplies `CoarseShadingGrid::sample()`'s
+own interpolated `I` into a source sample's colour inside
+`generateFragmentsRowRangeImpl()` (`core/binner.cpp`), ahead of `Frag`
+construction — I10's own binding location, "the *shaded* value... is what
+gets splatted" (ADR-068). MULTIPLY only, per WU-34a's own settled scope;
+ADD mode is not this unit's job either unless re-scoped.
 
-Depends on WU-34a (`green`; `CoarseShadingGrid`'s own public interface is
-frozen the same way any other unit's public entry point is once green —
-read it directly, don't re-derive it) and WU-27 (`green`,
-`core/lighting.hpp`).
+**The RGB-vs-YCbCr application question this unit's own continuation
+prompt flagged as unresolved by any held source is now settled, by Steve
+directly, not defaulted (ADR-084 has the full account):** Mirage was
+RGB-native internally throughout, with the 4:2:2 YCbCr and analogue/
+composite I/O converted to/from RGB at the boundary alone — Steve's own
+domain knowledge, not inferred from a document. So "multiply RGB by `I`"
+(S5 FIG. 1's own `STARLIGHT (RGB × I)` stage) is implemented as a real,
+narrow RGB round trip — convert this one sample's Y/Cb/Cr to RGB, multiply
+by `I`, convert back — entirely in the double-precision stretch of this
+loop that already exists ahead of quantisation (`sampleBilinear()` through
+`toSample()`/`toWeight()`), not a YCbCr approximation of one. Does not
+touch I3/I4/I6: those invariants govern the *stored* Y/Cb/Cr and the
+integer accumulation path, not this already-floating-point intermediate.
+Coefficients: BT601 (Steve's own choice — "this is an SD machine"), with
+BT709 built and selectable (`core/binner.hpp`'s new `ColourStandard` enum)
+for whenever real HD output work needs it, not used by any caller yet.
 
-**Not scoped past this note:** where a per-frame `LightingScene` and
-`CoarseShadingConfig` come from — a real pipeline caller vs. today's
-test-only construction; whether `CoarseShadingGrid::build()` runs once per
-frame on the same thread that builds the `Lattice`, or needs its own
-threading treatment the way PASS 1's own row-band parallelism was scoped
-(`ADR-041`); and the real current size/shape of `core/binner.hpp`/`.cpp`'s
-per-sample loop, to be re-read directly (not assumed from this note) by
-whoever picks this unit up, per `CORRECTIONS.md` C-027's own "read the real
-call sites" discipline.
+**Files:** `src/core/binner.hpp` (edited: forward-declares
+`CoarseShadingGrid`, adds `ColourStandard`, adds two new optional trailing
+parameters — `const CoarseShadingGrid* shadingGrid = nullptr`,
+`ColourStandard shadingStandard = ColourStandard::BT601` — to all five
+public entry points), `src/core/binner.cpp` (edited: `applyShading()`, the
+RGB round-trip; the multiply call site ahead of `Frag` construction; the
+same two parameters threaded through `generateFragmentsRowRangeImpl()` and
+all five wrappers). `tests/test_binner.cpp` (edited, doesn't count against
+the cap). No `CMakeLists.txt` change needed — both files were already
+registered.
+
+**Accept:** `tests/test_binner.cpp`'s two new tests —
+`test_shading_multiplies_rgb_intensity_ahead_of_frag_construction()`
+(checked against an independent hand-mirrored BT601 RGB round trip, not by
+calling `applyShading()`, the same discipline `test_coarse_shading.cpp`
+already uses; verified this session to actually catch a regression, not
+pass vacuously, by temporarily disabling the multiply and confirming the
+test fails, then restoring it) and
+`test_shading_grid_defaults_to_null_and_preserves_existing_output()` (an
+explicit-nullptr call byte-for-byte identical to the implicit-default
+call) — both pass, alongside every pre-existing test in the file
+(unmodified, still exercising the default-nullptr path throughout, itself
+a regression guard against this unit changing any existing caller's
+output). Full portable matrix green in the cloud sandbox (GCC 13.3.0 and
+Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes — 10 configurations, all 28 tests passing in each, no sanitizer
+findings) — Steve's own real-terminal run is still the final word per
+`SESSION-PROTOCOL.md`.
+
+**The three open questions this unit's own prior scoping note left are
+now resolved, not deferred silently:**
+
+1. **Per-frame `LightingScene`/`CoarseShadingConfig` ownership: genuinely
+   deferred, on purpose — new WU-34c below.** This unit's own file-count
+   budget (`binner.hpp`/`.cpp` alone) has no room for also wiring
+   `core/pipeline.cpp`; `tests/test_binner.cpp` is this unit's only real
+   caller, exactly as `WORK-UNITS.md`'s own prior note anticipated.
+2. **Threading: resolved, no new synchronisation needed.** Verified
+   directly against `core/pipeline.cpp`'s real current code this session
+   (not from `core/resolve.hpp`'s own comment, which turned out to be
+   stale — see `CORRECTIONS.md` C-031): PASS 1 already runs on
+   `params.threads` row-band workers when threads > 1 (WU-16b/ADR-041),
+   each reading the one caller-supplied `const Lattice&` concurrently with
+   no synchronisation of its own. A `CoarseShadingGrid` follows the
+   identical shape — built once by whichever caller owns it (WU-34c),
+   passed in as `const CoarseShadingGrid*`, read concurrently by every
+   row-band worker exactly like `Lattice` already is. Nothing in
+   `binner.cpp` needed new threading code.
+3. **Insertion point: confirmed exactly as anticipated.**
+   `generateFragmentsRowRangeImpl()` is still the one shared loop behind
+   all five public entry points; the hook sits right after
+   `sampleBilinear()` returns (still a plain-`double` `Colour`, pre-
+   quantisation) and before `Frag frag{}` is built.
+
+Depends on WU-34a (`green`) and WU-27 (`green`, `core/lighting.hpp`).
+
+### WU-34c — Own a per-frame `LightingScene`/`CoarseShadingConfig` in `core/pipeline.cpp`; wire a real `runFrame()` caller `todo`
+**New this session, deferred from WU-34b above by its own file-count
+budget.** `core/binner.hpp`'s five entry points can now take a caller-
+supplied `const CoarseShadingGrid*` (WU-34b, ADR-084), but nothing outside
+`tests/test_binner.cpp` builds one — `PipelineParams` (`core/resolve.hpp`)
+has no shading fields, and `core/pipeline.cpp`'s `runFrame()`/
+`runFrameField()`/`runFrameBytes()`/`runFrameBytesDeinterlaced()`/
+`runFrameFile()` do not construct or thread one through to
+`generateFragmentsRowRange()`. The natural shape, following the same
+"optional, caller-owned, default-off, zero-cost-when-absent" convention
+`PipelineParams::pool`/`weightOut`/`kBufferMode` already established: new
+`const LightingScene* lightingScene = nullptr` and
+`CoarseShadingConfig shadingConfig{}` (plus a `ColourStandard`, defaulting
+BT601) fields on `PipelineParams`, with `runFrame()` building one
+`CoarseShadingGrid` per call (WU-34b's own threading finding above: no
+special treatment needed, same shape as `Lattice`) when `lightingScene` is
+non-null, and passing it through to whichever `generateFragments*()` call
+that entry point already makes. Not scoped past this note — re-read
+`core/pipeline.cpp`'s real current structure directly before writing
+`Files:`/`Accept:`, the same discipline this unit's own predecessor used.
 
 ### WU-35 — Sheet arbitration v2: transparency-coefficient resolve behind a swappable interface `todo`
 **New this session (WU-32, `DECISIONS.md` ADR-072/ADR-074), forward-looking

@@ -52,6 +52,37 @@
 
 namespace scatter {
 
+// Forward-declared, not #include "core/coarse_shading.hpp": every entry
+// point below only ever holds a `const CoarseShadingGrid*` to call
+// sample() on inside binner.cpp -- a pointer type needs no complete type
+// here, the same minimal-footprint judgement core/resolve.hpp's own
+// forward-declared ThreadPool already applies (ADR-021/026/030). A caller
+// that actually builds a CoarseShadingGrid to pass in must already
+// #include "core/coarse_shading.hpp" itself to do so.
+class CoarseShadingGrid;
+
+// WU-34b (DECISIONS.md ADR-084): which RGB<->YCbCr coefficient set
+// applyShading() (binner.cpp) uses when multiplying a coarse-grid shading
+// intensity I into a source sample. This project's own internal colour
+// (I3) is Y/Cb/Cr, never RGB -- but the historical machine's own STARLIGHT
+// stage multiplied a genuine RGB triple, and Steve's own domain knowledge
+// (not inferred from any held document) confirms Mirage was RGB-native
+// internally throughout, with the 4:2:2 YCbCr and analogue/composite I/O
+// converted to/from RGB at the boundary alone. So "multiply RGB by I" is
+// implemented here as a real (if narrow, double-precision-only, entirely
+// ahead of this loop's own quantisation) RGB round trip, not a YCbCr
+// approximation of one -- see binner.cpp's own applyShading() comment for
+// the exact derivation and why this does not touch I3/I4/I6.
+//
+// BT601 is this project's own real target (an SD machine, ADR-007's own
+// 625i25/576p25 internal development raster) and every existing caller's
+// default; BT709 is kept selectable for whenever real HD output work
+// needs it, not used by any caller yet.
+enum class ColourStandard : std::uint8_t {
+    BT601,
+    BT709,
+};
+
 // Number of tiles needed to cover a destination raster of extent `dim`:
 // ceil(dim / kTileSize). A raster whose dimension is not a multiple of
 // kTileSize leaves the last tile's high-index cells uncovered by any valid
@@ -158,10 +189,27 @@ struct BinStats {
 // partial one, since a row band's own fragments can land in any tile
 // depending on the warp; core/pipeline.cpp is where that arena actually
 // lives.
+//
+// WU-34b (DECISIONS.md ADR-084): shadingGrid, when non-null, is sampled at
+// each sub-sample's own (u, v) -- the same lattice-parameter coordinate
+// this loop already computes for lattice.eval(), no extra evaluation --
+// and multiplied into that sub-sample's colour, in RGB (shadingStandard's
+// own coefficients), ahead of Frag construction (I10's own binding
+// location). Default nullptr: every existing caller keeps compiling and
+// behaving exactly as before, byte for byte -- the same "optional,
+// caller-owned, default-off, zero-cost-when-absent" shape
+// PipelineParams::pool/weightOut/kBufferMode (core/resolve.hpp) already
+// established, applied here to individual function parameters instead of
+// a struct field since this file has no per-call config struct of its
+// own. Building and owning the CoarseShadingGrid (and the LightingScene it
+// comes from) for a real frame is not this unit's job -- see
+// WORK-UNITS.md's own WU-34b entry for what is deferred.
 BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
                                     double maxK, const SupersampleConfig& ss,
                                     std::uint8_t tag, int rowStart, int rowEnd,
-                                    TileBins& outBins);
+                                    TileBins& outBins,
+                                    const CoarseShadingGrid* shadingGrid = nullptr,
+                                    ColourStandard shadingStandard = ColourStandard::BT601);
 
 // Pass 1: generate and bin fragments for an entire source raster.
 //
@@ -183,7 +231,9 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
 // forbidding a new sibling entry point next to it).
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
-                            std::uint8_t tag, TileBins& outBins);
+                            std::uint8_t tag, TileBins& outBins,
+                            const CoarseShadingGrid* shadingGrid = nullptr,
+                            ColourStandard shadingStandard = ColourStandard::BT601);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, row-range
 // variant. New, additive tag mode alongside generateFragmentsRowRange()
@@ -212,7 +262,9 @@ BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
 BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const SourceRaster& src,
                                                double maxK, const SupersampleConfig& ss,
                                                std::uint8_t frontTag, std::uint8_t backTag,
-                                               int rowStart, int rowEnd, TileBins& outBins);
+                                               int rowStart, int rowEnd, TileBins& outBins,
+                                               const CoarseShadingGrid* shadingGrid = nullptr,
+                                               ColourStandard shadingStandard = ColourStandard::BT601);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, whole-raster
 // variant. A thin wrapper around generateFragmentsRowRangeTagByFacing()
@@ -221,7 +273,9 @@ BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const Sour
 BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster& src,
                                        double maxK, const SupersampleConfig& ss,
                                        std::uint8_t frontTag, std::uint8_t backTag,
-                                       TileBins& outBins);
+                                       TileBins& outBins,
+                                       const CoarseShadingGrid* shadingGrid = nullptr,
+                                       ColourStandard shadingStandard = ColourStandard::BT601);
 
 // WU-23a2a (DECISIONS.md ADR-076): field-parity row visitation, the
 // lattice-aware half of field mode (video/interlace.hpp's own file comment;
@@ -258,6 +312,8 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
 BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& src,
                                      double maxK, const SupersampleConfig& ss,
                                      std::uint8_t tag, int rowOffset,
-                                     TileBins& outBins);
+                                     TileBins& outBins,
+                                     const CoarseShadingGrid* shadingGrid = nullptr,
+                                     ColourStandard shadingStandard = ColourStandard::BT601);
 
 }  // namespace scatter

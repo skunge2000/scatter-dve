@@ -60,14 +60,18 @@
 //    naive approach does.
 
 #include "core/binner.hpp"
+#include "core/coarse_shading.hpp"
+#include "core/lighting.hpp"
 #include "core/shapes/shapes.hpp"
 #include "harness.hpp"
 #include "video/interlace.hpp"
 #include "video/raster.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <utility>
 #include <vector>
@@ -660,6 +664,191 @@ static void test_field_rows_reject_naive_half_height_extraction_bug() {
     }
 }
 
+// --- WU-34b (DECISIONS.md ADR-084): coarse-grid shading multiplied into --
+// --- the sample ahead of Frag construction -------------------------------
+
+namespace {
+
+// Independent reimplementation of applyShading()'s own BT601 RGB round trip
+// (core/binner.cpp) -- not calling into that file's own private helper, the
+// same discipline tests/test_coarse_shading.cpp already uses for its own
+// production-formula mirrors. Kr/Kg/Kb are the ordinary ITU-R BT.601 luma
+// coefficients (DECISIONS.md ADR-084's own default).
+struct RGB {
+    double r, g, b;
+};
+
+RGB mirrorToRgbBt601(double y, double cbDelta, double crDelta) {
+    constexpr double kKr = 0.299, kKg = 0.587, kKb = 0.114;
+    const double r = y + 2.0 * (1.0 - kKr) * crDelta;
+    const double b = y + 2.0 * (1.0 - kKb) * cbDelta;
+    const double g = (y - kKr * r - kKb * b) / kKg;
+    return RGB{r, g, b};
+}
+
+void mirrorFromRgbBt601(const RGB& c, double& y, double& cb, double& cr) {
+    constexpr double kKr = 0.299, kKg = 0.587, kKb = 0.114;
+    y = kKr * c.r + kKg * c.g + kKb * c.b;
+    cb = (c.b - y) / (2.0 * (1.0 - kKb)) + double(kChromaZero);
+    cr = (c.r - y) / (2.0 * (1.0 - kKr)) + double(kChromaZero);
+}
+
+// Same fixture scene tests/test_coarse_shading.cpp's own
+// oneParallelLightScene() uses (redefined here -- that one lives in a
+// different translation unit's own anonymous namespace): a Parallel light
+// has no distance falloff and no dependence on the surface point P, so
+// combined with a flat (z == 0 everywhere) lattice -- a constant facet
+// normal across the whole coarse grid -- CoarseShadingGrid::sample()
+// returns the identical value I everywhere, making this test's own ground
+// truth unambiguous regardless of which coarse-grid vertex a given source
+// pixel lands nearest.
+LightingScene mirrorParallelLightScene() {
+    LightingScene s;
+    s.Ia = 0.0;
+    s.Ka = 1.0;
+    Light light;
+    light.type = LightType::Parallel;
+    light.direction = Vec3{0.3, 0.2, 0.9};
+    light.intensity = 2.0;
+    light.Kd = 1.0;
+    light.Ks = 0.0;
+    s.lights.push_back(light);
+    return s;
+}
+
+Sample clampRoundToSample(double v) noexcept {
+    const double lo = 0.0, hi = double(std::numeric_limits<Sample>::max());
+    return Sample(std::round(std::clamp(v, lo, hi)));
+}
+
+}  // namespace
+
+static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
+    const int W = 3, H = 3;
+    Lattice lat = makePixelAffineLattice(1.0, 1.0, 20.0, 20.0, W, H);
+
+    const LightingScene scene = mirrorParallelLightScene();
+    CoarseShadingConfig cfg;
+    cfg.filter = ShadingFilter::Full;
+    cfg.gridShift = 0;
+    const CoarseShadingGrid grid = CoarseShadingGrid::build(lat, scene, cfg);
+    const double expectedI = grid.sample(64.0, 64.0);  // any (u, v): constant grid
+
+    // A uniform, non-degenerate source colour -- avoids bilinear
+    // interpolation entirely and isolates the shading math itself.
+    std::vector<Sample> yPlane(std::size_t(W) * std::size_t(H), Sample(20000));
+    std::vector<Sample> cbPlane(std::size_t(W) * std::size_t(H), Sample(40000));
+    std::vector<Sample> crPlane(std::size_t(W) * std::size_t(H), Sample(25000));
+    SourceRaster src;
+    src.width = W;
+    src.height = H;
+    src.y = yPlane.data();
+    src.cb = cbPlane.data();
+    src.cr = crPlane.data();
+
+    SupersampleConfig ss;
+
+    TileBins unshadedBins(64, 64);
+    generateFragments(lat, src, /*maxK=*/1000.0, ss, /*tag=*/0, unshadedBins);
+
+    TileBins shadedBins(64, 64);
+    generateFragments(lat, src, /*maxK=*/1000.0, ss, /*tag=*/0, shadedBins,
+                       &grid, ColourStandard::BT601);
+
+    // Independent expected value: convert the known uniform source colour to
+    // RGB, scale by expectedI, convert back -- a separate reimplementation
+    // of applyShading()'s own math, not a call into it.
+    const RGB rgb = mirrorToRgbBt601(20000.0, 40000.0 - double(kChromaZero),
+                                      25000.0 - double(kChromaZero));
+    const RGB scaled{rgb.r * expectedI, rgb.g * expectedI, rgb.b * expectedI};
+    double expectedY = 0.0, expectedCb = 0.0, expectedCr = 0.0;
+    mirrorFromRgbBt601(scaled, expectedY, expectedCb, expectedCr);
+    const Sample expectedYSample = clampRoundToSample(expectedY);
+    const Sample expectedCbSample = clampRoundToSample(expectedCb);
+    const Sample expectedCrSample = clampRoundToSample(expectedCr);
+
+    // Both TileBins were built from the identical lattice/raster -- only
+    // colour should differ between them, fragment for fragment, in the same
+    // order.
+    bool foundAny = false;
+    CHECK(unshadedBins.tilesX() == shadedBins.tilesX() &&
+          unshadedBins.tilesY() == shadedBins.tilesY());
+    for (int ty = 0; ty < unshadedBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < unshadedBins.tilesX(); ++tx) {
+            const std::vector<Frag>& unshaded = unshadedBins.tile(tx, ty);
+            const std::vector<Frag>& shaded = shadedBins.tile(tx, ty);
+            CHECK_ONCE(unshaded.size() == shaded.size());
+            const std::size_t n = std::min(unshaded.size(), shaded.size());
+            for (std::size_t i = 0; i < n; ++i) {
+                foundAny = true;
+                // Unshaded path: exactly the uniform source colour,
+                // untouched -- proves the null-grid call this test also
+                // makes is unaffected by this unit.
+                CHECK_ONCE(unshaded[i].Y == Sample(20000));
+                CHECK_ONCE(unshaded[i].Cb == Sample(40000));
+                CHECK_ONCE(unshaded[i].Cr == Sample(25000));
+
+                // Shaded path: matches the independent RGB-round-trip
+                // mirror above, within +/-1 code of independent rounding.
+                CHECK_ONCE(std::fabs(double(shaded[i].Y) - double(expectedYSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].Cb) - double(expectedCbSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].Cr) - double(expectedCrSample)) <= 1.0);
+
+                // Position, weight, depth and tag are untouched by shading --
+                // only colour differs between the two calls.
+                CHECK_ONCE(shaded[i].x == unshaded[i].x);
+                CHECK_ONCE(shaded[i].y == unshaded[i].y);
+                CHECK_ONCE(shaded[i].w == unshaded[i].w);
+                CHECK_ONCE(shaded[i].z == unshaded[i].z);
+                CHECK_ONCE(shaded[i].tag == unshaded[i].tag);
+            }
+        }
+    }
+    CHECK(foundAny);
+
+    // expectedI must not be ~1.0 and the shaded colour must genuinely differ
+    // from the unshaded one -- otherwise this test would not actually be
+    // exercising the multiply (applyShading(c, 1.0, ...) is an identity up
+    // to rounding, so a near-1.0 intensity could pass even with the
+    // multiply silently skipped).
+    CHECK(std::fabs(expectedI - 1.0) > 0.05);
+    CHECK(expectedYSample != Sample(20000) || expectedCbSample != Sample(40000) ||
+          expectedCrSample != Sample(25000));
+}
+
+static void test_shading_grid_defaults_to_null_and_preserves_existing_output() {
+    // Every pre-existing test in this file already calls generateFragments()
+    // (and its siblings) without the new trailing shadingGrid/shadingStandard
+    // parameters, exercising the default nullptr path throughout -- this
+    // test checks the default explicitly, once: an explicit nullptr call and
+    // the implicit-default call must produce byte-for-byte identical bins.
+    const int W = 20, H = 15;
+    SignatureRaster src(W, H);
+    Lattice lat = makePixelAffineLattice(0.5, 0.5, 5.0, 5.0, W, H);
+    SupersampleConfig ss;
+
+    TileBins implicitBins(64, 64);
+    generateFragments(lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, implicitBins);
+
+    TileBins explicitBins(64, 64);
+    generateFragments(lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, explicitBins,
+                       /*shadingGrid=*/nullptr, ColourStandard::BT601);
+
+    CHECK(implicitBins.tilesX() == explicitBins.tilesX() &&
+          implicitBins.tilesY() == explicitBins.tilesY());
+    for (int ty = 0; ty < implicitBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < implicitBins.tilesX(); ++tx) {
+            const std::vector<Frag>& a = implicitBins.tile(tx, ty);
+            const std::vector<Frag>& b = explicitBins.tile(tx, ty);
+            CHECK_ONCE(a.size() == b.size());
+            const std::size_t n = std::min(a.size(), b.size());
+            for (std::size_t i = 0; i < n; ++i) {
+                CHECK_ONCE(sameFrag(a[i], b[i]));
+            }
+        }
+    }
+}
+
 int main() {
     test_fragment_count_matches_source_samples_under_compression();
     test_boundary_straddling_replicates_into_right_neighbours();
@@ -668,5 +857,7 @@ int main() {
     test_self_fold_front_and_back_get_different_tags();
     test_field_rows_match_row_range_ground_truth();
     test_field_rows_reject_naive_half_height_extraction_bug();
+    test_shading_multiplies_rgb_intensity_ahead_of_frag_construction();
+    test_shading_grid_defaults_to_null_and_preserves_existing_output();
     return scatter::test::summary("test_binner");
 }

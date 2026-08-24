@@ -8472,3 +8472,156 @@ internal helpers) passing in every one, no sanitizer findings.
 a real, standard `scatter-core` build/test run — see `HANDOFF.md` for the
 exact commands and why Steve's own real-terminal run is still the final
 word regardless.
+
+**ADR-084 — WU-34b scoping and build: coarse-grid shading wired into
+`core/binner.hpp`'s per-sample loop; the RGB-vs-YCbCr application question
+settled by Steve directly (a real RGB round trip, BT601, BT709
+selectable); threading resolved (no new synchronisation needed, matching
+`Lattice`'s own existing pattern); per-frame scene ownership deferred to
+new WU-34c.**
+
+This session opened as a continuation prompt whose own job was scoping
+WU-34b first (its own three open questions — per-frame scene ownership,
+threading, and the real current shape of `core/binner.hpp`/`.cpp`'s
+per-sample loop — all left unresolved by WU-34a/ADR-083), building it
+second if the scope held together within `SESSION-PROTOCOL.md`'s 3-file
+cap. Confirmed real repository state directly (newest tag `wu-34a-green`,
+`HEAD` `83d420a` == `origin/main`, clean tree — Steve had already run his
+own real-terminal close-out for WU-34a before this session started) before
+reading the five state files, ADR-068 through ADR-071, ADR-082 and ADR-083
+in full, `INVARIANTS.md` I3/I9/I10, `docs/architecture.md` §3/§6,
+`docs/sources/WU-SM-01.md` §3.9.2, `core/coarse_shading.hpp`,
+`core/lighting.hpp`, `core/types.hpp`, `core/binner.hpp`/`.cpp`,
+`core/pipeline.hpp`/`.cpp`, `core/resolve.hpp`, `tests/test_binner.cpp`
+and `tests/test_coarse_shading.cpp`, per `SESSION-PROTOCOL.md` rule 6.
+
+**1. The RGB-vs-YCbCr application question — flagged by this unit's own
+continuation prompt as a real "faithful reproduction vs. this project's
+own different representation" fork, the same tier as the facet-normal
+decision (ADR-070/082), unresolved by any held document — raised with
+Steve directly per that instruction, not defaulted.** `docs/sources/
+WU-SM-01.md` §3.9.2's own "STARLIGHT (RGB × I)" stage (S5 FIG. 1)
+describes multiplying a genuine RGB triple, but scatter-dve's own I3 is
+Y/Cb/Cr throughout, with no RGB representation anywhere in `core/types.hpp`
+or in `core/binner.cpp`'s per-sample loop (`Colour{y, cb, cr}`, plain
+doubles). Three candidate readings were put to Steve: Y-only (luma-only,
+the natural fit for a YCbCr pipeline but not what the sources literally
+say); Y/Cb/Cr scaled uniformly (closer to a literal transcription, but
+scales chroma saturation as an unwanted side effect no real RGB multiply
+produces); and a real RGB round trip (convert to RGB, multiply, convert
+back — colorimetrically faithful, but assumed to be a meaningfully larger
+unit, comparable to ADR-020's chroma-resampling filter-design problem).
+
+**Steve's own domain knowledge, decisive and not available from any held
+document: Mirage was RGB-native internally throughout its whole signal
+path.** The 4:2:2 YCbCr digital I/O and the analogue/composite I/O were
+both converted to/from RGB at the boundary alone — Mirage never ran
+4:4:4 YCbCr internally. This settles the question as a matter of real
+historical fact, not a plausibility judgement among three readings: "RGB ×
+I" is exactly what the real machine did to real (not only synthetic
+3D-rendered) video passing through it, since `docs/sources/WU-SM-01.md`
+§3.9.2's own "digitised **input** video" phrasing already named real
+captured video as what the Starlight card lit, not only a synthetic
+skin-store render.
+
+**This also corrected this session's own initial cost estimate for the
+RGB-round-trip option**, checked directly against `core/binner.cpp`'s real
+current code before finalising: the rest of `generateFragmentsRowRangeImpl()`
+already computes colour as plain `double`s (`sampleBilinear()`'s own
+`Colour{y, cb, cr}`) throughout the whole per-sample loop, with
+quantisation into `Frag`'s fixed-point fields happening once, at the very
+end (`toSample()`/`toWeight()`). A YCbCr→RGB→YCbCr matrix conversion
+dropped into that same already-floating-point stretch, immediately before
+quantisation, is a small, fixed function — closer in size to
+`pixelJacobian()` than to a genuine filter-design problem — not a new
+subsystem. It does not touch I3/I4/I6: those invariants govern the
+*stored* Y/Cb/Cr and the integer accumulation path, not this transient
+double-precision intermediate that already existed before this unit.
+
+**2. Coefficients: BT601, Steve's own explicit choice ("this is an SD
+machine"), with BT709 built and selectable for later HD work, not used by
+any caller yet.** Implemented as a general `(Kr, Kg, Kb)`-parametrised
+conversion (`Kg = 1 - Kr - Kb`; BT601: 0.299/0.587/0.114, BT709:
+0.2126/0.7152/0.0722) rather than hard-coding BT601's own numbers, so
+switching a future HD caller to BT709 needs no new code — `core/binner.hpp`'s
+new `ColourStandard` enum (`BT601`, `BT709`), a parameter on every entry
+point, default `BT601`. No held source states Mirage's own real
+coefficients (the machine predates BT.709 entirely, 1982), so this is an
+ordinary "no source states a number" engineering call once Steve settled
+which standard applies, the same escalation tier ADR-083's own coarse-grid
+cell-size and facet-normal-stencil decisions used, not a further
+faithful-reproduction question.
+
+**3. Threading (WU-34b's own second open question): resolved directly
+against `core/pipeline.cpp`'s real current code, not from `core/resolve.hpp`'s
+own comment — which turned out to be stale, logged as `CORRECTIONS.md`
+C-031.** `core/resolve.hpp`'s own `PipelineParams::threads` comment stated
+"PASS 1 (fragment generation) is unchanged and always single-threaded
+regardless of this value" — true of WU-16a/ADR-040's own state, but never
+updated once WU-16b/ADR-041 gave PASS 1 real row-band threading
+(`pool.runOnAll()` dispatching `generateFragmentsRowRange()` per worker,
+`core/pipeline.cpp`'s own file header confirms this directly). The real
+answer turns out simpler than either version of the comment implied:
+`Lattice` itself is never built inside `runFrame()` at all — it is a
+`const Lattice&` the caller builds once and passes in, read concurrently
+by every PASS-1 row-band worker with no synchronisation of its own. A
+`CoarseShadingGrid` follows the identical shape: built once by whichever
+caller owns it (WU-34c, not this unit), passed in as
+`const CoarseShadingGrid*`, read concurrently by every row-band worker the
+same way. Nothing in `core/binner.cpp` needed new threading code as a
+result — the caller-owned-immutable-input pattern this codebase already
+uses for `Lattice` extends to `CoarseShadingGrid` for free.
+
+**4. Insertion point (WU-34b's own third open question): confirmed
+exactly as the continuation prompt anticipated.**
+`generateFragmentsRowRangeImpl()` (`core/binner.cpp`) is still the one
+shared loop behind all five public entry points
+(`generateFragmentsRowRange`, `generateFragments`,
+`generateFragmentsRowRangeTagByFacing`, `generateFragmentsTagByFacing`,
+`generateFragmentsFieldRows`); the hook sits immediately after
+`sampleBilinear()` returns (`Colour`, plain doubles, pre-quantisation) and
+before `Frag frag{}` is constructed — `shadingGrid->sample(u, v)` reuses
+the same `(u, v)` the loop already computes for `lattice.eval()`, no extra
+lattice evaluation.
+
+**5. Split decision confirmed: WU-34b stays narrow (`core/binner.hpp`/`.cpp`
+alone); owning a real per-frame `LightingScene`/`CoarseShadingConfig` in
+`core/pipeline.cpp` is new WU-34c, deferred.** Verified directly: this
+unit's own two files are comfortably under `SESSION-PROTOCOL.md`'s 3-file
+cap with no `CMakeLists.txt` change needed (both files were already
+registered); `PipelineParams` (`core/resolve.hpp`) and every
+`core/pipeline.cpp` orchestration entry point are unmodified. This matches
+the continuation prompt's own anticipated split and the pattern ADR-082/083
+already used twice for the WU-27/WU-34 and WU-34a/WU-34b pairs.
+
+**Built this session, matching the scope above exactly:** `src/core/binner.hpp`
+(edited: forward-declares `CoarseShadingGrid`; adds `ColourStandard`; adds
+`const CoarseShadingGrid* shadingGrid = nullptr` and
+`ColourStandard shadingStandard = ColourStandard::BT601` as new optional
+trailing parameters on all five public entry points — every pre-existing
+call site across `core/pipeline.cpp` and every test file that calls these
+functions was grepped directly and confirmed unaffected, since none takes
+a function pointer to any of them). `src/core/binner.cpp` (edited:
+`applyShading()`, the RGB round-trip, and its own `coeffsFor()` helper; the
+multiply call site ahead of `Frag` construction; the same two parameters
+threaded through `generateFragmentsRowRangeImpl()` and all five wrappers).
+`tests/test_binner.cpp` (edited, two new tests, doesn't count against the
+cap). `src/core/resolve.hpp` (one comment corrected, C-031, no behavioural
+change — the same "fix a stale comment while touching the surrounding
+file" precedent ADR-082 already used for `core/jacobian.hpp`). No
+`CMakeLists.txt` change.
+
+**Tested in the cloud sandbox, full portable matrix, all green:** GCC
+13.3.0 and Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5,
+plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at
+both tile sizes — 10 configurations, all 28 registered tests passing in
+every one, no sanitizer findings. The new shading-multiply test was
+verified this session to actually catch a regression rather than pass
+vacuously: temporarily disabled the multiply (while still referencing
+`shadingGrid`/`shadingStandard` so the build stayed clean), confirmed the
+test failed with exactly the three expected colour-channel checks, then
+restored the real implementation and confirmed all 28 tests pass again
+before finalising. `core/binner.cpp`/`.hpp`/`core/resolve.hpp` touch no
+DeckLink-linked file, so this is a real, standard `scatter-core`
+build/test run — see `HANDOFF.md` for the exact commands and why Steve's
+own real-terminal run is still the final word regardless.

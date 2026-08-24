@@ -1057,3 +1057,63 @@ file (state files, `DECISIONS.md`, `WORK-UNITS.md`) is handled correctly
 -- worth an explicit check in any future close-out whose unit's own
 `Files:`/`Accept:` names fixtures from this table: does the table's own
 row for each fixture the unit just made runnable actually say so.
+
+**C-031 -- `core/resolve.hpp`'s own `PipelineParams::threads` comment
+claimed PASS 1 (fragment generation) "is unchanged and always
+single-threaded regardless of this value" -- true of WU-16a/ADR-040's own
+state, but never updated once WU-16b/ADR-041 gave PASS 1 real row-band
+threading, and left standing, wrong, for two work units afterward.**
+
+*Claimed (`core/resolve.hpp`, since WU-16a, never edited by WU-16b/ADR-041
+despite that unit changing the exact behaviour this comment describes):*
+"Values <= 1 take that same single-threaded path; values > 1 construct a
+core/pipeline.hpp ThreadPool of exactly this many workers for the duration
+of one runFrame() call and partition PASS 2's tiles across them. PASS 1
+(fragment generation) is unchanged and always single-threaded regardless
+of this value -- see ADR-040 for why, and for WU-16b, the deferred
+follow-up that would change that."
+
+*Correct:* WU-16b/ADR-041 is not a "deferred follow-up" from this
+comment's own point of view -- it already happened, in this same
+repository's own history, before this session. `core/pipeline.cpp`'s own
+file header states directly: "WU-16a (ADR-040) added ThreadPool and
+threaded PASS 2 alone... WU-16b (ADR-041) adds row-band threading to PASS
+1" -- and its `runFrame()` body confirms this for real: when
+`params.threads > 1` (or a caller-owned pool is supplied), PASS 1 now
+partitions `src`'s rows into `params.threads` contiguous bands, one worker
+per band, each calling `generateFragmentsRowRange()` via
+`ThreadPool::runOnAll()`, before a second `runOnAll()` round handles PASS
+2 exactly as WU-16a always did. `core/resolve.hpp`'s own comment on the
+very field that controls this was simply never touched when WU-16b
+shipped, leaving it describing WU-16a's now-superseded behaviour as if it
+were still current.
+
+Found this session while settling WU-34b's own second open question
+(whether `CoarseShadingGrid::build()` needs new threading treatment) --
+the continuation prompt that opened this session explicitly warned not to
+trust `architecture.md`'s "once per frame on one thread" gloss without
+checking `core/pipeline.cpp`'s real current structure directly, which is
+exactly what surfaced the mismatch between what `core/resolve.hpp` claimed
+and what `core/pipeline.cpp` actually does. No production behaviour was
+ever wrong -- PASS 1's real row-band threading has worked correctly since
+WU-16b, verified by that unit's own `tests/test_row_band.cpp` and this
+project's own I6 discipline; only this one comment's own account of it was
+stale. Fixed the same session, `core/resolve.hpp`'s `PipelineParams::threads`
+comment corrected to describe WU-16b's real current behaviour directly,
+with a note pointing at `core/pipeline.cpp`'s own (accurate) file header
+for the full account -- no behavioural change, the same "fix a stale
+comment while already touching the surrounding file" precedent ADR-082
+already used for `core/jacobian.hpp`'s own stale Blinn-Phong comment.
+
+**General lesson, extending C-025's own "prose summaries are not a
+substitute for tracing the real code" lesson to documentation drift
+specifically:** a header comment describing a design's own threading
+model is a claim like any other in this project's own state files, and it
+can go stale the same way `tests/fixtures-historical.md`'s own rows did
+(C-030) when a later unit changes the exact behaviour an earlier unit's
+comment described, without that comment being part of the later unit's
+own `Files:` line. Worth an explicit check, on any future unit that
+changes what an existing field or parameter actually does, for whether an
+*older* comment elsewhere in the codebase still describes the *previous*
+behaviour -- not only whether the newer unit's own new comments are
+accurate.
