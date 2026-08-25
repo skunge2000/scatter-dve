@@ -20,7 +20,8 @@
 // I5 is this unit's own rationale for that ordering ("normalise before
 // compositing... compositing premultiplied offset-binary values against
 // zero gives a green fringe on every partially covered edge, because
-// Y=0, Cb=Cr=0 is not black"): AccumCell's Y/Cb/Cr fields are premultiplied
+// Y=0, Cb=Cr=0 is not black"): AccumCell's R/G/B fields (renamed from
+// Y/Cb/Cr, WU-39, ADR-085) are premultiplied
 // by weight (Σ(w·colour), not Σcolour), so compositing them directly
 // against a background would reproduce exactly that bug. normaliseCell()
 // divides first, unconditionally; composite() calls it and never sees the

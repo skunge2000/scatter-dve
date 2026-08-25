@@ -102,7 +102,8 @@ inline constexpr int kSubPixelOne  = 1 << kSubPixelBits;  // 16
 
 struct Frag {
     SubPos        x, y;         // destination, 12.4 fixed, tile-local
-    Sample        Y, Cb, Cr;    // 16-bit offset-binary
+    Sample        R, G, B;      // 16-bit offset-binary (I3, ADR-085: RGB,
+                                 // renamed from Y/Cb/Cr this session, WU-39)
     Weight        w;            // coverage, 1.15 fixed
     std::uint16_t z;            // depth, near = 0
     std::uint8_t  tag;          // priority / surface id
@@ -126,7 +127,8 @@ using ColourAccum = std::int64_t;
 using WeightAccum = std::int32_t;
 
 struct AccumCell {
-    ColourAccum  Y, Cb, Cr;
+    ColourAccum  R, G, B;  // I3, ADR-085: RGB, renamed from Y/Cb/Cr this
+                            // session, WU-39
     WeightAccum  w;
     std::int32_t reserved;
 };

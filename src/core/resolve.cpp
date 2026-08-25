@@ -41,9 +41,9 @@ ResolvedCell normaliseCell(const AccumCell& cell) noexcept {
         return ResolvedCell{};
     }
     ResolvedCell out;
-    out.Y  = divideRounded(cell.Y, cell.w);
-    out.Cb = divideRounded(cell.Cb, cell.w);
-    out.Cr = divideRounded(cell.Cr, cell.w);
+    out.Y  = divideRounded(cell.R, cell.w);
+    out.Cb = divideRounded(cell.G, cell.w);
+    out.Cr = divideRounded(cell.B, cell.w);
     out.covered = true;
     return out;
 }
@@ -100,10 +100,10 @@ Background asBackground(const CompositedCell& c) noexcept {
 // value-initialised 0 rather than summing it too -- nothing reads it.
 AccumCell sumCells(const AccumCell& a, const AccumCell& b) noexcept {
     AccumCell out{};
-    out.Y  = a.Y + b.Y;
-    out.Cb = a.Cb + b.Cb;
-    out.Cr = a.Cr + b.Cr;
-    out.w  = a.w + b.w;
+    out.R = a.R + b.R;
+    out.G = a.G + b.G;
+    out.B = a.B + b.B;
+    out.w = a.w + b.w;
     return out;
 }
 

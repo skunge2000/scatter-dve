@@ -379,9 +379,9 @@ static void test_pipeline_pageturn_transparent_accumulates_over_page_behind() {
     // associative) at every destination cell, not just the well-covered
     // one below.
     for (std::size_t i = 0; i < combined.size(); ++i) {
-        CHECK_ONCE(combined[i].Y == pageOnly[i].Y + flapOnly[i].Y);
-        CHECK_ONCE(combined[i].Cb == pageOnly[i].Cb + flapOnly[i].Cb);
-        CHECK_ONCE(combined[i].Cr == pageOnly[i].Cr + flapOnly[i].Cr);
+        CHECK_ONCE(combined[i].R == pageOnly[i].R + flapOnly[i].R);
+        CHECK_ONCE(combined[i].G == pageOnly[i].G + flapOnly[i].G);
+        CHECK_ONCE(combined[i].B == pageOnly[i].B + flapOnly[i].B);
         CHECK_ONCE(combined[i].w == pageOnly[i].w + flapOnly[i].w);
     }
 

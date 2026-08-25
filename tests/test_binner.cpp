@@ -150,7 +150,7 @@ struct SignatureRaster {
 };
 
 std::pair<int, int> decode(const Frag& f) noexcept {
-    return {int(f.Y), int(f.Cb)};
+    return {int(f.R), int(f.G)};
 }
 
 // Frag is trivially copyable, standard layout (core/types.hpp's own
@@ -784,15 +784,15 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
                 // Unshaded path: exactly the uniform source colour,
                 // untouched -- proves the null-grid call this test also
                 // makes is unaffected by this unit.
-                CHECK_ONCE(unshaded[i].Y == Sample(20000));
-                CHECK_ONCE(unshaded[i].Cb == Sample(40000));
-                CHECK_ONCE(unshaded[i].Cr == Sample(25000));
+                CHECK_ONCE(unshaded[i].R == Sample(20000));
+                CHECK_ONCE(unshaded[i].G == Sample(40000));
+                CHECK_ONCE(unshaded[i].B == Sample(25000));
 
                 // Shaded path: matches the independent RGB-round-trip
                 // mirror above, within +/-1 code of independent rounding.
-                CHECK_ONCE(std::fabs(double(shaded[i].Y) - double(expectedYSample)) <= 1.0);
-                CHECK_ONCE(std::fabs(double(shaded[i].Cb) - double(expectedCbSample)) <= 1.0);
-                CHECK_ONCE(std::fabs(double(shaded[i].Cr) - double(expectedCrSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].R) - double(expectedYSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].G) - double(expectedCbSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].B) - double(expectedCrSample)) <= 1.0);
 
                 // Position, weight, depth and tag are untouched by shading --
                 // only colour differs between the two calls.

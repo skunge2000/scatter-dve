@@ -85,10 +85,10 @@ Sample expectedBlend(Sample colour, Sample bg, std::int64_t alpha) noexcept {
 
 AccumCell expectedSum(const AccumCell& a, const AccumCell& b) noexcept {
     AccumCell out{};
-    out.Y  = a.Y + b.Y;
-    out.Cb = a.Cb + b.Cb;
-    out.Cr = a.Cr + b.Cr;
-    out.w  = a.w + b.w;
+    out.R = a.R + b.R;
+    out.G = a.G + b.G;
+    out.B = a.B + b.B;
+    out.w = a.w + b.w;
     return out;
 }
 
@@ -99,10 +99,10 @@ AccumCell expectedSum(const AccumCell& a, const AccumCell& b) noexcept {
 // assert exact expected colours without re-deriving divideRounded() first.
 AccumCell makeUniformCell(Sample y, Sample cb, Sample cr, WeightAccum w) noexcept {
     AccumCell c{};
-    c.Y  = ColourAccum(y)  * ColourAccum(w);
-    c.Cb = ColourAccum(cb) * ColourAccum(w);
-    c.Cr = ColourAccum(cr) * ColourAccum(w);
-    c.w  = w;
+    c.R = ColourAccum(y)  * ColourAccum(w);
+    c.G = ColourAccum(cb) * ColourAccum(w);
+    c.B = ColourAccum(cr) * ColourAccum(w);
+    c.w = w;
     return c;
 }
 
@@ -346,9 +346,9 @@ static void test_pipeline_pageturn_opaque_flap_hides_page_behind() {
     const CompositedCell afterRead = composite(lower, bg);
     const std::int64_t alpha =
         std::clamp<std::int64_t>(std::int64_t(upper.w), 0, std::int64_t(kWeightUnity));
-    const Sample upperY  = expectedDivide(upper.Y, upper.w);
-    const Sample upperCb = expectedDivide(upper.Cb, upper.w);
-    const Sample upperCr = expectedDivide(upper.Cr, upper.w);
+    const Sample upperY  = expectedDivide(upper.R, upper.w);
+    const Sample upperCb = expectedDivide(upper.G, upper.w);
+    const Sample upperCr = expectedDivide(upper.B, upper.w);
     const Sample expectedY  = expectedBlend(upperY, afterRead.Y, alpha);
     const Sample expectedCb = expectedBlend(upperCb, afterRead.Cb, alpha);
     const Sample expectedCr = expectedBlend(upperCr, afterRead.Cr, alpha);

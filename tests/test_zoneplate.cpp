@@ -428,10 +428,10 @@ static void test_composite_partial_coverage_no_green_fringe() {
     const WeightAccum halfWeight = WeightAccum(kWeightUnity / 2);
 
     AccumCell cell{};
-    cell.Y  = ColourAccum(srcY)  * ColourAccum(halfWeight);
-    cell.Cb = ColourAccum(srcCb) * ColourAccum(halfWeight);
-    cell.Cr = ColourAccum(srcCr) * ColourAccum(halfWeight);
-    cell.w  = halfWeight;
+    cell.R = ColourAccum(srcY)  * ColourAccum(halfWeight);
+    cell.G = ColourAccum(srcCb) * ColourAccum(halfWeight);
+    cell.B = ColourAccum(srcCr) * ColourAccum(halfWeight);
+    cell.w = halfWeight;
 
     const Background bg{kBlack, kChromaZero, kChromaZero};
     const CompositedCell out = composite(cell, bg);
@@ -447,16 +447,17 @@ static void test_composite_partial_coverage_no_green_fringe() {
     CHECK(inHull(out.Cr, srcCr, bg.Cr));
 
     // Contrast: I5's actual bug -- compositing the *premultiplied* fields
-    // (cell.Cb etc., which are Σ(w·colour), not colour) directly against a
-    // zero-colour background using the same alpha, skipping normaliseCell()
-    // entirely. Computed independently here, not by calling any production
-    // code with normalisation disabled -- there is no such switch, by
-    // design (ADR-026) -- purely to show the two diverge and where the
-    // wrong answer lands.
+    // (cell.G etc., which are Σ(w·colour), not colour -- renamed from
+    // cell.Cb, WU-39/ADR-085) directly against a zero-colour background
+    // using the same alpha, skipping normaliseCell() entirely. Computed
+    // independently here, not by calling any production code with
+    // normalisation disabled -- there is no such switch, by design
+    // (ADR-026) -- purely to show the two diverge and where the wrong
+    // answer lands.
     const std::int64_t alpha = std::int64_t(halfWeight);
     const std::int64_t unity = std::int64_t(kWeightUnity);
     const std::int64_t wrongCr =
-        (cell.Cr * alpha / unity + std::int64_t(0) * (unity - alpha)) / unity;
+        (cell.B * alpha / unity + std::int64_t(0) * (unity - alpha)) / unity;
     // wrongCr composites the *premultiplied* sum against literal zero
     // (Y=0, Cb=Cr=0 -- I5's own example of "not black"), not against
     // kChromaZero, and without dividing by cell.w first -- exactly the bug

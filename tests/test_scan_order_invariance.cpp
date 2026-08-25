@@ -144,9 +144,9 @@ void checkAllTilesIdentical(const std::vector<std::vector<AccumCell>>& want,
         for (std::size_t c = 0; c < want[t].size() && c < got[t].size(); ++c) {
             const AccumCell& a = want[t][c];
             const AccumCell& b = got[t][c];
-            CHECK_ONCE(a.Y == b.Y);
-            CHECK_ONCE(a.Cb == b.Cb);
-            CHECK_ONCE(a.Cr == b.Cr);
+            CHECK_ONCE(a.R == b.R);
+            CHECK_ONCE(a.G == b.G);
+            CHECK_ONCE(a.B == b.B);
             CHECK_ONCE(a.w == b.w);
         }
     }

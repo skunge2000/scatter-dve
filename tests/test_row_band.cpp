@@ -98,13 +98,17 @@ struct SignatureRaster {
     }
 };
 
-using FragKey = std::pair<int, int>;  // (px, py), decoded from Y/Cb
+using FragKey = std::pair<int, int>;  // (px, py), decoded from R/G (renamed
+                                       // from Y/Cb, WU-39, ADR-085 -- the
+                                       // decoded values are unaffected: this
+                                       // is a pure field-name rename, not a
+                                       // change to what binner.cpp stores)
 
-FragKey decode(const Frag& f) noexcept { return {int(f.Y), int(f.Cb)}; }
+FragKey decode(const Frag& f) noexcept { return {int(f.R), int(f.G)}; }
 
 bool fragBitIdentical(const Frag& a, const Frag& b) noexcept {
-    return a.x == b.x && a.y == b.y && a.Y == b.Y && a.Cb == b.Cb &&
-           a.Cr == b.Cr && a.w == b.w && a.z == b.z && a.tag == b.tag &&
+    return a.x == b.x && a.y == b.y && a.R == b.R && a.G == b.G &&
+           a.B == b.B && a.w == b.w && a.z == b.z && a.tag == b.tag &&
            a.reserved == b.reserved;
 }
 

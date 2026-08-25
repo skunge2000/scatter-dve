@@ -44,9 +44,9 @@ namespace {
 // with no rounding fuzz.
 AccumCell makeUniformCell(Sample y, Sample cb, Sample cr, WeightAccum w) noexcept {
     AccumCell c{};
-    c.Y = ColourAccum(y) * ColourAccum(w);
-    c.Cb = ColourAccum(cb) * ColourAccum(w);
-    c.Cr = ColourAccum(cr) * ColourAccum(w);
+    c.R = ColourAccum(y) * ColourAccum(w);
+    c.G = ColourAccum(cb) * ColourAccum(w);
+    c.B = ColourAccum(cr) * ColourAccum(w);
     c.w = w;
     return c;
 }

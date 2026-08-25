@@ -21,8 +21,8 @@
 // All fragments below land at an exact grid position (fracX = fracY = 0),
 // the same simplification test_splat.cpp's own
 // test_exact_grid_fragment_lands_in_one_cell() uses: rawWeight is then
-// exactly 256, so accumulateCorner()'s shift has no truncation and Y/Cb/Cr
-// contributions reduce to plain Y*w/Cb*w/Cr*w -- letting these tests check
+// exactly 256, so accumulateCorner()'s shift has no truncation and R/G/B
+// contributions reduce to plain R*w/G*w/B*w -- letting these tests check
 // accumulated values by hand without reproducing the bilinear-weight
 // formula itself (already test_splat.cpp's own job).
 
@@ -47,9 +47,9 @@ Frag makeExactFrag(int bx, int by, Sample y, Sample cb, Sample cr, Weight w,
     Frag f{};
     f.x = encodeLocal(bx, 0);
     f.y = encodeLocal(by, 0);
-    f.Y = y;
-    f.Cb = cb;
-    f.Cr = cr;
+    f.R = y;
+    f.G = cb;
+    f.B = cr;
     f.w = w;
     f.z = z;
     f.tag = tag;
@@ -109,9 +109,9 @@ static void test_single_tag_matches_plain_sumBanks() {
     if (slot == nullptr) return;
 
     // Same accumulateCorner() arithmetic, same fragments/order -- exact.
-    CHECK(slot->cell.Y == plainCell.Y);
-    CHECK(slot->cell.Cb == plainCell.Cb);
-    CHECK(slot->cell.Cr == plainCell.Cr);
+    CHECK(slot->cell.R == plainCell.R);
+    CHECK(slot->cell.G == plainCell.G);
+    CHECK(slot->cell.B == plainCell.B);
     CHECK(slot->cell.w == plainCell.w);
     CHECK(slot->firstSeenZ == 100);  // first fragment's own z, arrival order
 
@@ -160,12 +160,12 @@ static void test_same_tag_tied_z_order_independent() {
     if (sForward == nullptr || sReversed == nullptr || sShuffled == nullptr) return;
 
     // Integer addition is commutative/associative (I6): order-independent.
-    CHECK(sForward->cell.Y == sReversed->cell.Y);
-    CHECK(sForward->cell.Y == sShuffled->cell.Y);
-    CHECK(sForward->cell.Cb == sReversed->cell.Cb);
-    CHECK(sForward->cell.Cb == sShuffled->cell.Cb);
-    CHECK(sForward->cell.Cr == sReversed->cell.Cr);
-    CHECK(sForward->cell.Cr == sShuffled->cell.Cr);
+    CHECK(sForward->cell.R == sReversed->cell.R);
+    CHECK(sForward->cell.R == sShuffled->cell.R);
+    CHECK(sForward->cell.G == sReversed->cell.G);
+    CHECK(sForward->cell.G == sShuffled->cell.G);
+    CHECK(sForward->cell.B == sReversed->cell.B);
+    CHECK(sForward->cell.B == sShuffled->cell.B);
     CHECK(sForward->cell.w == sReversed->cell.w);
     CHECK(sForward->cell.w == sShuffled->cell.w);
 
@@ -213,16 +213,16 @@ static void test_eviction_self_consistent_not_oracle_checked() {
         CHECK(run1[std::size_t(i)].occupied == run2[std::size_t(i)].occupied);
         CHECK(run1[std::size_t(i)].tag == run2[std::size_t(i)].tag);
         CHECK(run1[std::size_t(i)].firstSeenZ == run2[std::size_t(i)].firstSeenZ);
-        CHECK(run1[std::size_t(i)].cell.Y == run2[std::size_t(i)].cell.Y);
+        CHECK(run1[std::size_t(i)].cell.R == run2[std::size_t(i)].cell.R);
         CHECK(run1[std::size_t(i)].cell.w == run2[std::size_t(i)].cell.w);
     }
 
     // Whichever tags survived: numerically correct for their own single
-    // fragment (rawWeight 256 here, so Y*w with no truncation).
+    // fragment (rawWeight 256 here, so R*w with no truncation).
     for (const KSlot& s : run1) {
         if (!s.occupied) continue;
         const Frag& f = frags[s.tag];
-        CHECK(s.cell.Y == ColourAccum(f.Y) * ColourAccum(f.w));
+        CHECK(s.cell.R == ColourAccum(f.R) * ColourAccum(f.w));
         CHECK(s.cell.w == WeightAccum(f.w));
         CHECK(s.firstSeenZ == f.z);
     }

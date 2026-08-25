@@ -131,9 +131,10 @@ Kcoeffs coeffsFor(ColourStandard standard) noexcept {
 // c.y/c.cb/c.cr elsewhere (plain doubles in Sample's own representable
 // scale, not yet quantised). Pure double-precision arithmetic, entirely
 // ahead of this loop's own quantisation step (toSample()/toWeight() below)
-// -- I3/I4/I6 govern the *stored* Y/Cb/Cr and the integer accumulation
-// path, not this already-floating-point intermediate, so this does not
-// touch either invariant. intensity is not clamped here (I2: nothing in
+// -- I3/I4/I6 govern the *stored* Frag fields (R/G/B, renamed from Y/Cb/Cr
+// this session, WU-39) and the integer accumulation path, not this
+// already-floating-point intermediate, so this does not touch either
+// invariant. intensity is not clamped here (I2: nothing in
 // this pipeline legalises before the v210 pack stage; ADR-069's own I can
 // be negative, fixture 12's own cancellation) -- toSample()'s existing
 // clamp to Sample's representable range, unchanged, handles any resulting
@@ -352,9 +353,9 @@ BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaste
                         (localY == kTileSize - 1) && (tileY + 1 < outBins.tilesY());
 
                     Frag frag{};
-                    frag.Y = toSample(c.y);
-                    frag.Cb = toSample(c.cb);
-                    frag.Cr = toSample(c.cr);
+                    frag.R = toSample(c.y);
+                    frag.G = toSample(c.cb);
+                    frag.B = toSample(c.cr);
                     frag.w = toWeight(weight);
                     frag.z = toDepth(dest.z);
                     frag.tag = tagFor(rawJ);

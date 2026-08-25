@@ -63,9 +63,13 @@ class CoarseShadingGrid;
 
 // WU-34b (DECISIONS.md ADR-084): which RGB<->YCbCr coefficient set
 // applyShading() (binner.cpp) uses when multiplying a coarse-grid shading
-// intensity I into a source sample. This project's own internal colour
-// (I3) is Y/Cb/Cr, never RGB -- but the historical machine's own STARLIGHT
-// stage multiplied a genuine RGB triple, and Steve's own domain knowledge
+// intensity I into a source sample. This project's own internal colour was
+// Y/Cb/Cr when this was written; ADR-085 (accepted WU-38) has since moved
+// I3 to native RGB -- though this function's own source samples stay in
+// the YCbCr domain until WU-40/41 land, so applyShading()'s real RGB round
+// trip below is unchanged by that acceptance alone. The historical
+// machine's own STARLIGHT stage multiplied a genuine RGB triple, and
+// Steve's own domain knowledge
 // (not inferred from any held document) confirms Mirage was RGB-native
 // internally throughout, with the 4:2:2 YCbCr and analogue/composite I/O
 // converted to/from RGB at the boundary alone. So "multiply RGB by I" is

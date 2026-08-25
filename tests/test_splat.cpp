@@ -54,9 +54,9 @@ Frag makeFrag(int baseX, int fracX, int baseY, int fracY, Sample y, Sample cb,
     Frag f{};
     f.x = encodeLocal(baseX, fracX);
     f.y = encodeLocal(baseY, fracY);
-    f.Y = y;
-    f.Cb = cb;
-    f.Cr = cr;
+    f.R = y;
+    f.G = cb;
+    f.B = cr;
     f.w = w;
     f.z = 0;
     f.tag = 0;
@@ -87,9 +87,9 @@ static void test_exact_grid_fragment_lands_in_one_cell() {
     // rawWeight is exactly 256 (16*16) at frac (0, 0) -- the >>8 in
     // accumulateCorner() is then an exact divide, no truncation.
     const AccumCell& c = out[std::size_t(by) * std::size_t(kTileSize) + std::size_t(bx)];
-    CHECK(c.Y == ColourAccum(1000) * ColourAccum(kWeightUnity));
-    CHECK(c.Cb == ColourAccum(2000) * ColourAccum(kWeightUnity));
-    CHECK(c.Cr == ColourAccum(3000) * ColourAccum(kWeightUnity));
+    CHECK(c.R == ColourAccum(1000) * ColourAccum(kWeightUnity));
+    CHECK(c.G == ColourAccum(2000) * ColourAccum(kWeightUnity));
+    CHECK(c.B == ColourAccum(3000) * ColourAccum(kWeightUnity));
     CHECK(c.w == WeightAccum(kWeightUnity));
 
     // No bleed into any neighbour, including the three other corners of
@@ -123,8 +123,8 @@ static void test_bilinear_split_at_half_pixel_divides_evenly() {
     CHECK(cellAt(out.data(), bx + 1, by).w == quarterW);
     CHECK(cellAt(out.data(), bx, by + 1).w == quarterW);
     CHECK(cellAt(out.data(), bx + 1, by + 1).w == quarterW);
-    CHECK(cellAt(out.data(), bx, by).Y == quarterY);
-    CHECK(cellAt(out.data(), bx + 1, by + 1).Y == quarterY);
+    CHECK(cellAt(out.data(), bx, by).R == quarterY);
+    CHECK(cellAt(out.data(), bx + 1, by + 1).R == quarterY);
 
     // Perfect divisibility here means no weight is lost to truncation:
     // the four corners sum back to exactly the fragment's own weight.
@@ -221,7 +221,7 @@ static void test_cross_fragment_summation_matches_hand_computation() {
     const ColourAccum contrib1 = ColourAccum(1000) * ColourAccum(kWeightUnity) * 256 / 256;
     const ColourAccum contrib2 = ColourAccum(500) * ColourAccum(kWeightUnity) * 240 / 256;
     const AccumCell& c = out[std::size_t(5) * std::size_t(kTileSize) + std::size_t(5)];
-    CHECK(c.Y == contrib1 + contrib2);
+    CHECK(c.R == contrib1 + contrib2);
 }
 
 // --- TileAccum::clear() ------------------------------------------------
@@ -235,7 +235,7 @@ static void test_clear_zeroes_all_banks() {
     std::vector<AccumCell> out((std::size_t(kTilePixels)));
     sumBanks(accum, out.data());
     for (int i = 0; i < kTilePixels; ++i) {
-        CHECK_ONCE(out[std::size_t(i)].Y == 0);
+        CHECK_ONCE(out[std::size_t(i)].R == 0);
         CHECK_ONCE(out[std::size_t(i)].w == 0);
     }
 }
@@ -270,9 +270,9 @@ static void test_splatTile_matches_reference_random() {
     for (int i = 0; i < kTilePixels; ++i) {
         const AccumCell& a = banked[std::size_t(i)];
         const AccumCell& b = reference[std::size_t(i)];
-        CHECK_ONCE(a.Y == b.Y);
-        CHECK_ONCE(a.Cb == b.Cb);
-        CHECK_ONCE(a.Cr == b.Cr);
+        CHECK_ONCE(a.R == b.R);
+        CHECK_ONCE(a.G == b.G);
+        CHECK_ONCE(a.B == b.B);
         CHECK_ONCE(a.w == b.w);
     }
 }
@@ -313,11 +313,11 @@ static void test_int64_headroom_full_pipeline() {
     const AccumCell& banked_c = banked[std::size_t(by) * std::size_t(kTileSize) + std::size_t(bx)];
     const AccumCell& ref_c = reference[std::size_t(by) * std::size_t(kTileSize) + std::size_t(bx)];
 
-    CHECK(banked_c.Y == expectedColour);
-    CHECK(banked_c.Cb == expectedColour);
-    CHECK(banked_c.Cr == expectedColour);
+    CHECK(banked_c.R == expectedColour);
+    CHECK(banked_c.G == expectedColour);
+    CHECK(banked_c.B == expectedColour);
     CHECK(banked_c.w == expectedWeight);
-    CHECK(ref_c.Y == expectedColour);
+    CHECK(ref_c.R == expectedColour);
     CHECK(ref_c.w == expectedWeight);
 
     // The point: this is already far beyond a hypothetical 32-bit colour

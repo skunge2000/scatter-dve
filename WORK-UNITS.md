@@ -2955,25 +2955,18 @@ downstream unit.
 *Status:* `green` — no build-affecting change; see `HANDOFF.md` for the
 run.
 
-### WU-39 — `core/types.hpp`: `Frag`/`AccumCell` `Y`/`Cb`/`Cr` → `R`/`G`/`B` rename `todo`
-**New this session (WU-38, ADR-085 §6 item 1) — scoped, not built,
-including a real repository-wide grep for its own blast radius (not
-estimated from ADR-085's own draft, which counted a broader "touches
-`Y`/`Cb`/`Cr`" query, not this rename specifically — see `DECISIONS.md`
-ADR-085's own scope section for that broader count).** I3/I4 are already
-finalised (`DECISIONS.md` ADR-085, `INVARIANTS.md`) — this unit is the
-mechanical rename alone: `Frag::Y/Cb/Cr` → `R/G/B`, `AccumCell::Y/Cb/Cr` →
-`R/G/B`, `kMaxFragContribution`'s own comment/derivation carried forward
-unchanged (I4's bound does not move). `kChromaZero` (`types.hpp`) becomes
-dead once no channel needs an achromatic mid-point offset — remove it or
-keep it as a documented historical constant is this unit's own small open
-call, not decided here.
+### WU-39 — `core/types.hpp`: `Frag`/`AccumCell` `Y`/`Cb`/`Cr` → `R`/`G`/`B` rename `green`
+**Built this session.** `Frag::Y/Cb/Cr` → `R/G/B`, `AccumCell::Y/Cb/Cr` →
+`R/G/B` in `core/types.hpp`, plus every real reference across the file
+list below. `kMaxFragContribution`'s own comment/derivation carried
+forward unchanged (I4's bound does not move — no code change there beyond
+one comment wording fix, see `HANDOFF.md`). `INVARIANTS.md` I3/I4 and
+`DECISIONS.md` (ADR-085) untouched, per this unit's own brief.
 
-**Real files referencing `Frag` and/or `AccumCell` directly, grepped this
-session (`grep -rlw 'Frag'`/`'AccumCell'` across `src/` and `tests/`,
-cross-checked line by line against each match's real context; one false
-positive excluded — `src/io/com_ptr.hpp` only *mentions* "AccumCell" in a
-naming-convention comment, never uses the type):**
+**Re-verified this session's own opening grep against the real tree
+before touching anything (`grep -rlw 'Frag'`/`'AccumCell'` across `src/`
+and `tests/`, per C-027/C-028/C-029's own "a scoping stub is a plan, not a
+fact" lesson): came back identical to WU-38's own list below, no drift.**
 production (10; 2 comment-only) — `src/core/types.hpp`,
 `src/core/binner.cpp`, `src/core/binner.hpp`,
 `src/core/coarse_shading.hpp` (comment-only: "Frag::Y/Cb/Cr" in its own
@@ -2985,20 +2978,76 @@ tests (12) — `tests/test_binner.cpp`, `tests/test_coverage_capture.cpp`,
 `tests/test_kbuffer_storage.cpp`, `tests/test_layered_composite.cpp`,
 `tests/test_pageturn.cpp`, `tests/test_row_band.cpp`,
 `tests/test_scan_order_invariance.cpp`, `tests/test_smoke.cpp`,
-`tests/test_splat.cpp`, `tests/test_zoneplate.cpp`. Smaller, and
+`tests/test_splat.cpp`, `tests/test_zoneplate.cpp`; one false positive
+re-confirmed excluded — `src/io/com_ptr.hpp` only *mentions* "AccumCell"
+in a naming-convention comment, never uses the type. Smaller, and
 differently shaped, than ADR-085's own "21 of 35" figure, which counted
 every file touching *any* `Y`/`Cb`/`Cr`-shaped data — including
 `Raster444`'s own same-named `Y`/`Cb`/`Cr` planes (`src/video/raster.hpp`),
 a distinct struct this unit does not rename (that conversion is `WU-40`'s
-own job, at the v210/chroma boundary) — not this rename's own blast
-radius specifically.
+own job, at the v210/chroma boundary).
 
-**Not scoped past this note:** exact field-by-field diff per file, and
-whether `tests/test_row_band.cpp`'s `decode()`-by-signature helper (`f.Y`,
-`f.Cb` — C-015) needs a shape change beyond the rename, are real scoping
-work for whoever picks this up. Depends on nothing upstream; every
-downstream unit (`WU-40`–`WU-44`) depends on this one landing first, per
-ADR-085 §5's own ordering.
+**Field-by-field diff per file, actually done this session (not merely a
+grep of which files mention the type names): of the 22 files above, only
+9 needed a real code edit** — `pipeline.cpp`/`pipeline.hpp` reference
+`AccumCell` only as a type (declaring vectors of it, or in comments about
+`AccumCell::w`, which is not renamed) and needed none; `binner.hpp`,
+`splat.hpp` likewise declare the types but never access `.Y`/`.Cb`/`.Cr`
+directly; among the 12 test files, `test_coverage_capture.cpp` and
+`test_field_pipeline.cpp` only ever touch `AccumCell` via `.w` or pass
+whole cells to `composite()`, never reading a colour field directly, and
+`test_smoke.cpp` only checks `sizeof(Frag)`/`sizeof(AccumCell)` and
+`Frag::x/y/w/tag` (all unrenamed). The real risk this session's own care
+was aimed at: several files hold *both* `Frag`/`AccumCell` (renamed) and
+`ResolvedCell`/`Background`/`CompositedCell`/`video::Raster444`/
+`video::Raster422` (all distinct structs, *not* renamed — `WU-42`'s own
+job for the first three, `WU-40`'s for the rasters) using the *same*
+`.Y`/`.Cb`/`.Cr` accessor spelling — `core/resolve.cpp`,
+`core/pipeline.cpp`, and `tests/test_kbuffer_resolve.cpp`,
+`test_layered_composite.cpp`, `test_pageturn.cpp`, `test_field_pipeline.cpp`,
+`test_zoneplate.cpp` all mix both. Each occurrence was traced to its own
+variable's real declared type before deciding whether to rename it — a
+blind text substitution across any of these files would have silently
+renamed the wrong struct's fields. See `HANDOFF.md` for the specific line
+outcomes.
+
+**`tests/test_row_band.cpp`'s `decode()`-by-signature helper (`f.Y`,
+`f.Cb` — C-015), flagged by WU-38's own scoping as needing a possible
+shape change beyond the rename: resolved, no shape change needed.**
+`decode()` just reads whichever two `Frag` fields the test's own
+`SignatureRaster` encoded `(px, py)` into — renaming those fields to
+`f.R`/`f.G` does not change what value ends up in either, since
+`binner.cpp`'s `applyShading()`/quantisation loop is untouched by this
+unit and still writes the identical numeric content into whichever fields
+are now called `R`/`G`/`B`. Fixed by a pure name substitution
+(`f.Y`→`f.R`, `f.Cb`→`f.G`), no logic change.
+
+**`kChromaZero` (`types.hpp`): kept, not dead.** WU-38's own scoping note
+("`kChromaZero` becomes dead once no channel needs an achromatic
+mid-point offset any more") was about the *eventual* end state after the
+whole of Phase 9 lands, not after this unit alone — checked directly this
+session with a repository-wide grep before deciding: `kChromaZero` is
+still read by `src/video/v210.cpp`/`.hpp`, `src/video/chroma.hpp`,
+`src/core/binner.cpp`'s `applyShading()` (its own YCbCr-domain round
+trip, unchanged by this unit), `src/core/resolve.hpp`'s `Background`
+default, and a dozen-plus test files — none of which this unit touches
+(they operate on `Raster444`'s still-YCbCr planes and the still-YCbCr
+v210 boundary, both `WU-40`'s job). Removing it now would not compile.
+Left exactly as defined, no comment change needed.
+
+**Build/test: green in all ten sandbox configurations — see `HANDOFF.md`
+for the full matrix.** This is a genuinely accepted outcome under this
+phase's own standing exception (ADR-085 §5: "not expected to leave the
+build green... green is fine to report, red is fine to report"), not a
+sign the exception did not apply — every reference was a pure label
+rename with the numeric data flow completely unchanged, so nothing had a
+chance to disagree at this stage. The semantic reshaping (`SourceRaster`,
+`Colour`, `ResolvedCell`/`Background`/`CompositedCell` actually carrying
+RGB instead of YCbCr) is `WU-40`–`WU-42`'s own job, still ahead, and still
+where this phase's own green-suspension exception is expected to bite.
+
+Depends on nothing upstream; every downstream unit (`WU-40`–`WU-44`)
+depends on this one landing first, per ADR-085 §5's own ordering.
 
 ### WU-40 — `src/video/v210.cpp`/`chroma.cpp`/`.hpp`: RGB boundary conversion, both directions `todo`
 **New this session (WU-38, ADR-085 §6 item 2).** Adds the new conversion

@@ -9,7 +9,8 @@
 // ADR-083 for the full scoping account this session's own split rests on.
 // CoarseShadingGrid below is a pure computation over a Lattice and a
 // LightingScene, producing an interpolatable field of shade()'s own return
-// value I; it knows nothing about fragments, tiles or Frag::Y/Cb/Cr --
+// value I; it knows nothing about fragments, tiles or Frag::R/G/B (renamed
+// from Y/Cb/Cr, WU-39, ADR-085) --
 // tests/test_coarse_shading.cpp is its only caller today, the same
 // "evaluator with no wiring yet" shape core/lighting.hpp had at WU-27.
 //

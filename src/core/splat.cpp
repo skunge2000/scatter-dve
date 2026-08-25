@@ -118,8 +118,9 @@ DecodedPos decode(SubPos x, SubPos y) noexcept {
 // require exact weight conservation across a splat's four corners.
 //
 // Overflow: frag.w and each colour channel are already bounded by
-// core/types.hpp's kMaxFragContribution static_asserts (Y or Cb or Cr,
-// times w, both up to 65535); rawWeight <= 256 only ever *reduces* that
+// core/types.hpp's kMaxFragContribution static_asserts (R or G or B
+// (renamed from Y/Cb/Cr, WU-39), times w, both up to 65535); rawWeight
+// <= 256 only ever *reduces* that
 // product before the shift restores the scale, so no corner-write here
 // can exceed kMaxFragContribution regardless of rawWeight. The intermediate
 // product before the shift, up to 65535 * 65535 * 256 (~1.1e12), and the
@@ -132,9 +133,9 @@ void accumulateCorner(AccumCell& cell, const Frag& f,
     const std::int64_t rw = std::int64_t(rawWeight);
     const std::int64_t weightContribution = (w * rw) >> (2 * kSubPixelBits);
 
-    cell.Y += (std::int64_t(f.Y) * w * rw) >> (2 * kSubPixelBits);
-    cell.Cb += (std::int64_t(f.Cb) * w * rw) >> (2 * kSubPixelBits);
-    cell.Cr += (std::int64_t(f.Cr) * w * rw) >> (2 * kSubPixelBits);
+    cell.R += (std::int64_t(f.R) * w * rw) >> (2 * kSubPixelBits);
+    cell.G += (std::int64_t(f.G) * w * rw) >> (2 * kSubPixelBits);
+    cell.B += (std::int64_t(f.B) * w * rw) >> (2 * kSubPixelBits);
     cell.w += WeightAccum(weightContribution);
 }
 
@@ -227,9 +228,9 @@ void sumBanks(const TileAccum& accum, AccumCell* out) {
             AccumCell sum{};
             for (int b = 0; b < kBanks; ++b) {
                 const AccumCell& c = accum.bank(b, x, y);
-                sum.Y += c.Y;
-                sum.Cb += c.Cb;
-                sum.Cr += c.Cr;
+                sum.R += c.R;
+                sum.G += c.G;
+                sum.B += c.B;
                 sum.w += c.w;
             }
             out[std::size_t(y) * std::size_t(kTileSize) + std::size_t(x)] = sum;
