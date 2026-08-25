@@ -3049,21 +3049,139 @@ where this phase's own green-suspension exception is expected to bite.
 Depends on nothing upstream; every downstream unit (`WU-40`–`WU-44`)
 depends on this one landing first, per ADR-085 §5's own ordering.
 
-### WU-40 — `src/video/v210.cpp`/`chroma.cpp`/`.hpp`: RGB boundary conversion, both directions `todo`
-**New this session (WU-38, ADR-085 §6 item 2).** Adds the new conversion
-stage ADR-085 describes: v210 unpack → chroma upsample → **new:
-YCbCr→RGB** on the input side; **new: RGB→YCbCr** → chroma downsample →
-v210 pack on the output side. `Raster444` (`src/video/raster.hpp`) keeps
-its own `Y`/`Cb`/`Cr` planes exactly as today up to and including chroma
-upsample (unaffected by `WU-39`'s rename — a distinct struct) — this unit
-is where a new RGB-shaped container gets produced from it, once, at the
-boundary; whether that is a new struct, a repurposed `Raster444`, or
-something else is this unit's own first design question, not decided
-here. I2's clip-to-protocol-limits behaviour almost certainly stays
-exactly where it is today, at the YCbCr boundary immediately around pack/
-unpack, since v210's protocol limits (codes 4–1019) are inherently YCbCr
-code values with no literal RGB equivalent — flagged for confirmation,
-not decided here either. Depends on WU-39.
+### WU-40 — `src/video/v210.cpp`/`chroma.cpp`/`.hpp`: RGB boundary conversion, both directions `red`
+**Built this session.** Adds the new conversion stage ADR-085 describes:
+YCbCr→RGB→YCbCr round trip inserted immediately adjacent to chroma
+upsample (input side) and chroma downsample (output side), in every real
+production caller of that boundary. `Raster444`'s own `Y`/`Cb`/`Cr` planes
+are untouched (still a distinct struct from WU-39's rename, per this
+unit's own opening brief, confirmed directly against the real
+`src/video/raster.hpp` before writing anything, not assumed from this
+stub) — `SourceRaster`/`sampleBilinear()` are not RGB-native yet, that is
+`WU-41`'s own job, so this unit's own new conversion round-trips straight
+back to YCbCr rather than handing PASS 1/2 an RGB-shaped source.
+
+**This unit's own design questions, resolved this session (not deferred):**
+
+- **New RGB container: a new struct, `video::RasterRGB`** (`src/video/raster.hpp`),
+  not a repurposed `Raster444` — structurally identical (three tight-packed
+  4:4:4-shaped planes, same `Plane`/`ConstPlane` accessor convention) but
+  with `.R/.G/.B` field names, the same reasoning WU-39 already used for
+  `Frag`/`AccumCell`'s own rename: two structs sharing one accessor
+  spelling is exactly what `CORRECTIONS.md` (C-027 onward) keeps finding
+  bugs in. `Raster444` keeps its own YCbCr semantics unconditionally.
+- **Coefficients: hardcoded BT.601** (`Kr=0.299, Kg=0.587, Kb=0.114`,
+  duplicated literals, not shared code) directly in `chroma.cpp`, matching
+  every existing real caller's own default. **Not** parameterised by
+  `ColourStandard` here — ADR-085 §7 leaves "where `ColourStandard`/
+  `coeffsFor` should live once both shading and the I/O boundary need
+  them" explicitly open, assigned to whoever starts `WU-41`; this unit
+  does not decide it, and does not include `core/binner.hpp` from
+  `video/chroma.cpp` to reuse it either, since every existing include edge
+  between `core/` and `video/` runs one way (core depends on video, never
+  the reverse) and this unit is not the place to become the first
+  exception. See `video/chroma.hpp`'s own new comment for the full account.
+- **I2's clip site: confirmed unaffected, as flagged.** The new
+  conversion's own quantisation clamps to `Sample`'s representable range
+  `[0, 65535]` only (the same container-limit clamp `core/binner.cpp`'s
+  `applyShading()`/`toSample()` already use, duplicated here for the same
+  layering reason as the coefficients above) — not I2's v210 protocol
+  clamp (`[kCode10Min, kCode10Max]`), which stays exactly where it already
+  is, at `v210::packRow` alone.
+
+**Files, real (not the stub's guess): `src/video/raster.hpp`** (new
+`RasterRGB` struct), **`src/video/chroma.hpp`/`.cpp`** (new
+`ycbcrToRgbRow`/`Image`, `rgbToYcbcrRow`/`Image` — see `chroma.hpp` for the
+full design comment), **`src/core/pipeline.cpp`** (wired into all three,
+and only three, real production callers that build a `SourceRaster` —
+confirmed by a repository-wide grep before writing anything, per
+C-027/C-028/C-029: `runFrameBytes()`, `runFrameBytesDeinterlaced()`,
+`runFrameFile()`, each getting the round-trip on both the input side,
+immediately before `SourceRaster` is built, and the output side,
+immediately after `runFrame()` returns, before chroma downsample; every
+test file that constructs its own `SourceRaster` directly — `test_threading.cpp`,
+`test_layered_composite.cpp`, `test_binner.cpp` and the rest — bypasses this
+boundary entirely and is unaffected, confirmed by the same grep), plus a
+file-header comment update explaining the new step. **`src/core/resolve.hpp`**
+— comment-only (the "complete signal path" prose ahead of
+`runFrameBytes()`/`runFrameBytesDeinterlaced()`/`runFrameFile()`'s own
+declarations named the old five-stage shape without the new RGB step;
+updated in place, including a direct note on the `runFrameFile()` doc
+comment's own I7 claim, now qualified — see Accept below). No `core/binner.hpp`/
+`.cpp` (`SourceRaster`, `sampleBilinear()` — `WU-41`'s own job) or
+`core/resolve.cpp`/`.hpp` PASS-2 arithmetic (`WU-42`'s own job) touched.
+
+**Repository-wide grep before closing out (C-028/C-029), not just the files
+touched:** every real caller of `chroma::upsampleImage`/`downsampleImage`
+(the only other function this unit's own new code sits next to) is either
+one of the three `core/pipeline.cpp` sites above (now converted) or a test
+file calling the chroma functions directly in isolation (`test_chroma.cpp`,
+`test_chroma_neon.cpp`, `test_ramp_roundtrip.cpp`, `test_pipeline_bytes.cpp`'s
+own hand-composed references) — none of those go through
+`core/pipeline.cpp`'s orchestration at all, so none see the new conversion,
+confirmed by grep rather than assumed. Every real `SourceRaster`
+construction site (a possible reader of "observable behaviour changed, not
+just call sites that fail to compile," per C-028/C-029's own sharpened
+lesson) is confirmed to be exactly the three `core/pipeline.cpp` functions
+already listed above — no other production file builds one. DeckLink-linked
+production code (`src/io/decklink_capture_consumer.cpp`, the one real
+caller of `runFrameBytesDeinterlaced()` outside this file and its own
+tests) does not assert byte-exactness on the result, only consumes
+whatever `runFrameBytesDeinterlaced()` produces — confirmed by grep, not
+built or tested here (no `BLACKMAGIC_SDK_DIR` in this sandbox, matching
+every prior session).
+
+**Accept / build-test outcome — genuinely red, honestly reported, per the
+standing exception (ADR-085 §5): 27/28 tests pass in every one of the ten
+sandbox configurations, `test_zoneplate` fails identically in all ten (22
+of 42537 checks, always the same 22), no sanitizer findings anywhere. See
+`HANDOFF.md` for the full matrix and the exact failing checks.**
+`test_zoneplate.cpp`'s `test_i7_identity_full_pipeline()` (via
+`runFrameFile()`) fails for three of its four `chromaExpectedExact=true`
+flat-pattern codes (`kCode10Min=4`, `kCode10Black=64`, `kCode10Max=1019`)
+at both tested raster sizes — not `kCode10ChromaZero=512`. Root cause,
+verified directly against the new conversion's own algebra, not guessed:
+`makeFlat()` sets `Cb=Cr=Y` (the same code on all three planes), which is
+achromatic (chroma delta from `kChromaZero` is exactly zero) only for code
+512; the other three codes are flat but *not* achromatic, and their
+implied RGB triple falls far outside `Sample`'s representable range (e.g.
+code 4: `Y=Cb=Cr=256`, chroma delta `-32512`, implied `R ≈ 256 + 1.402 ×
+(-32512) ≈ -45334`, clamped to 0) — a real, non-recoverable clip on the
+forward conversion, not a rounding artefact, exactly the behaviour
+`video/chroma.hpp`'s own new comment documents. This also perturbs the
+luma channel for these codes (not just chroma), since the conversion
+mixes all three channels — `test_zoneplate.cpp:209`'s `result.Y == src.Y`
+fails alongside `:212`/`:213` for these cases, which the test file's own
+pre-existing comment ("luma never enters a chroma filter... must survive
+exactly, always") did not anticipate, because it predates a conversion
+step that couples Y to chroma. **`test_pipeline_bytes.cpp`'s own I7 check
+(`runFrameBytes()`) and its `referenceRunFrameBytesDeinterlaced()`
+byte-exact cross-check both stay green** — both use `testpat::makeZonePlate()`,
+which holds chroma flat at exactly `kChromaZero` (achromatic) throughout,
+the one flat-code case that round-trips this new conversion essentially
+exactly regardless of luma's own (non-flat, genuine zone-plate) value —
+verified directly against the algebra (achromatic input makes
+`R=B=Y` exactly and `G` round to `Y` for any `Y`), not merely observed to
+pass. This is not a defect in this unit or in `test_pipeline_bytes.cpp`;
+it is the achromatic case genuinely being a fixed point of the new
+conversion, confirmed both algebraically and empirically. No other test
+touched or affected.
+
+**Not done, and explicitly not this unit's job:** `SourceRaster`/
+`sampleBilinear()` still read/write YCbCr-labelled `Raster444` planes
+(`WU-41`); PASS 2's `Y`/`Cb`/`Cr`-shaped arithmetic in `core/resolve.cpp`/
+`.hpp` (`WU-42`); `docs/architecture.md` (`WU-43`); re-deriving
+`test_zoneplate.cpp`'s own now-red fixture expectations, or any other
+fixture (`WU-44`'s own explicit job, not cut short here to force a false
+green — ADR-085 §5 forbids exactly that). `ColourStandard`/`coeffsFor`'s
+eventual shared home is still open, now explicitly for `WU-41`.
+
+Depends on WU-39 (landed). `WU-41`, `WU-42`, `WU-44` all depend on this
+one landing next.
+
+*Status:* `red` — genuinely, honestly, per the standing exception; not
+forced green by cutting scope, not treated as suspicious on its own. See
+`HANDOFF.md`.
 
 ### WU-41 — `src/core/binner.cpp`/`.hpp`: `sampleBilinear()` reads RGB; `applyShading()` simplifies `todo`
 **New this session (WU-38, ADR-085 §6 item 3).** `sampleBilinear()` reads

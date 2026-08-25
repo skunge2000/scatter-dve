@@ -167,4 +167,93 @@ void downsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
 
 #endif  // __ARM_NEON
 
+// ---------------------------------------------------------------------------
+// RGB boundary conversion (WU-40, DECISIONS.md ADR-085)
+//
+// ADR-085: the pipeline's internal colour representation becomes RGB
+// (I3), superseding the YCbCr-internal design; the 4:2:2 v210 wire
+// transport and this file's own upsample/downsample resampling above are
+// both unaffected (ADR-005 stands). What changes is what happens to the
+// already-4:4:4 (post-upsample) or about-to-be-4:2:2 (pre-downsample)
+// result: it is converted to/from RGB once at each end, immediately
+// adjacent to the resampling step above, not left as the pipeline's own
+// internal representation the way it was before this ADR.
+//
+// This is the same standard-derivation matrix conversion
+// core/binner.cpp's applyShading() already uses for its own RGB round trip
+// (WU-34b, ADR-084) -- for any Kr/Kg/Kb triple with Kr + Kg + Kb == 1:
+//
+//   R = Y + 2*(1-Kr)*Cr'          Y  = Kr*R + Kg*G + Kb*B
+//   B = Y + 2*(1-Kb)*Cb'          Cb' = (B - Y) / (2*(1-Kb))
+//   G = (Y - Kr*R - Kb*B) / Kg    Cr' = (R - Y) / (2*(1-Kr))
+//
+// where Cb'/Cr' are chroma deltas from kChromaZero (I3's achromatic
+// centre), matching applyShading()'s own convention exactly.
+//
+// Coefficients: hardcoded to the ordinary ITU-R BT.601 luma coefficients
+// (Kr=0.299, Kg=0.587, Kb=0.114) -- the same values core/binner.hpp's
+// ColourStandard::BT601 selects and every real caller of applyShading()
+// already defaults to (this project's own real target is SD, ADR-007).
+// Not parameterised by ColourStandard here: ADR-085 Section 7 leaves "where
+// ColourStandard/coeffsFor should live once both shading and the I/O
+// boundary need them" as an explicitly open question, assigned to whoever
+// starts WU-41 (WORK-UNITS.md) -- this unit does not decide it, and adding
+// a second, independent copy of the ColourStandard enum here to parameterise
+// against would be exactly the kind of premature module-placement decision
+// that open question defers. Duplicating the BT.601 constants directly
+// (rather than including core/binner.hpp from this file) also avoids
+// inverting this project's own core-depends-on-video layering: every
+// existing include edge between core/ and video/ runs one way (core/
+// binner.cpp, pipeline.cpp, resolve.hpp, types.hpp all include video/
+// headers; no video/ header includes a core/ one), and this file is not
+// the place to become the first exception.
+//
+// Quantisation: round to nearest, then clamp to Sample's own representable
+// range [0, 65535] -- not I2's v210 protocol clamp ([kCode10Min,
+// kCode10Max] in 10-bit terms), which applies only at v210::packRow. This
+// is the same distinction, and the same clamp, core/binner.cpp's own
+// toSample() already documents for applyShading()'s output: a container
+// limit, not a legalisation step, and I2 is unaffected because nothing
+// here pulls a value back toward a "legal" range -- Sample is just finite.
+// A YCbCr triple whose implied RGB falls outside [0, 65535] (always
+// possible for I2-legal-range-and-beyond YCbCr, since not every YCbCr
+// triple corresponds to an in-gamut RGB colour) clips here for real, on
+// both the forward and the round-trip-back conversion -- this is a genuine
+// behavioural difference from the pre-ADR-085 pipeline, not a rounding
+// artefact, and is exactly the kind of "downstream breakage... becomes
+// plausible for the first time" HANDOFF.md's own WU-39 session flagged for
+// this unit. See HANDOFF.md for which existing tests this was found to
+// affect.
+//
+// Threading: stateless per-pixel, no cross-pixel dependency (each output
+// sample reads only its own input triple) -- thread-count-independent by
+// construction, the same reasoning upsampleRow/downsampleRow already rely
+// on for their own row independence. No thread parameter needed here for
+// the same reason those functions have none.
+//
+// Preconditions, none checked at runtime: width, height > 0; `in`-side
+// planes each hold at least height * inStrideSamples samples with the
+// last row holding at least width; `out`-side likewise for
+// outStrideSamples. Unlike upsampleRow/downsampleRow (4:2:2-width in or
+// out), every plane on both sides here is `width` samples wide -- this
+// conversion runs only on already-4:4:4 data, per its own file-header
+// account above.
+// ---------------------------------------------------------------------------
+
+void ycbcrToRgbRow(const Sample* Y, const Sample* Cb, const Sample* Cr, int width,
+                   Sample* R, Sample* G, Sample* B) noexcept;
+
+void rgbToYcbcrRow(const Sample* R, const Sample* G, const Sample* B, int width,
+                   Sample* Y, Sample* Cb, Sample* Cr) noexcept;
+
+void ycbcrToRgbImage(const Sample* Y, const Sample* Cb, const Sample* Cr,
+                     std::ptrdiff_t inStrideSamples, int width, int height,
+                     Sample* R, Sample* G, Sample* B,
+                     std::ptrdiff_t outStrideSamples) noexcept;
+
+void rgbToYcbcrImage(const Sample* R, const Sample* G, const Sample* B,
+                     std::ptrdiff_t inStrideSamples, int width, int height,
+                     Sample* Y, Sample* Cb, Sample* Cr,
+                     std::ptrdiff_t outStrideSamples) noexcept;
+
 }  // namespace scatter::chroma

@@ -14,6 +14,24 @@
 // PASS 1 and PASS 2 over already-4:4:4 rasters; runFrameFile() adds the
 // v210/chroma stages either side of it.
 //
+// WU-40 (DECISIONS.md ADR-085) adds a new RGB boundary conversion
+// immediately adjacent to chroma upsample/downsample, on both sides, in
+// every function below that owns that middle sequence
+// (runFrameBytes()/runFrameBytesDeinterlaced()/runFrameFile()): chroma
+// upsample -> chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage() ->
+// [PASS 1/2 as before, still reading/writing YCbCr-labelled Raster444
+// planes -- SourceRaster/sampleBilinear() are not RGB-native yet, that is
+// WU-41's own job] -> chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage()
+// -> chroma downsample. The round trip back to YCbCr immediately after each
+// conversion is deliberate, not a no-op left in by mistake: PASS 1/2 still
+// expect Raster444's own Y/Cb/Cr planes on both sides (that does not change
+// until WU-41/WU-42 land), so this unit's own job is limited to proving the
+// new conversion is wired in and exercised for real at the actual boundary,
+// not to reshaping what runs between the two conversions -- see WORK-UNITS.md's
+// WU-40 entry and HANDOFF.md for which existing tests this was found to
+// affect (the round trip is not bit-exact in general, per I2 -- see
+// video/chroma.hpp's own comment on the new functions).
+//
 // WU-16a (ADR-040) added ThreadPool and threaded PASS 2 alone, deferring
 // PASS 1's own row-band parallelism (architecture.md section 6's fuller
 // two-pass design) as WU-16b, deliberately, because it needed a
@@ -650,6 +668,21 @@ void runFrameBytes(const Lattice& lattice,
                            srcWidth, srcHeight,
                            full.Cr.data(), full.planeCr().strideSamples);
 
+    // RGB boundary conversion, input side (WU-40, ADR-085) -- see this
+    // file's own header comment above for why this round-trips back to
+    // YCbCr immediately rather than feeding SourceRaster with RGB directly.
+    {
+        video::RasterRGB rgb(srcWidth, srcHeight);
+        chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
+                                 full.planeY().strideSamples, srcWidth, srcHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
+                                 full.Y.data(), full.Cb.data(), full.Cr.data(),
+                                 full.planeY().strideSamples);
+    }
+
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
@@ -659,6 +692,22 @@ void runFrameBytes(const Lattice& lattice,
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
+
+    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
+    // with the input side above, immediately before chroma downsample.
+    {
+        video::RasterRGB rgb(params.destWidth, params.destHeight);
+        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples);
+    }
 
     // Chroma downsample 4:4:4 -> 4:2:2 (ADR-005) before pack; luma again
     // passes straight through.
@@ -725,6 +774,27 @@ bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
         return false;
     }
 
+    // RGB boundary conversion, input side (WU-40, ADR-085) -- applied to
+    // `progressive`, not `weave`: this sits immediately before SourceRaster
+    // is built, the same relative position runFrameBytes() above uses,
+    // downstream of deinterlace rather than wrapping it (deinterlace still
+    // operates on genuine, unperturbed chroma-upsampled YCbCr). See this
+    // file's own header comment above for why this round-trips back to
+    // YCbCr immediately rather than feeding SourceRaster with RGB directly.
+    {
+        video::RasterRGB rgb(srcWidth, srcHeight);
+        chroma::ycbcrToRgbImage(progressive.Y.data(), progressive.Cb.data(),
+                                 progressive.Cr.data(),
+                                 progressive.planeY().strideSamples, srcWidth, srcHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
+                                 progressive.Y.data(), progressive.Cb.data(),
+                                 progressive.Cr.data(),
+                                 progressive.planeY().strideSamples);
+    }
+
     // The reconstructed full-height progressive frame -- not `weave` -- is
     // this call's own source raster for the warp, exactly the same relative
     // position `full` occupies in runFrameBytes() above.
@@ -737,6 +807,22 @@ bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
+
+    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
+    // with the input side above, immediately before chroma downsample.
+    {
+        video::RasterRGB rgb(params.destWidth, params.destHeight);
+        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples);
+    }
 
     // Output-side "[re-interlace]" is a provable no-op for this project's
     // own frame-rate-only mode (ADR-080: video::extractField() applied for
@@ -788,6 +874,22 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                            srcWidth, srcHeight,
                            full.Cr.data(), full.planeCr().strideSamples);
 
+    // RGB boundary conversion, input side (WU-40, ADR-085) -- see
+    // runFrameBytes() above (this file's own header comment covers the full
+    // rationale) for why this round-trips back to YCbCr immediately rather
+    // than feeding SourceRaster with RGB directly.
+    {
+        video::RasterRGB rgb(srcWidth, srcHeight);
+        chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
+                                 full.planeY().strideSamples, srcWidth, srcHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
+                                 full.Y.data(), full.Cb.data(), full.Cr.data(),
+                                 full.planeY().strideSamples);
+    }
+
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
@@ -797,6 +899,22 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
+
+    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
+    // with the input side above, immediately before chroma downsample.
+    {
+        video::RasterRGB rgb(params.destWidth, params.destHeight);
+        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples);
+        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                                 rgb.planeR().strideSamples,
+                                 params.destWidth, params.destHeight,
+                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                                 warped.planeY().strideSamples);
+    }
 
     // Chroma downsample 4:4:4 -> 4:2:2 (ADR-005) before pack; luma again
     // passes straight through.

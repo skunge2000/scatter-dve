@@ -7,7 +7,10 @@
 
 #include "video/chroma.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "video/v210.hpp"
 
@@ -284,5 +287,95 @@ void downsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
 }
 
 #endif  // __ARM_NEON
+
+// ---------------------------------------------------------------------------
+// RGB boundary conversion -- WU-40, DECISIONS.md ADR-085. See chroma.hpp for
+// the full design account (coefficient choice, quantisation, why this
+// duplicates rather than reuses core/binner.cpp's coeffsFor()).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// ITU-R BT.601 luma coefficients -- deliberately the same literals
+// core/binner.cpp's coeffsFor(ColourStandard::BT601) uses, not shared code;
+// see chroma.hpp's own comment on why this file does not include
+// core/binner.hpp to reuse them.
+inline constexpr double kKr = 0.299;
+inline constexpr double kKg = 0.587;
+inline constexpr double kKb = 0.114;
+
+// Round to nearest, clamp to Sample's own representable range -- the same
+// operation core/binner.cpp's own (private, file-local) toSample() performs
+// on applyShading()'s output; duplicated here for the same reason the Kr/Kg/
+// Kb constants above are, and documented not to be I2's protocol clamp (see
+// chroma.hpp).
+inline Sample toSampleClamped(double v) noexcept {
+    const double lo = 0.0;
+    const double hi = double(std::numeric_limits<Sample>::max());
+    const double r  = std::round(std::clamp(v, lo, hi));
+    return Sample(r);
+}
+
+}  // namespace
+
+void ycbcrToRgbRow(const Sample* Y, const Sample* Cb, const Sample* Cr, int width,
+                   Sample* R, Sample* G, Sample* B) noexcept {
+    for (int i = 0; i < width; ++i) {
+        const double y  = double(Y[i]);
+        const double cbDelta = double(Cb[i]) - double(kChromaZero);
+        const double crDelta = double(Cr[i]) - double(kChromaZero);
+
+        const double r = y + 2.0 * (1.0 - kKr) * crDelta;
+        const double b = y + 2.0 * (1.0 - kKb) * cbDelta;
+        const double g = (y - kKr * r - kKb * b) / kKg;
+
+        R[i] = toSampleClamped(r);
+        G[i] = toSampleClamped(g);
+        B[i] = toSampleClamped(b);
+    }
+}
+
+void rgbToYcbcrRow(const Sample* R, const Sample* G, const Sample* B, int width,
+                   Sample* Y, Sample* Cb, Sample* Cr) noexcept {
+    for (int i = 0; i < width; ++i) {
+        const double r = double(R[i]);
+        const double g = double(G[i]);
+        const double b = double(B[i]);
+
+        const double y  = kKr * r + kKg * g + kKb * b;
+        const double cb = (b - y) / (2.0 * (1.0 - kKb)) + double(kChromaZero);
+        const double cr = (r - y) / (2.0 * (1.0 - kKr)) + double(kChromaZero);
+
+        Y[i]  = toSampleClamped(y);
+        Cb[i] = toSampleClamped(cb);
+        Cr[i] = toSampleClamped(cr);
+    }
+}
+
+void ycbcrToRgbImage(const Sample* Y, const Sample* Cb, const Sample* Cr,
+                     std::ptrdiff_t inStrideSamples, int width, int height,
+                     Sample* R, Sample* G, Sample* B,
+                     std::ptrdiff_t outStrideSamples) noexcept {
+    for (int row = 0; row < height; ++row) {
+        const std::ptrdiff_t r = row;
+        ycbcrToRgbRow(Y + r * inStrideSamples, Cb + r * inStrideSamples,
+                      Cr + r * inStrideSamples, width,
+                      R + r * outStrideSamples, G + r * outStrideSamples,
+                      B + r * outStrideSamples);
+    }
+}
+
+void rgbToYcbcrImage(const Sample* R, const Sample* G, const Sample* B,
+                     std::ptrdiff_t inStrideSamples, int width, int height,
+                     Sample* Y, Sample* Cb, Sample* Cr,
+                     std::ptrdiff_t outStrideSamples) noexcept {
+    for (int row = 0; row < height; ++row) {
+        const std::ptrdiff_t r = row;
+        rgbToYcbcrRow(R + r * inStrideSamples, G + r * inStrideSamples,
+                      B + r * inStrideSamples, width,
+                      Y + r * outStrideSamples, Cb + r * outStrideSamples,
+                      Cr + r * outStrideSamples);
+    }
+}
 
 }  // namespace scatter::chroma

@@ -119,6 +119,51 @@ struct Raster444 {
 };
 
 // ---------------------------------------------------------------------------
+// RasterRGB — owning 4:4:4-shaped RGB frame, tight-packed (WU-40,
+// DECISIONS.md ADR-085).
+//
+// Structurally identical to Raster444 (same plane shape, same tight-packing
+// convention) but with R/G/B field names instead of Y/Cb/Cr — a deliberate
+// new, distinct struct rather than a repurposed Raster444, the same choice
+// WU-39 made for Frag/AccumCell's own R/G/B rename and for the same reason:
+// this project's own CORRECTIONS.md (C-027 onward) has repeatedly found
+// bugs from two differently-typed things sharing one accessor spelling.
+// Raster444 keeps its own Y/Cb/Cr names and its own YCbCr semantics
+// unconditionally (it is what chroma::upsampleImage/downsampleImage
+// produce/consume either side of this struct, still 4:2:2-derived YCbCr,
+// ADR-005) — a caller holding a Raster444 and a caller holding a RasterRGB
+// can never mistake one for the other at the type level, unlike two structs
+// sharing field names would allow.
+//
+// This is the "new RGB-shaped container" WU-38's own WORK-UNITS.md WU-40
+// stub flagged as this unit's own first open design question ("whether that
+// is a new struct, a repurposed Raster444, or something else") — resolved
+// here, this session, as a new struct alongside Raster444, not a
+// replacement for it: Raster444 remains load-bearing for the still-YCbCr
+// v210/chroma boundary (ADR-005, unaffected by ADR-085) on both sides of
+// this new struct.
+// ---------------------------------------------------------------------------
+
+struct RasterRGB {
+    std::vector<Sample> R, G, B;
+    int width = 0, height = 0;
+
+    RasterRGB(int w, int h)
+        : R(std::size_t(w) * std::size_t(h)),
+          G(std::size_t(w) * std::size_t(h)),
+          B(std::size_t(w) * std::size_t(h)),
+          width(w), height(h) {}
+
+    Plane planeR() noexcept { return {R.data(), width, width, height}; }
+    Plane planeG() noexcept { return {G.data(), width, width, height}; }
+    Plane planeB() noexcept { return {B.data(), width, width, height}; }
+
+    ConstPlane planeR() const noexcept { return {R.data(), width, width, height}; }
+    ConstPlane planeG() const noexcept { return {G.data(), width, width, height}; }
+    ConstPlane planeB() const noexcept { return {B.data(), width, width, height}; }
+};
+
+// ---------------------------------------------------------------------------
 // Raw .v210 file I/O — implemented in src/io/file_source.cpp and
 // src/io/file_sink.cpp. No file header: width and height are supplied by the
 // caller, exactly as v210::unpackImage/packImage require them as parameters

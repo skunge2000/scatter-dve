@@ -495,7 +495,11 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
 // the exact shared middle both runFrame() callers already use (v210
 // unpack, chroma upsample, runFrame(), chroma downsample, v210 pack) with
 // the file-I/O bookends replaced by caller-supplied source/destination
-// pointers and strides.
+// pointers and strides. WU-40 (DECISIONS.md ADR-085) adds a round-trip RGB
+// boundary conversion immediately either side of runFrame() itself, inside
+// this shared middle -- see core/pipeline.cpp's own file header for the
+// full account; this does not change the shape described here, only what
+// happens between chroma upsample/downsample and runFrame().
 //
 // Preconditions, unchecked -- the same convention runFrame() above and
 // video::v210::unpackImage/packImage already use throughout this codebase:
@@ -529,6 +533,10 @@ void runFrameBytes(const Lattice& lattice,
 // runFrame(), chroma downsample, v210 pack), with `deinterlacer.push()`
 // inserted between the chroma upsample and runFrame() -- see
 // core/pipeline.cpp for the body, and ADR-080 for the full design account.
+// WU-40 (DECISIONS.md ADR-085): the RGB boundary round trip sits after
+// deinterlace, immediately before runFrame() (and symmetrically after it,
+// before chroma downsample) -- deinterlace itself still operates on
+// genuine, unperturbed chroma-upsampled YCbCr, unaffected by WU-40.
 //
 // `deinterlacer` is a caller-owned instance, taken by reference and not
 // folded into PipelineParams -- PipelineParams is shared by every
@@ -584,6 +592,25 @@ bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
 // srcPath's v210 geometry; params.destWidth/destHeight describe dstPath's.
 // Returns false, writing nothing durable, if either v210 file operation
 // fails -- matching readV210File/writeV210File's own convention.
+//
+// WU-40 (DECISIONS.md ADR-085): as of this unit, this shared middle also
+// round-trips through the new RGB boundary conversion either side of
+// runFrame() -- see core/pipeline.cpp's own file header. tests/
+// test_zoneplate.cpp's own test_i7_identity_full_pipeline(), run against
+// this function, is exactly the check this note above already flagged as
+// exercising this path: its chromaExpectedExact=true flat-pattern cases use
+// Cb=Cr=Y (the same code on all three planes, per that test's own
+// makeFlat()), which is not achromatic (I3's achromatic centre is
+// kChromaZero, code 512) for three of its four tested codes (kCode10Min=4,
+// kCode10Black=64, kCode10Max=1019) -- only kCode10ChromaZero=512 itself is
+// achromatic. A non-achromatic flat YCbCr triple's implied RGB is not
+// guaranteed to fall inside Sample's own representable range (video/
+// chroma.hpp's own comment on ycbcrToRgbRow), so this round trip is not
+// expected to stay bit-exact for those three codes any more, only for 512 --
+// see HANDOFF.md for the real, actually-observed outcome, and WORK-UNITS.md's
+// own WU-40 entry; this is the honestly-reportable breakage ADR-085 Section 5
+// accepts for this phase, not a defect in this function or in the new
+// conversion.
 //
 // Deliberately not implemented in terms of runFrameBytes() above, despite
 // running the identical middle sequence (unpack, upsample, runFrame,
