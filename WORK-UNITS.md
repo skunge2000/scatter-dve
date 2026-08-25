@@ -3400,6 +3400,52 @@ Re-deriving `test_binner.cpp`'s shading-mirror fixture, or
 other fixture (`WU-44`'s own explicit job, not cut short here to force a
 false green — ADR-085 §5 forbids exactly that).
 
+**Addendum, same tag (`wu-41-red` already committed/tagged/pushed when
+this was found and fixed) — `src/core/resolve.hpp`'s `kDefaultBackground`
+patched as an explicit, narrow exception to this unit's own file scope:**
+Steve reported a cyan/blue tint on `tests/test_decklink_live_sphere.cpp`'s
+live-hardware background (that test needs real DeckLink capture hardware,
+so nothing in this repo's own build/test matrix can catch it — it never
+ran during this unit's own accept pass). Root cause: `core/resolve.hpp`'s
+`Background`/`kDefaultBackground` — untouched by this unit, explicitly
+named above as `WU-42`'s own file — still held its pre-ADR-085 YCbCr-domain
+value, `{Y=kBlack, Cb=kChromaZero, Cr=kChromaZero}`. `composite()` writes
+this constant, unconverted, into any uncovered or partially-covered
+destination cell's `Y`/`Cb`/`Cr` fields — and this unit's own output-side
+`core/pipeline.cpp` change (above) applies one blanket
+`chroma::rgbToYcbcrImage()` reinterpretation to *all* of `warped`'s
+content, correct for pixels whose colour came from a splatted source
+fragment (genuine RGB by construction, since WU-39/WU-41), wrong for
+`Background`'s own fallback content, which never passed through any RGB
+conversion and was never RGB to begin with under the old value. Verified
+numerically (small standalone program linking `core/resolve.cpp` +
+`video/chroma.cpp` directly, not run through this repo's own test
+harness): the old value round-trips to final genuine YCbCr
+`Y=24195, Cb=37606, Cr=18432` for a fully uncovered pixel — Cb well above
+`kChromaZero` (32768), Cr well below it, exactly the cyan/blue tint
+observed. Fixed to `{Y=kBlack, Cb=kBlack, Cr=kBlack}` (I3's own new RGB
+text: "R, G and B are all full-range... no channel needs a mid-point
+offset any more" — black is `kBlack` on every channel once every channel
+is RGB); the same verification program confirms this round-trips to
+genuine legal black, `Y=4096, Cb=32768, Cr=32768`, exactly. Full ten-
+configuration matrix re-run against this one-line change on top of the
+already-tagged `wu-41-red` commit: identical result to this unit's own
+original matrix above, same three tests failing with the exact same
+per-test check counts (`test_binner` 2/39139, `test_zoneplate` 22/42537,
+`test_pipeline_bytes` 3/42) — this fix is orthogonal to the I7 non-
+achromatic round-trip breakage already accepted above, changes no other
+test's outcome, and introduces no new compiler warning or sanitizer
+finding in any of the ten configurations. See `CORRECTIONS.md` C-032 for
+the general lesson (this unit's own C-028/C-029-style repo-wide check
+covered every *call site* that constructs or reads `SourceRaster`, but
+missed that `core/resolve.hpp`'s `Background` is an independent source of
+`Y`/`Cb`/`Cr`-labelled content feeding the same `warped` raster, entirely
+outside PASS 1) and `HANDOFF.md` for this follow-up session's full
+account. This remains a narrow, explicit exception to this unit's own file
+scope — `core/resolve.cpp`/`.hpp`'s own `Y`/`Cb`/`Cr` → `R`/`G`/`B` field
+rename and the rest of PASS 2's reshape are still entirely `WU-42`'s own
+job, not started here.
+
 Depends on WU-39, WU-40 (both landed). `WU-42`, `WU-44` depend on this one
 landing next; `WU-43` depends on `WU-39`–`WU-42`.
 

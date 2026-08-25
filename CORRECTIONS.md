@@ -1117,3 +1117,69 @@ changes what an existing field or parameter actually does, for whether an
 *older* comment elsewhere in the codebase still describes the *previous*
 behaviour -- not only whether the newer unit's own new comments are
 accurate.
+
+**C-032 -- WU-41's own C-028/C-029-style repo-wide check, before closing
+out `wu-41-red`, covered every real call site that constructs or reads
+`SourceRaster`, but missed that `core/resolve.hpp`'s `Background`/
+`kDefaultBackground` is an independent source of `Y`/`Cb`/`Cr`-labelled
+content reaching the same `warped` raster that unit's own `core/
+pipeline.cpp` change reinterprets wholesale -- a real, user-visible bug
+(a cyan/blue tint on any uncovered background) that shipped in the tagged,
+pushed `wu-41-red` commit and was only caught because Steve happened to
+run `tests/test_decklink_live_sphere.cpp` against real capture hardware,
+which nothing in this repo's own build/test matrix exercises.**
+
+*Claimed (WU-41's own `WORK-UNITS.md` entry, this session's own repo-wide
+grep pass before close-out):* re-confirmed `SourceRaster`'s construction
+sites (three production, thirteen test, one tool -- correcting the
+original task prompt's "exactly three" to be explicit that count was
+production-only) and checked "readers of any observable behaviour changed,
+not just call sites that fail to compile" (C-029's own standard) for the
+`core/pipeline.cpp` output-side change specifically. This check was real
+and thorough for what it covered.
+
+*What it missed:* `core/pipeline.cpp`'s own output-side change does not
+only affect pixels that came from `SourceRaster`/PASS 1 at all -- it
+reinterprets *all* of `warped`'s `Y`/`Cb`/`Cr` content as RGB, unconditionally,
+regardless of where that content actually came from. `core/resolve.hpp`'s
+`composite()` writes a second, entirely independent source of `Y`/`Cb`/`Cr`
+content into that same raster for any uncovered or partially-covered cell
+-- `Background`/`kDefaultBackground`, PASS 2's own compositing fallback,
+nothing to do with `SourceRaster` at all, and (correctly, by the letter of
+the original task's own file-scope instruction) never on WU-41's own
+`Files:` line, since `core/resolve.hpp` is `WU-42`'s named future scope.
+The C-028/C-029 check this session actually ran was framed as "find every
+caller of the thing I changed" (`SourceRaster`'s construction sites,
+`pipeline.cpp`'s own call sites) -- correct as far as it went, but it did
+not ask the wider question C-029 itself already states in the abstract:
+"does every reader of this class's own observable state still hold correct
+assumptions about it" applies just as much to `warped`'s own *contents*
+(everything that ever gets written into it, from any source) as to
+explicit callers of a changed function signature. A blanket
+reinterpretation of a whole buffer's contents needs every *writer* into
+that buffer audited, not only every *caller* of the function whose
+signature changed.
+
+Found the session after WU-41's own close-out, from Steve's own live-
+hardware report; root-caused by tracing `core/resolve.hpp`'s
+`Background`/`composite()` path directly against the already-tagged
+`wu-41-red` commit, confirmed numerically (see `WORK-UNITS.md`'s WU-41
+addendum for the exact before/after values), and fixed with Steve's
+explicit sign-off as a narrow, acknowledged exception to WU-41's own file
+scope -- `kDefaultBackground` alone, not the rest of `core/resolve.hpp`/
+`.cpp`'s still-`WU-42`-owned reshape.
+
+**General lesson, extending C-029's own "check readers of observable
+behaviour, not just call sites that fail to compile" from *functions* to
+*shared buffers*:** when a unit changes how a whole raster/buffer's
+contents get reinterpreted downstream (not just how one function's
+signature or one struct's fields are named), the repo-wide check before
+close-out needs to ask "what are every one of this buffer's own writers,
+not only the writer(s) this unit itself touched" -- a buffer that is
+filled from more than one source (here: PASS 1's real splatted colour, and
+PASS 2's own compositing-fallback constant) needs every source checked
+against the new reinterpretation, even ones that are, on paper, a
+different work unit's named file scope. Naming a file "not this unit's
+job" is a correct scope boundary for *making changes* to it; it is not
+license to skip *checking* whether this unit's own change silently
+changes that file's own correctness.

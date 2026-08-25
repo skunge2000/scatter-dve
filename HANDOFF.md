@@ -3,439 +3,292 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 57 (next sequential after Session 56's own `HANDOFF.md`; no
-evidence of an intervening session — no later tag, no later commit, no
-other `HANDOFF.md` account. WU-41, Phase 9: `sampleBilinear()` reads RGB
-directly, `applyShading()` simplifies to a bare per-channel multiply,
-`core/pipeline.cpp`'s six RGB-boundary blocks re-derived for the new
-RGB-native `SourceRaster`, built.)
+**Session:** 58 (a narrow, immediate follow-up on top of Session 57's own
+`wu-41-red`, not a new numbered work unit — WU-41 itself stays the current
+unit; this session patches one production bug found in it right after its
+own close-out, at Steve's own explicit direction, and hands off again with
+WU-42 still next.)
 
-**Tag:** `wu-40-red` was the newest real tag at this session's own start
-(confirmed directly: `git tag --list 'wu-*' --sort=-creatordate`, `git log
---oneline -8`, `git rev-parse HEAD origin/main`, `git rev-parse
-wu-40-red^{commit}` to dereference the annotated tag, `git show wu-40-red
---no-patch` to read its own message — all agreed: `33671e9`, matching
-Session 56's own WU-40 commit message exactly, tag message explicitly
-saying "red as expected"). `git status --short` at this session's own
-start read empty — clean tree. This session's own changes are not yet
-committed, tagged or pushed — that is Steve's own next step, below.
+**Tag:** `wu-41-red` was the newest real tag at this session's own start
+(confirmed directly: `git log --oneline -3`, `git tag -l | tail`, `git
+fetch origin && git rev-parse HEAD origin/main` — both `6cb8818`, matching
+Session 57's own WU-41 commit exactly; `git rev-parse wu-41-red` returns
+the *annotated tag object*'s own SHA, `dd2c456`, which is expected and not
+a mismatch — `git describe --tags --exact-match HEAD` resolves through it
+and correctly prints `wu-41-red`). `git status --short` at this session's
+own start read empty — clean tree, Session 57's own work already
+committed, tagged and pushed by Steve, exactly as he reported. This
+session's own one-file change is not yet committed, tagged or pushed —
+that is Steve's own next step, below.
 
 ## Before doing anything else in the next session
 
-Run `git tag --list 'wu-*' --sort=-creatordate`, `git log --oneline -8`,
-`git rev-parse HEAD origin/main` and `git status --short` directly against
+Run `git log --oneline -3`, `git tag -l | tail`, `git fetch origin && git
+rev-parse HEAD origin/main` and `git status --short` directly against
 `~/src/scatter-dve` — do not trust this file's own account without
 checking it against the real repository first.
 
 ## This session in full
 
-Opened with a continuation prompt whose own job was WU-41: make
-`sampleBilinear()` read RGB directly and simplify `applyShading()`, per
-ADR-085 §6 item 3. Confirmed real repository state directly first (state
-(a): `wu-40-red` dereferences to `HEAD` = `origin/main`, clean tree, no
-stray lock at session start), then read `SESSION-PROTOCOL.md`,
-`HANDOFF.md`, `INVARIANTS.md`, `DECISIONS.md` ADR-085 in full,
-`CORRECTIONS.md` (C-001 through C-031, all still current — none of this
-session's own findings warranted a new entry, see "Append to
-CORRECTIONS.md" below), `WORK-UNITS.md`'s Phase 9 heading and its WU-41
-entry (a `todo` stub, per this session's own opening instruction not to
-trust it, WU-40's own HANDOFF.md "Next work unit" note, or the stub itself,
-as a finished scope), then `src/core/binner.hpp`/`.cpp`,
-`src/core/pipeline.cpp`, `src/video/raster.hpp`, `src/video/chroma.hpp`/
-`.cpp` directly.
+Opened as a live follow-up in the same conversation as Session 57 (WU-41),
+not a fresh continuation prompt: Steve reported "I now have a cyan/blue
+background on test-sphere" — `tests/test_decklink_live_sphere.cpp`, a live
+DeckLink demo he runs on his own Mac against real capture hardware, never
+built or run in this project's own cloud sandbox (no `BLACKMAGIC_SDK_DIR`
+there, and this repo's own ten-configuration matrix does not include it).
 
-**Re-derived the real scope before writing anything**, per this session's
-own opening instruction: `grep -n
-'sampleBilinear\|applyShading\|coeffsFor\|ColourStandard'
-src/core/binner.hpp src/core/binner.cpp`, `grep -rn 'SourceRaster'
-src/core/pipeline.cpp src/core/binner.hpp`, `grep -rln
-'RasterRGB\|ycbcrToRgbImage\|rgbToYcbcrImage' src/ tests/` — confirmed
-`video::RasterRGB` and the four boundary-conversion functions exist
-exactly as WU-40 left them (this unit does not change them, as planned),
-and confirmed `core/pipeline.cpp`'s three production `SourceRaster` sites.
+Re-verified real state first, per this project's own standing discipline,
+rather than trusting Session 57's own account or Steve's own summary of
+what he'd done: `HEAD` and `origin/main` both `6cb8818`, `wu-41-red`
+dereferences to it, `git status --short` empty, no `.git/index.lock`
+present yet. Confirmed Session 57's own close-out really had landed before
+touching anything further.
 
-**Real `SourceRaster` construction-site count is much larger than three —
-a genuine, useful correction of emphasis, not an error in WU-40's own
-account.** Per this session's own opening instruction ("do not trust
-WU-40's own HANDOFF.md account that there are exactly three... re-confirm
-it directly"): `grep -rn 'SourceRaster' src/ tests/ tools/` finds exactly
-three real *production* construction sites, all in `core/pipeline.cpp` —
-WU-40's own claim was accurate for that specific question. But roughly a
-dozen test files, plus `tools/coverage_view_demo.cpp`, also construct a
-`SourceRaster` directly from synthetic data, bypassing the chroma boundary
-entirely (WU-40's own "every test file... does so directly from synthetic
-data, never through this boundary" was also true, and not about the same
-question). Renaming `SourceRaster`'s own field names (this unit's job)
-breaks every one of those sites at compile time regardless of whether they
-go through the boundary, so this session updated all of them — see
-`WORK-UNITS.md`'s own WU-41 entry for the full file list. Worth a future
-session's attention if `SourceRaster`'s own shape changes again: "which
-production functions build one" and "which files construct one at all"
-are two different questions, and only the first was three.
+**Root cause, traced directly against the real, already-tagged code** (not
+assumed from Session 57's own account): `core/resolve.hpp`'s `Background`/
+`kDefaultBackground` — read in full this session (it was only read to line
+140 live, mid-diagnosis, before this session formally opened; read in full
+here, along with `core/resolve.cpp` in full, satisfying this project's own
+"never edit a file you have not been shown this session" rule before
+touching it) — still held its pre-ADR-085 value:
+`{Y = kBlack, Cb = kChromaZero, Cr = kChromaZero}`, genuine YCbCr legal
+black, untouched by WU-39/40/41 because `core/resolve.hpp`/`.cpp` are
+explicitly named as `WU-42`'s own future scope in every one of those
+units' own accounts.
 
-**`ColourStandard`/`coeffsFor`'s own eventual shared home (ADR-085 §7):
-resolved by deleting them, not promoting them.** Repository-wide grep
-before deciding: their only real uses anywhere in the tree were
-`core/binner.cpp`'s own `coeffsFor()` and `applyShading()`'s now-deleted
-`standard` parameter, plus two `tests/test_binner.cpp` call sites (updated
-this session). Once `applyShading()`'s own colour argument is already RGB,
-a bare multiply needs no coefficient set — ADR-085 §7's own premise ("once
-*both* shading and the I/O boundary need it") no longer holds, since
-shading no longer needs one at all. `video/chroma.hpp`'s own RGB boundary
-conversion (WU-40) already deliberately hardcodes BT.601 literals rather
-than taking this enum; that duplication is unaffected. The enum and
-`coeffsFor()` are deleted from `core/binner.hpp`/`.cpp` entirely — nothing
-left in the tree needs a *shared* colour-standard type, and keeping one
-alive against a hypothetical future caller would be the premature
-module-placement decision ADR-085 §7 itself warned against. See
-`WORK-UNITS.md`'s own WU-41 entry for the full reasoning; a future unit
-that genuinely parameterises the I/O boundary's own coefficient choice can
-reintroduce a shared type at that point, against a real caller.
+`resolve.cpp`'s `composite()` writes `bg`'s three fields, completely
+unconverted, into any destination cell with `cell.w <= 0` (uncovered) or
+partial coverage (`blend()`, a per-channel convex blend against `bg`).
+WU-41's own `core/pipeline.cpp` output-side change (Session 57) applies one
+blanket `chroma::rgbToYcbcrImage()` reinterpretation to *all* of `warped`'s
+`Y`/`Cb`/`Cr`-named content on the way out, correct for every pixel whose
+colour actually came from a splatted source fragment (genuine RGB, by
+construction, since WU-39/WU-41) — but `Background`'s own fallback content
+is a second, independent source feeding that same buffer, one Session 57's
+own repo-wide grep never checked because it was framed as "every caller of
+`SourceRaster`/every reader of `core/pipeline.cpp`'s own change," not
+"every writer into `warped`, from any source." See `CORRECTIONS.md` C-032
+for the general lesson, logged this session.
 
-**`core/pipeline.cpp`'s six RGB-boundary blocks: re-derived against the
-real code, not implemented from this unit's own prior stub text or WU-40's
-own "Next work unit" note — both described a shape that turns out to be
-wrong for half the blocks.** Both accounts said, in effect, "delete the
-convert-back-to-YCbCr half of each of the six blocks" (three call sites ×
-input/output side). That is exactly right for the *input* side:
-`chroma::ycbcrToRgbImage()` is kept, its result feeds `SourceRaster`
-directly, and the `chroma::rgbToYcbcrImage()` call that used to convert it
-straight back to YCbCr is deleted. It is **not** right for the *output*
-side. Confirmed by reading `src/core/resolve.cpp` directly before
-implementing anything (this file is not in this unit's own file scope, but
-reading it was necessary to get the pipeline.cpp wiring right, and reading
-a file to understand behaviour is not the same as editing it): PASS 2 is
-still WU-42's own job, entirely untouched by this unit, and its normalise
-step copies `AccumCell`'s `R`/`G`/`B` fields into a `Raster444`'s
-`Y`/`Cb`/`Cr`-named fields *positionally*
-(`out.Y = divideRounded(cell.R, cell.w)` etc.), with no channel-meaning
-check either side — exactly the channel-agnostic arithmetic ADR-085 itself
-describes PASS 2 as. Since PASS 1 now feeds it genuine RGB (this unit's
-own change), `runFrame()`'s own `dest` (`warped` in `core/pipeline.cpp`)
-comes back holding genuine RGB values *mislabelled* onto a `Raster444`'s
-Y/Cb/Cr-named planes, not YCbCr — running the *forward*
-`chroma::ycbcrToRgbImage()` call on it first, as the naive symmetric plan
-would, would misinterpret already-RGB data as YCbCr and produce garbage.
-What each output-side block actually needs, and what this unit ships, is
-only the second half: a single `chroma::rgbToYcbcrImage()` call,
-reinterpreting `warped`'s own Y/Cb/Cr-named planes as the R/G/B input they
-actually hold, producing genuine YCbCr into a fresh `video::Raster444` for
-chroma downsample. This mislabelling is known and temporary —
-`video::Raster444` itself keeps its genuine YCbCr semantics everywhere
-else (ADR-005, unaffected) — WU-42 resolves it for good. See
-`core/pipeline.cpp`'s own rewritten file-header comment for the same
-account in place. This is exactly the kind of "a scoping stub/prior
-session's own account is a plan, not a fact already checked against the
-real tree" finding C-027/C-028/C-029 exist to catch, caught here before
-implementing the wrong, simpler shape rather than after.
+**Verified numerically**, not just reasoned about: a small standalone
+program (`/tmp/verify_bg.cpp`, this session's own cloud sandbox, not
+committed — links `core/resolve.cpp` + `video/chroma.cpp` directly, no
+test harness) runs `composite(AccumCell{}, bg)` (an uncovered cell) through
+the exact same `chroma::rgbToYcbcrImage()` reinterpretation
+`core/pipeline.cpp`'s real output-side code applies:
 
-**Files changed, all written to the real repository, re-staged and
-grepped to confirm the intended content landed (device-bridge
-`device_stage_files` worked without error throughout this session — no
-`untrusted_device`/`auth_required` 403, so the fallback described in
-`SESSION-PROTOCOL.md`/prior sessions' own accounts was not needed):**
+- **Old value** (`Cb = Cr = kChromaZero`, `wu-41-red`'s real shipped
+  behaviour): final genuine YCbCr comes out `Y=24195, Cb=37606, Cr=18432`
+  — Cb well above `kChromaZero` (32768), Cr well below it: exactly the
+  cyan/blue tint Steve reported, reproduced outside the live-hardware path
+  entirely.
+- **New value** (`Cb = Cr = kBlack`, this session's own fix): final
+  genuine YCbCr comes out `Y=4096, Cb=32768, Cr=32768` — exactly legal
+  black, matching `kBlack`/`kChromaZero`/`kChromaZero` (the same numeric
+  constants, now reached via the RGB round trip rather than assigned
+  directly).
 
-- `src/core/binner.hpp` — `ColourStandard` enum deleted (replaced with a
-  comment explaining why); `SourceRaster`'s `y`/`cb`/`cr` pointer fields →
-  `r`/`g`/`b`, doc comment rewritten; `shadingStandard` parameter removed
-  from all five public entry points, their doc comments updated.
-- `src/core/binner.cpp` — `Kcoeffs` struct and `coeffsFor()` deleted;
-  `applyShading()` simplified to `Colour{c.r*intensity, c.g*intensity,
-  c.b*intensity}`, `standard` parameter removed; `sampleBilinear()`'s own
-  local `Colour` struct renamed `y/cb/cr` → `r/g/b`, reads `src.r/g/b`
-  directly; `Frag::R/G/B` construction reads `c.r/g/b` directly;
-  `shadingStandard` removed from the shared templated loop
-  (`generateFragmentsRowRangeImpl`) and all five public wrappers.
-- `src/core/pipeline.cpp` — file-header comment rewritten to describe this
-  unit's own asymmetric input/output shape (see above); all three
-  `SourceRaster`-building functions' input-side blocks now feed
-  `SourceRaster` from `video::RasterRGB` directly (the scratch `rgb`
-  object promoted out of its old `{ }` scope so it outlives the
-  `runFrame()` call `src` points into); all three output-side blocks
-  replaced with a single `chroma::rgbToYcbcrImage()` call into a fresh
-  `ycbcr` `Raster444`, feeding chroma downsample from that instead of from
-  `warped` directly.
-- `src/video/chroma.cpp`, `src/video/chroma.hpp` — comment-only: both
-  files' own prose referencing `core/binner.cpp`'s `coeffsFor()`/
-  `ColourStandard` (now deleted) corrected to past tense with a pointer to
-  this unit's own reasoning; no behavioural change, the same "fix a stale
-  comment while touching the surrounding context" precedent ADR-082/C-031
-  already used.
-- `WORK-UNITS.md` — WU-41 entry replaced (was a `todo` stub) with the real
-  scope, design decisions, files, grep confirmations and Accept outcome.
-- This `HANDOFF.md`.
-- Mechanical field-rename only (`.y=`/`.cb=`/`.cr=` → `.r=`/`.g=`/`.b=` on
-  `SourceRaster` instances; no fixture *values* changed), needed to keep
-  the tree compiling after `SourceRaster`'s field rename, not counted
-  against this unit's own file cap: `tests/test_threading.cpp`,
-  `test_layered_composite.cpp`, `test_persistent_pool.cpp`,
-  `test_pipeline_bytes.cpp`, `test_coverage_capture.cpp`,
-  `test_row_band.cpp`, `test_pageturn.cpp`, `test_zoneplate.cpp`,
-  `test_scan_order_invariance.cpp`, `test_binner.cpp` (plus its own two
-  `ColourStandard::BT601` call-site arguments dropped),
-  `test_shapes.cpp`, `test_field_pipeline.cpp`,
-  `test_kbuffer_resolve.cpp`, `tools/coverage_view_demo.cpp`.
+**Fix**, `core/resolve.hpp` only: `Background`'s default-member
+initialisers changed from `Sample Y = kBlack, Cb = kChromaZero, Cr =
+kChromaZero;` to `Sample Y = kBlack, Cb = kBlack, Cr = kBlack;` — per I3's
+own new text ("R, G and B are all full-range... no channel needs a
+mid-point offset any more"), black is `kBlack` on every channel once every
+channel is genuinely RGB. `kDefaultBackground` (a `constexpr` default
+member initialiser away) and `PipelineParams::background`'s own default
+(`= kDefaultBackground`) both pick this up automatically — no other edit
+needed for the fix itself. The struct's own field names (`Y`/`Cb`/`Cr`)
+are untouched — that rename is still `WU-42`'s own job, not started here;
+this session changes only the *value*, an explicit, narrow exception to
+WU-41's own file scope, authorised directly by Steve.
 
-`INVARIANTS.md` and `DECISIONS.md` are **untouched** this session, per this
-unit's own standing constraint — see "Flag for Steve, not resolved here"
-below; I7's own wording question WU-40's session raised is still
-unresolved as of this session's own read of the real `INVARIANTS.md`.
+Grepped the whole repository for every other reader/setter of
+`Background`/`kDefaultBackground` before considering the fix complete:
+`tests/test_layered_composite.cpp` (two uses of `kDefaultBackground`
+directly) both compute their own expected values dynamically from the same
+`bg` variable at test time (`composite(lower, bg)`, `expectedBlend(...)`)
+rather than a hardcoded number baked in from the old constant — unaffected
+by the value change, still correct either way.
+`tests/test_zoneplate.cpp:436` and `tests/test_shapes.cpp:367` each
+construct their own explicit, independent `Background` (one a bare
+`{kBlack, kChromaZero, kChromaZero}` literal used only as an arbitrary
+pure-blend-math fixture for the I5 fringe test, unrelated to
+`kDefaultBackground`; one a custom `fromCode10(...)` triple) — neither
+references the constant, neither needed touching. No other production or
+test file constructs a `Background` or reads `kDefaultBackground`.
 
-## Build/test matrix — ten configurations, genuinely red, honestly reported
+## Build/test matrix — ten configurations, re-run against this one-file fix
 
-Run in a fresh `git clone` of `skunge2000/scatter-dve` at `HEAD` `33671e9`
-(confirmed matching the real repository before any edit) in this session's
-own Linux cloud sandbox, then this session's 19 changed files copied over
-and built/tested for real (GCC 13.3.0, Clang 18.1.3 both present):
+Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git` into
+the cloud sandbox (not a copy of Session 57's own leftover, uncommitted
+working tree, which was still sitting in this sandbox from before — used
+deliberately as the verified starting point instead, confirmed at
+`HEAD = wu-41-red = 6cb8818` before any edit), the same `core/resolve.hpp`
+change applied, diffed against the file already written to Steve's own
+real repository (`git diff --stat` — one file, 25 insertions, 3 deletions
+— matches exactly). Same GCC 13.3.0 / Clang 18.1.3 × Release/Debug ×
+`SCATTER_TILE_LOG2` 4/5, plus GCC + ASan/UBSan at both tile sizes, all
+configured, built and `ctest`-run for real.
 
-| Compiler | Build type | `SCATTER_TILE_LOG2` | Result |
-|---|---|---|---|
-| GCC 13.3.0   | Release | 4 | 25/28 pass — `test_binner`, `test_zoneplate`, `test_pipeline_bytes` fail |
-| GCC 13.3.0   | Release | 5 | 25/28 pass — same three fail |
-| GCC 13.3.0   | Debug   | 4 | 25/28 pass — same three fail |
-| GCC 13.3.0   | Debug   | 5 | 25/28 pass — same three fail |
-| Clang 18.1.3 | Release | 4 | 25/28 pass — same three fail |
-| Clang 18.1.3 | Release | 5 | 25/28 pass — same three fail |
-| Clang 18.1.3 | Debug   | 4 | 25/28 pass — same three fail |
-| Clang 18.1.3 | Debug   | 5 | 25/28 pass — same three fail |
-| GCC 13.3.0 + ASan/UBSan | Debug | 4 | 25/28 pass — same three fail; no sanitizer findings |
-| GCC 13.3.0 + ASan/UBSan | Debug | 5 | 25/28 pass — same three fail; no sanitizer findings |
+| Configuration | Build | `ctest` |
+|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 25/28 pass — `test_binner`, `test_zoneplate`, `test_pipeline_bytes` fail |
+| GCC, Release, tile 5 | clean, no warnings | same three fail |
+| GCC, Debug, tile 4 | clean, no warnings | same three fail |
+| GCC, Debug, tile 5 | clean, no warnings | same three fail |
+| Clang, Release, tile 4 | clean, no warnings | same three fail |
+| Clang, Release, tile 5 | clean, no warnings | same three fail |
+| Clang, Debug, tile 4 | clean, no warnings | same three fail |
+| Clang, Debug, tile 5 | clean, no warnings | same three fail |
+| GCC + ASan, tile 4 | clean, no warnings | same three fail, no ASan finding |
+| GCC + ASan, tile 5 | clean, no warnings | same three fail, no ASan finding |
+| GCC + UBSan, tile 4 | clean, no warnings | same three fail, no UBSan finding |
+| GCC + UBSan, tile 5 | clean, no warnings | same three fail, no UBSan finding |
 
-**Identical failure set in all ten configurations — deterministic, not a
-threading or optimisation-level artefact.** All ten compile clean with no
-warnings surfaced in the build logs. Both sanitizer runs grepped
-specifically for `AddressSanitizer`/`UndefinedBehaviorSanitizer`/"runtime
-error" output beyond the expected `doctest` failure lines — none found.
+Per-test check counts, identical across all ten configurations and
+identical to Session 57's own matrix (this fix changes no test's outcome):
 
-**What actually fails, and why — verified directly against the real
-`ctest`/binary output, not predicted in advance and left unchecked:**
+- `test_binner`: 2 of 39139 checks fail (`test_binner.cpp:794`,
+  `:795` — the pre-existing, already-documented shading-mirror-fixture
+  staleness, `WU-44`'s own job).
+- `test_zoneplate`: 22 of 42537 checks fail (`test_zoneplate.cpp:209`,
+  `:212`, `:213` — the pre-existing, already-documented I7 non-achromatic
+  round-trip breakage, ADR-085 §5's own accepted phase-9 exception).
+- `test_pipeline_bytes`: 3 of 42 checks fail
+  (`test_pipeline_bytes.cpp:406`, `:452`, `:552` — the pre-existing,
+  already-documented deinterlaced-path reference-function staleness,
+  `WU-44`'s own job).
 
-- **`test_zoneplate` — 22 of 42537 checks fail, identical in count and
-  content to WU-40's own already-red state.** `test_i7_identity_full_pipeline()`
-  fails for the same three non-achromatic flat 10-bit codes (`kCode10Min=4`,
-  `kCode10Black=64`, `kCode10Max=1019`) at both tested raster sizes, root
-  cause unchanged from WU-40's own account (their implied RGB triple clips
-  for real). This unit's own re-derived, asymmetric output-side conversion
-  produces the *same* result for this fixture as WU-40's original
-  symmetric round trip did — a reassuring cross-check, not proof of
-  correctness on its own, but consistent with both being exact identities
-  for achromatic content and empirically agreeing at the fixture's own
-  clipped extremes too. Still `WU-44`'s own job to re-derive this fixture,
-  not touched here.
-- **`test_binner` — newly fails 2 of 39139 checks, in
-  `test_shading_multiply_applies_rgb_round_trip_before_quantisation`.**
-  This test's own hand-derived expected values
-  (`mirrorToRgbBt601`/`mirrorFromRgbBt601`, an independent
-  YCbCr→RGB→multiply→RGB→YCbCr mirror) assume `applyShading()`'s own
-  pre-WU-41 round-trip behaviour; the real, simplified `applyShading()`
-  (bare multiply, no round trip) genuinely differs now. Not a defect —
-  this test's own fixture is exactly what WU-44 exists to re-derive, and
-  this session did not shortcut that by loosening or removing the check.
-- **`test_pipeline_bytes` — newly fails 3 of 42 checks, all three inside
-  its own deinterlaced-path reference-comparison tests**
-  (`test_deinterlaced_matches_reference_and_first_push_is_a_noop`,
-  `test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace`,
-  `test_deinterlaced_sd_geometry_sanity`). Each compares real
-  `runFrameBytesDeinterlaced()` output against this test file's own
-  hand-rolled `referenceRunFrameBytesDeinterlaced()`/
-  `referenceWithExplicitReinterlace()` — neither of which this unit
-  touched beyond the mechanical field rename needed to keep them
-  compiling. Those references still feed `SourceRaster` directly from
-  YCbCr with no RGB boundary conversion at all, so they now diverge from
-  real production, which does apply it. Same class of
-  reference-implementation staleness `test_zoneplate`'s own I7 check
-  already exposed under WU-40 (a hand-rolled reference not updated for
-  ADR-085's cutover), now visible in a second file. Re-deriving these two
-  reference functions to mirror the real boundary conversion independently
-  (WU-34b's own "mirror the math, never call the production function"
-  precedent) is `WU-44`'s own job.
-- **Stay green, verified why rather than assumed:**
-  `test_runframebytes_identity_round_trips_exactly` (the non-deinterlaced
-  I7 check via `runFrameBytes()`) and
-  `test_deinterlaced_anchor_rows_survive_identity_round_trip` both pass in
-  every configuration — neither depends on the stale reference functions
-  above, and both exercise achromatic zone-plate content, which this
-  unit's own re-derived conversion (like WU-40's) round-trips exactly.
-  Every other test (25 of 28) passes in every configuration.
+Every other test (25 of 28) passes in every configuration, exactly as
+Session 57 left it — **this fix is orthogonal to the standing WU-41 red
+state**: it touches only `Background`'s compositing-fallback path
+(uncovered/partially-covered destination cells), none of which any of
+these three failing tests' own checks exercise (all three fail on genuine,
+fully-covered source content going through the RGB round trip, not on
+background pixels).
 
 ## Flag for Steve, not resolved here
 
-**`INVARIANTS.md`'s I7 text is unchanged since WU-40's own session flagged
-it, and this session did not touch `INVARIANTS.md`, per this unit's own
-standing constraint — checked directly against the real, current file
-before writing this, not assumed either way.** Still reads "Input v210
-equals output v210, byte for byte, illegal excursions included... This is
-the foundation test," still demonstrably not exact for the same three
-non-achromatic flat 10-bit codes WU-40's session found (this session's own
-`test_zoneplate` run confirms the identical 22 failing checks, unchanged).
-Not a new finding — carried forward exactly as WU-40's own session left
-it. Still your own call: reword I7 to scope it, leave it as a known,
-tracked exception until `WU-44` re-derives the affected fixtures anyway,
-or something else you'd rather do. Not acted on this session either way.
+**Carried forward unchanged from Session 57 (and Session 56 before it):**
+I7 ("Input v210 equals output v210, byte for byte, illegal excursions
+included") is not exactly true post-ADR-085 for non-achromatic flat
+content — `test_zoneplate.cpp`'s own `test_i7_identity_full_pipeline()` is
+the check that surfaces this, and it is one of the three tests already
+counted as red above. `INVARIANTS.md`'s own I7 wording has still not been
+revisited to say so explicitly — flagged again, not touched (this
+project's own standing rule: flag concerns about `INVARIANTS.md`, never
+edit it directly).
+
+**New this session:** none. The cyan/blue background bug itself is now
+fixed, not merely flagged — see above.
 
 ## Where we are
 
-**WU-41 is written, built and delivered — genuinely red in the cloud
-sandbox, exactly as ADR-085 §5's standing exception allows, not forced
-green and not treated as suspicious for being red.** All 19 changed files
-(three production, two comment-only, thirteen test files plus one tool
-file per the field-rename note above) plus `WORK-UNITS.md` (WU-41 entry
-updated to `red` with the real outcome above) and this `HANDOFF.md` are
-written to
-the real repository via the device bridge and re-staged/re-grepped to
-confirm the intended content landed (see "Environment check" below) — **not
-yet committed, tagged or pushed**. That is Steve's own next step, after his
-own real-terminal build/test confirms the same outcome (expected to be
-25/28, `test_binner`/`test_zoneplate`/`test_pipeline_bytes` the three
-failures, since the cloud sandbox already confirmed this across ten
-configurations, but per `SESSION-PROTOCOL.md` still worth Steve's own real
-run first).
+WU-41 (Phase 9, `sampleBilinear()`/`applyShading()` RGB-native,
+`core/pipeline.cpp`'s boundary conversion) is closed, tagged `wu-41-red`,
+pushed — and now has this session's own narrow follow-up fix to
+`core/resolve.hpp`'s `kDefaultBackground`, an explicit, acknowledged
+exception to that unit's own file scope, not a reopening of it. `WU-42`
+(PASS 2 reshaped to `R`/`G`/`B`) is still next, genuinely unstarted beyond
+this one field's *value* (its own field names, and the rest of
+`core/resolve.cpp`/`.hpp`'s reshape, remain entirely open).
 
 ## Next work unit
 
-**`WU-42`** (`src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped from
-`Y`/`Cb`/`Cr` to `R`/`G`/`B`) is Phase 9's own next pick, per
-`WORK-UNITS.md`'s own dependency ordering (depends on `WU-39`, landed).
-Per ADR-085 §5 and this phase's own standing exception, `WU-42` is also not
-expected to leave the build green at the end. It inherits a real, useful
-head start from this session: `AccumCell`/`Frag` are already `R`/`G`/`B`
-(WU-39) and PASS 1 already produces genuine RGB into them (this session),
-so `WU-42`'s own job is a rename of `core/resolve.hpp`/`.cpp`'s own
-`Y`/`Cb`/`Cr`-shaped local variables, struct fields (`CompositedCell`,
-`Background`, `ResolvedCell` — confirm the real current field names
-directly, do not assume from this prose) and arithmetic to `R`/`G`/`B`,
-with the arithmetic *shape* itself unchanged (ADR-085's own "the arithmetic
-shape does not change, only what the three channels mean does"). Once
-`WU-42` lands, `core/pipeline.cpp`'s own `warped`/`dest` locals will
-genuinely hold `Y`/`Cb`/`Cr`-*shaped-but-actually-RGB* data no more — the
-mislabelling this session's own output-side blocks work around
-(`chroma::rgbToYcbcrImage()` reinterpreting `warped.Y/Cb/Cr` as `R/G/B`)
-will need revisiting once `warped` (or whatever `WU-42` renames it to) is
-genuinely `RasterRGB`-shaped rather than a relabelled `Raster444` — flagged
-here explicitly so `WU-42`'s own session does not miss that
-`core/pipeline.cpp`'s six boundary blocks are a second file this unit's own
-reshape has downstream consequences for, beyond `core/resolve.cpp`/`.hpp`
-themselves. Also: `WU-44`'s own fixture re-derivation should re-derive
-`test_binner.cpp`'s shading-mirror test and `test_pipeline_bytes.cpp`'s two
-deinterlaced-path reference functions, both newly red this session, in
-addition to `test_zoneplate`'s own already-red fixtures from WU-40.
-
-**Per this session's own standing instruction: do not proceed to WU-42
-even with session budget left.** Each Phase 9 unit is knowingly
-larger-than-normal (ADR-085 §5) and this session stops here, the same
-restraint WU-34b/WU-38/WU-39/WU-40's own sessions used deferring their own
-next units.
+**WU-42 — `src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped to R/G/B.**
+Unchanged from Session 57's own account, with one addition: this session's
+own fix already moved `Background`'s *value* into the RGB domain
+(`kBlack` on every channel), so `WU-42` inherits a `Background` whose
+default is already correct for genuine RGB — its own remaining job is the
+field-name rename (`Y`/`Cb`/`Cr` → `R`/`G`/`B`, matching WU-39's own
+`Frag`/`AccumCell` precedent and WU-41's own `SourceRaster` precedent) and
+the rest of PASS 2's reshape (`normaliseCell()`, `composite()`,
+`compositeLayered()`, `compositeKBuffer()`'s own internal Y/Cb/Cr-named
+locals and doc comments), not a second look at what the constant should
+equal. `core/pipeline.cpp`'s output-side block (the single
+`rgbToYcbcrImage()` call this session's own predecessor, WU-41, built)
+will also need revisiting once `warped` becomes genuinely RGB-shaped by
+construction rather than RGB-mislabelled-as-YCbCr — flagged already in
+Session 57's own account, unchanged here.
 
 ## Open questions
 
-Unchanged from earlier sessions' own list (`kCaptureRingCapacity`, Q3, Q4,
-Task A1, Task D6) — this session did not touch any of them. ADR-085 §7's
-own open sub-questions: I4 already resolved (WU-38); where
-`ColourStandard`/`coeffsFor` should live is now resolved (this session —
-deleted, not relocated, see above); per-frame boundary-conversion
-parameterisation and the fixture-value re-derivation strategy remain open,
-`WU-44`'s own concern. The `INVARIANTS.md` I7-wording question under "Flag
-for Steve, not resolved here" above remains open, unchanged from WU-40's
-own session.
+None new this session.
 
 ## Blocked / red
 
-**Red, genuinely and expectedly — see Build/test matrix above.**
-`test_binner`, `test_zoneplate` and `test_pipeline_bytes` fail identically
-in all ten sandbox configurations (2/39139, 22/42537 and 3/42 checks
-respectively). Every other test (25 of 28) passes in every configuration.
-`ctest` was not run on Steve's own real terminal yet this session — see
-"Steve's own next steps" below.
+**Red, genuinely and expectedly, unchanged from Session 57 — see Build/test
+matrix above.** `test_binner`, `test_zoneplate` and `test_pipeline_bytes`
+fail identically in all ten sandbox configurations, exact same checks as
+before this session's own fix. Every other test (25 of 28) passes in every
+configuration. `ctest` was not run on Steve's own real terminal yet this
+session — see "Steve's own next steps" below.
 
 ## Environment check
 
-This session had both GCC 13.3.0 and Clang 18.1.3 in its own cloud
-sandbox (confirmed via `gcc --version`/`clang++ --version` directly before
-building); the full ten-configuration matrix ran for real, per this
-unit's own brief (production code, not docs-only). A fresh `git clone` of
-`https://github.com/skunge2000/scatter-dve.git` was used for the sandbox
-build (not a copy staged through the device bridge), confirmed matching
-`HEAD 33671e9` before any edit. The device-bridge shell had ordinary
-read/write access this session for every file this session touched;
-`device_stage_files` worked without error throughout (no
-`untrusted_device`/`auth_required` 403 this session, so the fallback
-`SESSION-PROTOCOL.md` describes was not needed). Every changed file was
-re-staged after writing and grepped for the specific new content
-(struct/field names, deleted-symbol comments, the rewritten
-`core/pipeline.cpp` blocks) to confirm the write landed; a full
-byte-for-byte checksum diff against a separately retained pre-write copy
-was not additionally performed, the same trade-off WU-40's own session
-made and for the same reason (re-grep after re-stage is the practical
-per-file confirmation this device bridge supports). `git status
---short`/`git diff --stat` run directly against the real repository after
-writing confirmed exactly the 19 intended files modified and nothing
-else (`git diff --stat`'s own output listed above under "Files changed").
-**A stray, empty `.git/index.lock` appeared this session** (same as
-Sessions 55 and 56's own accounts) — not present at session start
-(`ls -la .git/index.lock` returned "No such file or directory" during this
-session's own opening verification), but created by an ordinary
-`git status`/`git diff` invocation partway through this session and left
-behind; the device-bridge shell could not remove it
-(`rm -f .git/index.lock` returned "Operation not permitted", unchanged
-from the last two sessions). The close-out block below checks for it and
-removes it first regardless. No `git commit` or `git push` attempted this
-session — nothing pushed. C-024's standing condition (PSU out,
-`tools/close.sh` cannot succeed on Steve's own real terminal for any unit)
-checked directly against `CORRECTIONS.md` this session and found
-unchanged — `./tools/close.sh` must not be run. (No DeckLink target exists
-in the cloud sandbox at all, so the duplex-check exception itself does not
-arise there.)
+Same GCC 13.3.0 / Clang 18.1.3 cloud sandbox as Session 57. This session
+used a genuinely fresh `git clone` (not Session 57's own leftover,
+uncommitted working tree still present in this sandbox from before, which
+was deliberately left alone and not reused, to build against the real,
+already-tagged `wu-41-red` commit rather than a stale local copy that
+might have drifted from it). The one-file fix was written to Steve's own
+real repository via the device bridge, then re-staged and grepped
+(`Sample Y = kBlack, Cb = kBlack, Cr = kBlack`) to confirm the write
+landed, and `git diff --stat` confirmed exactly one file changed
+(`src/core/resolve.hpp`) before this session's own fix was copied into the
+separate cloud-sandbox clone for the matrix build — the two copies verified
+identical by direct `diff` before building. **A stray, empty
+`.git/index.lock` appeared again this session** (same as Sessions 55, 56
+and 57's own accounts) — created by this session's own opening
+`git status --short`/`git diff --stat` verification, not present before
+it, and the device-bridge shell still cannot remove it
+(`rm -f .git/index.lock` still returns "Operation not permitted"). The
+close-out block below checks for it and removes it first regardless. No
+`git commit` or `git push` attempted this session — nothing pushed.
+`./tools/close.sh` was not run — C-024's standing PSU/duplex-check
+exception is unchanged, and this fix does not reach a green `ctest` run
+regardless (the three pre-existing failures are untouched by it).
 
 ## Append to DECISIONS.md
 
-None this session. ADR-085 (WU-38) already covers this unit's own scope;
-this unit's own design decisions (deleting rather than relocating
-`ColourStandard`/`coeffsFor`; the asymmetric input/output shape for
-`core/pipeline.cpp`'s six boundary blocks) are implementation choices
-within ADR-085's already-accepted scope, not new architectural decisions —
-recorded in `WORK-UNITS.md`'s own WU-41 entry instead, matching how
-WU-39/WU-40 recorded their own findings there rather than in a new ADR. No
-superseding ADR proposed; no reason this session found to propose one — if
-you'd like a dedicated ADR recording the "ColourStandard/coeffsFor
-deleted, not relocated" decision specifically (it is a real, if small,
-architectural call — reversing ADR-085 §7's own implicit expectation that
-somewhere would need a shared home), that's your own call to make, not
-assumed here.
+None this session. This is an implementation bug fix within ADR-085's
+already-accepted scope (a compositing constant left in the wrong colour
+domain), not a new architectural decision — I3's own already-accepted text
+already says what RGB black should be on every channel; this session only
+made `core/resolve.hpp` actually agree with it.
 
 ## Append to CORRECTIONS.md
 
-None this session. This session's own two "the real scope was bigger/
-different than the prior account" findings (the `SourceRaster`
-construction-site count; the asymmetric output-side conversion) are not
-logged as corrections because neither prior account was actually wrong
-about what it claimed — WU-40's "exactly three" was about production
-callers specifically and was accurate for that; its own "Next work unit"
-sketch of `core/pipeline.cpp`'s six blocks was an upfront, explicitly
-tentative plan ("this most likely means..."), not a claim checked against
-`core/resolve.cpp` at the time it was written, and this session's own
-opening instructions already anticipated it might not survive contact
-with the real code ("confirm this plan against the real current code
-before implementing it, not against this paragraph"). Both are recorded
-in `WORK-UNITS.md`'s own WU-41 entry as re-derivations, matching how
-WU-39/WU-40 recorded their own re-scoping there.
+**C-032 added** — WU-41's own C-028/C-029-style repo-wide check, before
+closing out `wu-41-red`, covered every real call site that constructs or
+reads `SourceRaster`, but missed that `core/resolve.hpp`'s `Background`/
+`kDefaultBackground` is an independent source of `Y`/`Cb`/`Cr`-labelled
+content reaching the same `warped` raster that unit's own
+`core/pipeline.cpp` change reinterprets wholesale — a real bug that shipped
+in the tagged, pushed `wu-41-red` commit, caught only because Steve
+happened to run real DeckLink hardware against a test this repo's own
+matrix cannot exercise. Full account, general lesson ("audit every writer
+into a reinterpreted buffer, not only the writer(s) this unit itself
+touched, even when another writer's file is on paper a different unit's
+scope") in `CORRECTIONS.md` itself.
 
 ## Closed out this session
 
-**WU-41 — `sampleBilinear()` reads RGB directly, `applyShading()`
-simplifies to a bare per-channel multiply, `ColourStandard`/`coeffsFor`
-deleted, `core/pipeline.cpp`'s six RGB-boundary blocks re-derived for the
-new asymmetric input/output shape. Built, genuinely red in all ten
-cloud-sandbox configurations (`test_binner`/`test_zoneplate`/
-`test_pipeline_bytes`, 2/39139 + 22/42537 + 3/42 checks, understood and
-documented root causes), not yet committed.** Five production files plus
-two comment-only files (listed above under "Files changed"), fourteen
-test/tool files (mechanical field-rename only), `WORK-UNITS.md` (WU-41
-entry updated to `red`), this `HANDOFF.md`.
+**WU-41 follow-up fix — `core/resolve.hpp`'s `kDefaultBackground` moved
+from YCbCr-domain legal black (`Cb = Cr = kChromaZero`) to RGB-domain legal
+black (`Cb = Cr = kBlack`), fixing a genuine cyan/blue background tint
+Steve observed on real DeckLink hardware. Built, re-verified across all
+ten cloud-sandbox configurations against a fresh clone of the already-
+tagged `wu-41-red` commit: identical red state to Session 57's own matrix
+(same three tests, same exact check counts), no new warning, no sanitizer
+finding, fix verified numerically outside the live-hardware path. Not yet
+committed.** One production file (`src/core/resolve.hpp`), `WORK-UNITS.md`
+(WU-41 entry, addendum appended), `CORRECTIONS.md` (C-032 appended), this
+`HANDOFF.md`.
 
 ## Steve's own next steps
 
-At your own real terminal, confirm a real build and test run — **this
-unit is expected to be red, not green**:
+At your own real terminal, confirm a real build and test run — **still
+expected to be red, exactly as `wu-41-red` was, not newly green**:
 
 ```
 cd ~/src/scatter-dve
@@ -443,54 +296,48 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Expect `test_decklink_device`'s own `test_at_least_one_device_is_full_duplex`
-check to fail regardless (the standing PSU/two-device exception,
-`DECISIONS.md` ADR-034/035/037, `CORRECTIONS.md` C-024) — not this unit's
-own problem. Expect `test_binner`, `test_zoneplate` and
-`test_pipeline_bytes` to also fail — specifically 2, 22 and 3 of their own
-checks respectively, all traced above. Every other test should pass — the
-cloud sandbox already confirmed 25/28 `scatter-core` tests pass across ten
-configurations, so a real failure anywhere other than those four named
-tests (DeckLink-adjacent aside) would be genuinely surprising and worth a
-fresh session investigating before tagging.
-**Do not run `./tools/close.sh`** — see `CORRECTIONS.md` C-024: it treats
-any `ctest` failure as blocking and refuses to tag, and this unit is
-*expected* to fail `ctest`, on top of the standing duplex-check exception.
+Expect the same failures `wu-41-red` already had: `test_decklink_device`'s
+own duplex check (standing PSU exception, unrelated), plus `test_binner`
+(2 checks), `test_zoneplate` (22 checks), `test_pipeline_bytes` (3 checks).
+If you re-run `tests/test_decklink_live_sphere.cpp` against your own
+DeckLink hardware after this build, the background should now read as
+genuine black rather than cyan/blue — worth confirming visually, since
+that live path is exactly what this session's own cloud sandbox cannot
+test.
 
-**Once you've confirmed the build succeeds and `ctest`'s failures are
-exactly the four expected ones (duplex check, `test_binner`,
-`test_zoneplate`, `test_pipeline_bytes`)**, close out with the **manual tag
-path** (`close.sh` cannot be used for a red unit regardless of the duplex
-exception):
+**Do not run `./tools/close.sh`** — same reasoning as `wu-41-red`: this
+state does not pass `ctest` cleanly (by design, the standing Phase 9
+exception), and `close.sh` refuses to tag past any failure.
+
+Once you've confirmed the build and that `ctest`'s failures are exactly
+the ones named above, close out with the **manual tag path**:
 
 ```
 cd ~/src/scatter-dve
 rm -f .git/index.lock
-git add src/core/binner.hpp src/core/binner.cpp src/core/pipeline.cpp src/video/chroma.hpp src/video/chroma.cpp tests/test_threading.cpp tests/test_layered_composite.cpp tests/test_persistent_pool.cpp tests/test_pipeline_bytes.cpp tests/test_coverage_capture.cpp tests/test_row_band.cpp tests/test_pageturn.cpp tests/test_zoneplate.cpp tests/test_scan_order_invariance.cpp tests/test_binner.cpp tests/test_shapes.cpp tests/test_field_pipeline.cpp tests/test_kbuffer_resolve.cpp tools/coverage_view_demo.cpp WORK-UNITS.md HANDOFF.md
-git commit -m "WU-41: sampleBilinear reads RGB, applyShading simplifies, pipeline boundary re-derived (ADR-085); red, see HANDOFF.md"
-git tag -a wu-41-red -m "WU-41: RGB-native sampleBilinear/applyShading (ADR-085); test_binner/test_zoneplate/test_pipeline_bytes red as expected, see HANDOFF.md"
+git add src/core/resolve.hpp WORK-UNITS.md CORRECTIONS.md HANDOFF.md
+git commit -m "WU-41 follow-up: core/resolve.hpp kDefaultBackground moved to RGB-domain black (ADR-085); fixes cyan/blue background on live DeckLink output, see HANDOFF.md"
+git tag -a wu-41-bgfix-red -m "core/resolve.hpp Background default fixed to RGB-domain black; test_binner/test_zoneplate/test_pipeline_bytes still red as expected (unrelated, pre-existing), see HANDOFF.md"
 git push origin main
 git push origin --tags
 ```
 
-**Tag name is `wu-41-red`, not `wu-41-green`** — matching the naming
-choice you made for `wu-40-red` (this project's own tag convention,
-`wu-NN-green`, had never named a red unit before that one); rename it to
-whatever you'd prefer before running the command if you'd rather keep the
-`-green` suffix regardless of colour, or use a different scheme entirely.
-The `rm -f .git/index.lock` is a precaution, not a sign anything is
-currently wrong: a stray, empty `index.lock` appeared on the real
-repository partway through this session (see "Environment check" above)
-and could not be removed from the device-bridge shell. If it is already
-gone by the time you run this, the `rm -f` is a silent no-op; if it is
-still there, this clears it before `git add` needs to create it for real.
+**Tag name is a suggestion, `wu-41-bgfix-red`** — not a new numbered work
+unit (WU-42 is still next and still unstarted), so it doesn't fit the
+plain `wu-NN-{red,green}` pattern cleanly; rename it to whatever you'd
+prefer before running the command (`wu-41b-red` and `wu-41-red-2` are two
+other reasonable choices) if this one doesn't read right to you. The
+`rm -f .git/index.lock` is a precaution, not a sign anything is currently
+wrong — same situation as Session 57's own close-out block: a stray, empty
+`index.lock` appeared on the real repository partway through this session
+(see "Environment check" above) and could not be removed from the
+device-bridge shell. If it is already gone by the time you run this, the
+`rm -f` is a silent no-op.
 
-This exact list of 21 paths was checked against a real `git status
---short` run through the device bridge immediately before this block was
-written (`CORRECTIONS.md` C-026's own general lesson) — it should read
-exactly 21 `M` lines: the 19 source/test/tool files above (three
-production, two comment-only, thirteen test files, one tool file), plus
-`WORK-UNITS.md` and `HANDOFF.md`, and nothing else. Still worth a quick
-`git status
---short` yourself before pasting this block, since time has passed since
-that check.
+This exact list of 4 paths was checked against a real `git status --short`
+run through the device bridge immediately before this block was written
+(`CORRECTIONS.md` C-026's own general lesson) — it should read exactly 4
+`M` lines: `src/core/resolve.hpp`, `WORK-UNITS.md`, `CORRECTIONS.md`,
+`HANDOFF.md`, and nothing else. Still worth a quick `git status --short`
+yourself before pasting this block, since time has passed since that
+check.

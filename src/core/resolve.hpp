@@ -101,10 +101,32 @@ ResolvedCell normaliseCell(const AccumCell& cell) noexcept;
 // "the background" without saying what it is, and nothing upstream of this
 // unit produces a second image to composite against -- that is Phase 2's
 // k-buffer (WU-28, architecture.md 4.7). This unit defines it instead as a
-// caller-supplied constant colour. Default is legal black -- I3's
-// kBlack/kChromaZero.
+// caller-supplied constant colour. Default is legal black.
+//
+// WU-41 fix (session following WU-41's own close-out, flagged by Steve
+// against tests/test_decklink_live_sphere.cpp's live output, not caught by
+// this repo's own build/test matrix since that test needs real DeckLink
+// hardware): this struct's own field names (Y/Cb/Cr) are still WU-42's own
+// future rename, unchanged here, but since ADR-085/WU-39 this file's own
+// AccumCell::R/G/B (splat.cpp) and core/pipeline.cpp's own output-side
+// conversion both treat every one of PASS 2's channels as RGB now, not
+// YCbCr -- composite()'s `bg` is blended against those same channels
+// unconverted (resolve.cpp's blend(), one channel at a time, Y with Y, Cb
+// with Cb, Cr with Cr). kBlack/kChromaZero was I3's own pre-ADR-085
+// YCbCr-domain "legal black" (Y=4096, Cb=Cr=32768, the achromatic
+// mid-point) -- correct for a genuine YCbCr channel, wrong for an RGB one,
+// where black is kBlack on every channel (I3's own new text: "R, G and B
+// are all full-range... no channel needs a mid-point offset any more").
+// Left at its old YCbCr-domain value, kDefaultBackground silently fed
+// Cb=Cr=32768 (mid-grey-blue in RGB terms) into every uncovered or
+// partially-covered destination pixel, then core/pipeline.cpp's own
+// blanket output-side rgbToYcbcrImage() reinterpreted that as genuine RGB
+// and converted it forward -- producing a visible cyan/blue tint on any
+// uncovered background, confirmed against test_decklink_live_sphere.cpp's
+// own real-hardware symptom. All three fields are kBlack now: black is
+// black on every channel once every channel is RGB.
 struct Background {
-    Sample Y = kBlack, Cb = kChromaZero, Cr = kChromaZero;
+    Sample Y = kBlack, Cb = kBlack, Cr = kBlack;
 };
 
 inline constexpr Background kDefaultBackground{};
