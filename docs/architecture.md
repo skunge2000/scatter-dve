@@ -27,7 +27,9 @@ Target host: MacBook Pro M1 Max, 32 GB.
 ### Out of scope
 
 - Genlock. Proof-of-concept runs free.
-- 4:4:4 or RGB I/O. Not used in practice.
+- 4:4:4 or RGB I/O. Not used in practice — this is about the wire
+  transport; the pipeline's own internal representation is native RGB
+  (`DECISIONS.md` ADR-085, section 5).
 - Legalisation, clipping or range limiting of any kind.
 - GPU acceleration. Deferred until measurement proves it necessary.
 
@@ -48,8 +50,8 @@ verify them.
 |---|-----------|-----------|
 | 1 | Forward scatter, never inverse gather | Non-invertible maps, folds, tears and shattering are only expressible this way. This is what makes it a Mirage rather than an ADO. |
 | 2 | No clipping except v210 protocol limits (codes 4–1019) | Codes 0–3 and 1020–1023 are reserved for TRS. Everything else, including sub-black and super-white, passes through untouched. A DVE does not legalise. |
-| 3 | Offset-binary 16-bit internal colour | 10-bit code shifted left 6. Black stays at its BT.601/709 code (64, i.e. 4096 after the shift) and chroma at its achromatic code (512, i.e. 32768); no signed arithmetic needed anywhere. |
-| 4 | 64-bit integer accumulators | Worst case per fragment is 65535 × 65535 ≈ 4.29 × 10⁹, already at the uint32 boundary before multi-fragment coverage. |
+| 3 | Offset-binary 16-bit internal RGB colour (`DECISIONS.md` ADR-085; supersedes this invariant's original YCbCr-internal text) | 10-bit code shifted left 6. Black sits at code 4096 (`kBlack`) on every channel — R, G and B are all full-range, unlike the superseded design's Y (full-range) plus Cb/Cr (offset around the achromatic code, 512/32768); no channel needs a mid-point offset any more, and no signed arithmetic is needed anywhere. |
+| 4 | 64-bit integer accumulators | Worst case per fragment, on any one of the three colour channels independently, is 65535 × 65535 ≈ 4.29 × 10⁹, already at the uint32 boundary before multi-fragment coverage. Re-derived directly against the RGB-native accumulator code under ADR-085: the bound comes only from each channel's own storage-type range, so it was already identical for Y, Cb and Cr and stays identical for R, G and B, unaffected by the move from one full-range channel plus two nominally-offset ones to three full-range ones. |
 | 5 | Normalise before compositing | Offset-binary premultiplied values composited against zero produce a green fringe on partial coverage. Divide by accumulated weight first, then composite using coverage as alpha. |
 | 6 | Integer arithmetic throughout the accumulation path | Integer addition is associative, so output is bit-identical regardless of thread count or scheduling. This is the single most valuable debugging property in the whole design. |
 | 7 | Identity map round-trips bit-exactly | Input v210 equals output v210, byte for byte, illegal excursions included. |
@@ -63,15 +65,22 @@ SDI in (v210 10-bit 4:2:2)
   │
   ├─ v210 unpack ────────────────► Y/Cb/Cr planar, 16-bit offset-binary
   │
-  ├─ chroma upsample 4:2:2→4:4:4 ► three full-rate 16-bit planes
+  ├─ chroma upsample 4:2:2→4:4:4 ► three full-rate 16-bit planes, YCbCr
   │
-  ├─ [de-interlace to frame]      (interlaced modes only, switchable)
+  ├─ [de-interlace to frame]      (interlaced modes only, switchable;
+  │                                still genuine YCbCr — unaffected)
+  │
+  ├─ RGB boundary conversion ────► three full-rate 16-bit planes, RGB
+  │     (ADR-085; video/chroma.hpp's ycbcrToRgbImage())
   │
   ├─ PASS 1: fragment generation ► fragment records, binned by output tile
   │     lattice eval → Jacobian → K → EWA footprint → [shading]
   │
-  ├─ PASS 2: tile resolve ───────► 16-bit planar output
+  ├─ PASS 2: tile resolve ───────► 16-bit planar output, RGB
   │     four-bank splat → accumulate → normalise
+  │
+  ├─ RGB boundary conversion ────► genuine YCbCr again
+  │     (ADR-085; video/chroma.hpp's rgbToYcbcrImage())
   │
   ├─ [re-interlace]
   │
@@ -79,6 +88,28 @@ SDI in (v210 10-bit 4:2:2)
   │
   └─ v210 pack ──────────────────► SDI out
 ```
+
+Since `DECISIONS.md` ADR-085's RGB-native cutover: everything between the two
+RGB boundary conversions above is native RGB, matching the real Mirage's own
+signal path — PASS 1's fragment records (`Frag::R/G/B`, `SourceRaster::r/g/b`)
+and PASS 2's accumulate/normalise/composite math (`core/resolve.hpp`'s
+`ResolvedCell`/`CompositedCell`/`Background`) are all genuinely RGB-named, not
+YCbCr-named-but-RGB-valued. One exception, permanent by design and worth
+stating plainly rather than glossing over: PASS 2 writes its RGB output into
+`video::Raster444`, the same three-plane container type used genuinely as
+YCbCr on both sides of chroma upsample/downsample, and that struct's own field
+names (`.Y`/`.Cb`/`.Cr`) do not change to match what is actually stored in
+them. `runFrame()`'s own `dest` parameter (and the `warped`/`full`/
+`progressive` locals in `core/pipeline.cpp`) is real RGB content sitting in
+permanently YCbCr-named planes for the stretch between PASS 2 and the second
+RGB boundary conversion above — which is why that second conversion is always
+a `rgbToYcbcrImage()` call reinterpreting those mislabelled planes as its own
+R/G/B input, never a matching `ycbcrToRgbImage()` call. A separate, genuinely
+R/G/B-named container (`video::RasterRGB`) exists and is what feeds PASS 1's
+`SourceRaster` on the input side; whether `runFrame()`'s own output side
+should eventually be given a `RasterRGB` of its own instead of continuing to
+borrow `Raster444` for it is an open question, not decided by this migration
+— see `HANDOFF.md`.
 
 Buffer sizes:
 
@@ -135,7 +166,8 @@ design:
 ```cpp
 struct Frag {                 // 16 bytes
     uint16_t x, y;            // tile-local destination, 12.4 fixed
-    uint16_t Y, Cb, Cr;       // 16-bit offset-binary
+    uint16_t R, G, B;         // 16-bit offset-binary, RGB (ADR-085;
+                               // renamed from Y/Cb/Cr, WU-39)
     uint16_t w;               // coverage weight, 1.15 fixed (32768 = unity)
     uint16_t z;               // depth
     uint8_t  tag;             // priority / surface id
@@ -236,7 +268,12 @@ Then, and only then, composite against the background using `Σw` as alpha.
 Scatter mapping is unusually unforgiving here, because every sample gets an
 independently computed destination. Warping 4:2:2 directly leaves chroma
 samples at non-integer positions relative to their luma neighbours, and
-reconstruction produces colour fringing that follows the geometry.
+reconstruction produces colour fringing that follows the geometry. This is an
+argument about geometry, not about which three channels are being warped, so
+it holds regardless of the pipeline's own internal colour representation —
+the 4:2:2↔4:4:4 resampling below is unaffected by ADR-085's RGB-native
+cutover (see "RGB boundary conversion" below) and stays exactly where it was,
+immediately adjacent to the v210 unpack/pack stages.
 
 - **Input.** 4- or 6-tap polyphase interpolator, respecting co-sited chroma
   placement (Rec. 601 and Rec. 709 both co-site Cb/Cr with even luma samples
@@ -253,6 +290,48 @@ reconstruction produces colour fringing that follows the geometry.
 silently — swscale, anything routed via 8-bit, most RGB helpers. The v210
 unpack and chroma resampling are being written by hand for NEON anyway; keep
 the whole chain in-house and inherit nobody's clamp.
+
+### RGB boundary conversion (ADR-085)
+
+The pipeline's internal colour representation is native RGB throughout,
+matching the real Mirage's own signal path, superseding the YCbCr-internal
+design this project used early on as an engineering convenience before
+Mirage's real architecture was known (`INVARIANTS.md` I3; `DECISIONS.md`
+ADR-085). The 4:2:2 v210 wire transport and the resampling above are both
+unaffected — what changes is what happens to the already-4:4:4
+(post-upsample, post-de-interlace where interlaced modes use it) or
+about-to-be-4:2:2 (pre-downsample) result: `video/chroma.hpp`'s
+`ycbcrToRgbImage()`/`rgbToYcbcrImage()` convert it to/from RGB once at each
+end, immediately adjacent to the upsample/downsample step above (section 3's
+diagram).
+
+- Standard luma/chroma-difference matrix, the same shape shading's own
+  colour multiply used pre-cutover, with coefficients hardcoded to ordinary
+  BT.601 (Kr=0.299, Kg=0.587, Kb=0.114 — this project's real target is SD,
+  ADR-007). Applied per pixel, stateless, no cross-pixel dependency.
+- Quantises by rounding to nearest, then clamping to the 16-bit sample
+  container's own representable range [0, 65535] — a container limit, not
+  section 2 invariant 2's v210 protocol clamp, which still applies only at
+  v210 pack. A YCbCr triple whose implied RGB falls outside that range
+  clips here for real, on both the forward and the return conversion: not
+  every YCbCr triple corresponds to an in-gamut RGB colour, and invariant 2
+  is unaffected because nothing here pulls a value back toward a "legal"
+  range — the container is simply finite.
+- This is a genuine behavioural difference from the pre-ADR-085 pipeline: a
+  non-achromatic flat field is not guaranteed to round-trip bit-exact
+  through the full pipeline any more, which bears on invariant 7's identity
+  round-trip foundation test for that specific case. Current status of that
+  gap is intentionally not asserted here as settled either way — see
+  `HANDOFF.md` and `CORRECTIONS.md` for what has actually been observed and
+  what remains open.
+- PASS 1 (`Frag::R/G/B`, `SourceRaster::r/g/b`, section 4.3) and PASS 2
+  (`core/resolve.hpp`'s `ResolvedCell`/`CompositedCell`/`Background`,
+  section 4.8) are genuinely RGB-named throughout, matching this
+  conversion's own output. `video::Raster444` itself keeps its own genuine
+  YCbCr semantics unconditionally either side of chroma upsample/
+  downsample; see the note under section 3's diagram for how PASS 2's own
+  output ends up as RGB content sitting in that struct's permanently
+  YCbCr-named planes in between.
 
 ### Interlace
 

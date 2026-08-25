@@ -3590,11 +3590,138 @@ landing next; `WU-43` depends on `WU-39`–`WU-42`.
 forced green by cutting scope, not treated as suspicious on its own. See
 `HANDOFF.md`.
 
-### WU-43 — `docs/architecture.md`: Design invariants table (§2) and signal-path diagram (§3) rewritten for RGB `todo`
-**New this session (WU-38, ADR-085 §6 item 5).** Documentation-only
-against already-landed code — picked up once `WU-39`–`WU-42` are in, so
-the document describes what actually shipped rather than the plan.
-Depends on WU-39, WU-40, WU-41, WU-42.
+### WU-43 — `docs/architecture.md` rewritten for RGB-native colour `red` (docs-only; build/test state unaffected — carries WU-42's own red forward)
+**Built this session (Session 60).** Documentation-only against
+already-landed code (`WU-39`–`WU-42`), per this unit's own stub — but the
+stub's own named scope ("Design Invariants table (§2) and signal-path
+diagram (§3)") was not trusted as finished before starting, per this
+session's own opening instruction: it was written before `WU-39`–`WU-42`
+landed for real and named only the two sections assumed likely to need
+it, not a real grep against the current doc and code.
+
+**Real scope re-derived directly, not assumed from the stub:** read
+`docs/architecture.md` in full, then `grep -n 'YCbCr\|Y/Cb/Cr\|\bCb\b\|\bCr\b'
+docs/architecture.md` to find every line that might need updating, not
+just §2/§3 by assumption — five real hits (§3's diagram, §4.3's `Frag`
+struct, §5's two chroma-filter bullets, §9's ramp-test row). Read
+`src/core/types.hpp`, `src/core/binner.hpp`/`.cpp`, `src/core/resolve.hpp`,
+`src/core/pipeline.cpp`, `src/video/chroma.hpp` and `src/video/raster.hpp`
+in full to confirm the real, current shape of the landed pipeline directly
+against the code — not against `HANDOFF.md`'s or `WORK-UNITS.md`'s own
+prose summaries of it — before writing anything. Grepped the whole
+repository for `YCbCr`/`Y/Cb/Cr` outside the known state files: every
+remaining hit is a genuine, unaffected `Raster422`/`Raster444`/v210/chroma
+boundary reference, except `tools/coverage_view_demo.cpp`'s own
+already-known, already-flagged staleness (WU-41's own `WORK-UNITS.md`
+entry: field names updated to compile, fixture *values* not re-derived —
+`WU-44`'s own job) — not a new finding, not re-logged here.
+
+**What changed, `docs/architecture.md` only:**
+- §1 out-of-scope's "4:4:4 or RGB I/O" line: one-clause addition making
+  explicit that this is about the wire transport, not the (now RGB)
+  internal representation — a reader could otherwise reasonably read it as
+  contradicting ADR-085.
+- §2 Design Invariants table, row 3 (I3): rewritten to the RGB-native text,
+  matching `INVARIANTS.md`'s own I3 verbatim in substance (not copied
+  verbatim — architecture.md's table cell format differs from
+  INVARIANTS.md's prose). Row 4 (I4): unchanged bound, one sentence added
+  noting it was re-derived under ADR-085 and is channel-agnostic, matching
+  `INVARIANTS.md`'s own I4 addition. Rows 1, 2, 5, 6, 7 untouched —
+  colour-space-agnostic, per `DECISIONS.md` ADR-085's own "What does not
+  change" paragraph.
+- §3 signal-path diagram: two new stages added (RGB boundary conversion,
+  input side after chroma upsample/de-interlace, and output side before
+  chroma downsample), matching `core/pipeline.cpp`'s real call sequence in
+  `runFrameBytes()`/`runFrameBytesDeinterlaced()`/`runFrameFile()` exactly
+  — confirmed against that file directly, not assumed symmetric. A new
+  paragraph below the diagram states plainly, not glossed over, that
+  `video::Raster444` (`runFrame()`'s own `dest`) carries genuine RGB
+  content in permanently YCbCr-named planes between PASS 2 and the second
+  boundary conversion — this project's own already-flagged, deliberately
+  unresolved `Raster444`-vs-`RasterRGB` open question (Session 59's
+  `HANDOFF.md`) is named here as a fact about the diagram, not resolved:
+  the note states what is real today and points to `HANDOFF.md` for the
+  open decision, per this unit's own standing instruction not to resolve
+  it.
+- §4.3 `Frag` struct: `Y, Cb, Cr` → `R, G, B`, matching `core/types.hpp`
+  exactly (WU-39).
+- §5 Chroma handling: one clarifying paragraph after the opening (the
+  4:2:2↔4:4:4 resampling is a geometry argument, unaffected by which three
+  channels are being warped); existing Input/Output bullets and the
+  "Write your own converters" paragraph left untouched — still accurate,
+  unaffected in substance per ADR-085's own "What does not change". New
+  "RGB boundary conversion (ADR-085)" subsection added, describing
+  `video/chroma.hpp`'s `ycbcrToRgbImage()`/`rgbToYcbcrImage()`: the
+  hardcoded BT.601 coefficients, the quantisation clamp to `Sample`'s own
+  [0, 65535] range (explicitly distinguished from I2's v210-protocol
+  clamp, per that file's own header comment), and — stated as a real,
+  observed behavioural difference, not asserted as settled either way —
+  that a non-achromatic flat field is not guaranteed to round-trip
+  bit-exact through the full pipeline any more, pointing to `HANDOFF.md`/
+  `CORRECTIONS.md` for current status rather than characterising it here.
+- §9 test table (`Full-range ramp` row, `Y, Cb, Cr` wording): confirmed,
+  not assumed, still accurate as written — that row describes the v210
+  *wire*-domain ramp, which ADR-085 does not touch; left unchanged rather
+  than edited to match §3/§4.3's internal-representation renames, which
+  would have been a wrong edit born of pattern-matching on the grep hit
+  alone rather than reading what the row actually describes.
+
+**Not touched, deliberately:** `INVARIANTS.md` (standing rule — concerns
+flagged below and in this session's own reply, not edited).
+`DECISIONS.md` ADR-085 (standing rule — not reopened; no new ADR proposed
+by this unit, none needed). §8 Module layout: confirmed via the same grep
+above to contain no `YCbCr`/`Y/Cb/Cr` references needing this unit's own
+edit; a separate, pre-existing gap noticed in passing (the section's own
+`video/` file list omits `raster.hpp`, added WU-05, well before this
+phase) is unrelated to ADR-085 and out of this unit's scope — flagged for
+Steve below, not fixed here. `tools/coverage_view_demo.cpp`'s own
+already-known staleness (see above) — also out of scope; a docs-only unit
+does not touch `tools/`.
+
+**Verification, scoped down deliberately for a docs-only change (stated
+plainly, not left implicit): one representative build/test configuration
+(GCC, Release, `SCATTER_TILE_LOG2=5`, this project's own settled default,
+ADR-045) in a fresh cloud-sandbox clone of the already-tagged `wu-42-red`
+commit, with only this session's own `docs/architecture.md` change applied
+(`git diff --stat` against the clean clone: exactly one file) — not the
+full twelve-configuration matrix WU-39–WU-42 each ran, since a
+documentation-only change touching no source file has no
+compiler/sanitizer/tile-size axis to vary across.** Clean build, zero
+warnings. `ctest`: 25 of 28 tests pass, identically to Session 59's own
+baseline — `test_binner` (2 of 39139 checks fail, `test_binner.cpp:794`,
+`:795`), `test_zoneplate` (22 of 42537 checks fail,
+`test_zoneplate.cpp:209`, `:212`, `:213`), `test_pipeline_bytes` (3 of 42
+checks fail, `test_pipeline_bytes.cpp:406`, `:452`, `:552`) — same three
+tests, same failing lines, same counts, confirming a docs-only change
+changed nothing about the build/test outcome, as expected.
+
+**Files, real:** `docs/architecture.md` (this unit's own named file).
+`WORK-UNITS.md` (this entry). `HANDOFF.md`. No source file touched — per
+this unit's own scope, confirmed rather than assumed (see grep/read
+account above).
+
+**Flag for Steve, not resolved here:** the `video::Raster444`-vs-
+`video::RasterRGB` open question (Session 59's own `HANDOFF.md`) is now
+also named honestly in `docs/architecture.md` itself, not just in
+`HANDOFF.md` — still not decided by this unit. §2's own Design Invariants
+table still lists only I1–I7; `INVARIANTS.md` itself has grown to I1–I11
+(I8 back-face splat, I9 no stored normal/depth, I10 pre-projection
+shading, I11 within/between-sheet resolve) since this table was last
+touched — a pre-existing gap, unrelated to ADR-085/this unit's own scope,
+worth a future documentation unit. §8's own missing `raster.hpp` line,
+noted above. `tools/coverage_view_demo.cpp`'s own stale fixture values
+(already known, `WU-41`'s own entry) — still there, still `WU-44`'s job
+if it is ever touched at all (it is Apple-only, not built or tested in
+this project's own Linux cloud sandbox).
+
+Depends on WU-39, WU-40, WU-41, WU-42 (all landed). No unit depends on
+`WU-43` landing — `WU-44` depends only on `WU-39`–`WU-42` (the production
+code).
+
+*Status:* `red` — carries `WU-42`'s own genuinely-red build/test state
+forward unchanged (confirmed above, not assumed); this unit's own change
+is documentation-only and could not have made it either better or worse.
+`WU-44` is still the unit that turns the suite green.
 
 ### WU-44 — ~21 dependent test files re-derived for RGB, worked through in natural clusters `todo`
 **New this session (WU-38, ADR-085 §6 item 6) — this phase's own last
