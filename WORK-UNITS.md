@@ -3723,24 +3723,230 @@ forward unchanged (confirmed above, not assumed); this unit's own change
 is documentation-only and could not have made it either better or worse.
 `WU-44` is still the unit that turns the suite green.
 
-### WU-44 — ~21 dependent test files re-derived for RGB, worked through in natural clusters `todo`
-**New this session (WU-38, ADR-085 §6 item 6) — this phase's own last
-unit; the "green after every unit" suspension (ADR-085 §5) ends here.**
-Every fixture whose expected values encode the colour space under test
-needs re-deriving, not just recompiling — matching WU-34b's own "mirror
-the math independently, never call the production function" test-design
-precedent (ADR-084), per ADR-085's own stated preference over a
-mechanical fixture transform. Worked through in clusters rather than one
-file at a time, since fixture values need re-deriving together per
-cluster (ADR-085 §6): v210/chroma; binner/EWA/jacobian; resolve/kbuffer/
-layered-composite; pipeline/threading/row-band/field; lighting/
-coarse-shading. The real file list is `WU-39`'s own grep plus whichever
-further files `WU-40`–`WU-42` touch beyond `Frag`/`AccumCell` directly
-(`Raster444`-based fixtures in particular) — not re-counted here; whoever
-starts this unit should re-grep rather than trust either this note or
-ADR-085's own "21 of 35" estimate. Depends on WU-39–WU-42 (the production
-code every fixture's expected value is checked against). Phase 9 is
-complete, and "green after every unit" resumes, once this unit lands.
+### WU-44 — split this session (WU-44a) into lettered sub-units; not a single work unit
+**WU-44's own stub (written WU-38, before any of `WU-39`–`WU-43` existed for
+real) named five candidate clusters and a "~21 of 35" file-count estimate
+that neither this session nor `SESSION-PROTOCOL.md`'s own work-unit sizing
+rule ("touch at most 3 source files plus its test... if a unit cannot meet
+this, split it before starting") supports treating as one session's work —
+confirmed directly this session, not assumed, by re-grepping the real
+`tests/` tree against the real, already-landed `WU-39`–`WU-42` code rather
+than trusting the stub. Split below into `WU-44a`–`WU-44e`, this project's
+own established convention for an oversized unit (see `WU-23a2a`/
+`WU-23a2b`, `WU-28a`–`d`). **`WU-44a` is built this session (see its own
+entry); `WU-44b`–`WU-44e` are scoped from a real repository-wide check but
+not started — per this session's own instruction, only one cluster is
+implemented per session.** "Green after every unit" (ADR-085 §5) still
+resumes only once every `WU-44` sub-unit lands, not at `WU-44a` alone —
+`test_binner`, `test_zoneplate` and `test_pipeline_bytes` are all still
+red after this session, unchanged in substance (see `WU-44a`'s own entry).
+
+**Re-derivation method used to scope every sub-unit below, real not
+assumed:** `grep -rln 'ResolvedCell\|CompositedCell\|\bSourceRaster\b\|
+\bFrag\b\|\bAccumCell\b\|YCbCr\|\.\(R\|G\|B\)\b\|\.\(Y\|Cb\|Cr\)\b'
+tests/*.cpp`, followed by a per-file `#include "core/..."` check (a file
+including only `video/` headers — no `core/binner.hpp`, `resolve.hpp`,
+`splat.hpp` or `pipeline.hpp` — cannot be touching `Frag`/`AccumCell`/
+`ResolvedCell`/PASS1-PASS2 internals at all, whatever its own `Y`/`Cb`/`Cr`
+grep hits look like; it is reading `video::Raster422`/`Raster444`'s own
+wire-domain planes directly, unaffected by ADR-085, the same reasoning
+`docs/architecture.md`'s own §9 confirmation already established for the
+v210 ramp-test row — see `WU-44a`'s entry). Fourteen of the grep's 22 hits
+resolved this way to **no `WU-44` work needed, confirmed rather than left
+untouched by omission:**
+`test_v210.cpp`, `test_v210_neon.cpp`, `test_chroma_neon.cpp`,
+`test_ramp_roundtrip.cpp`, `test_testpat.cpp`, `test_deinterlace.cpp`,
+`test_interlace.cpp` (all wire-domain-only, no `core/` include beyond
+`core/types.hpp`); `test_ewa.cpp`, `test_jacobian.cpp` (zero grep hits at
+all — pure geometry/weight logic, never touches a colour field); and
+`test_row_band.cpp`, `test_smoke.cpp`, `test_coverage_capture.cpp` (real
+`Frag`/`AccumCell`/`SourceRaster` hits, but already fully accounted for by
+name — `WU-39`'s own entry: `test_row_band.cpp`'s `decode()` needed only a
+pure field-name substitution, no value change; `test_smoke.cpp` only
+checks `sizeof`/unrenamed fields; `test_coverage_capture.cpp` only ever
+touches `AccumCell` via `.w` or whole-cell `composite()` calls, never a
+colour field directly — none of the three is red). **Zero signal, also
+confirmed directly, not merely absent from the grep by accident:**
+`test_lighting.cpp`, `test_coarse_shading.cpp`, `test_morph.cpp` — see
+`WU-44e` below.
+
+**`test_zoneplate.cpp` is deliberately left unassigned to any `WU-44`
+sub-unit below, not omitted by oversight.** Its own three red checks
+(`test_zoneplate.cpp:209`, `:212`, `:213`) are `HANDOFF.md`'s own already-
+flagged I7 non-achromatic round-trip breakage — a real behavioural
+consequence of the RGB boundary conversion's clamp (`chroma.hpp`), not a
+stale fixture a hand-re-derivation can fix, and explicitly Steve's own
+call to resolve (`video::Raster444`-vs-`video::RasterRGB`, `HANDOFF.md`),
+not any work unit's. Whichever future sub-unit's own fixture work happens
+to touch this file's other, non-red content should leave its three red
+checks alone.
+
+**`test_pipeline_bytes.cpp` (also currently red) may be the same root
+cause, not a `WU-44`-fixable stale fixture — flagged here for whoever
+starts `WU-44d`, not resolved.** Its three failing checks (`:406`, `:452`,
+`:552`) all compare `runFrameBytesDeinterlaced()` against an independent
+in-file reference implementation over `testpat::makeZonePlate()` content —
+a non-achromatic pattern, the same kind of content `test_zoneplate.cpp`'s
+own breakage is about. Not confirmed either way this session (confirming
+it would mean tracing whether production and reference reach the RGB
+boundary clamp by different paths that stop agreeing under non-achromatic
+content, which is real investigation, not scoping) — `WU-44d` should check
+this directly before assuming its own fixture work can turn this file
+green.
+
+Depends on `WU-39`–`WU-42` (the production code every fixture's expected
+value is checked against). Phase 9 is complete, and "green after every
+unit" resumes, once every `WU-44` sub-unit below lands (or is confirmed,
+like `test_zoneplate.cpp`/possibly `test_pipeline_bytes.cpp` above, to be
+blocked on a decision outside `WU-44`'s own scope).
+
+### WU-44a — `tests/test_chroma.cpp`: RGB boundary conversion test coverage `red`
+**Built this session.** Real scope, re-derived directly rather than taken
+from the WU-44 stub's own "v210/chroma" label: `grep -rn
+'ycbcrToRgb\|rgbToYcbcr' tests/ src/` before writing anything found
+`chroma::ycbcrToRgbRow`/`rgbToYcbcrRow`/`ycbcrToRgbImage`/
+`rgbToYcbcrImage` (`src/video/chroma.hpp`/`.cpp`, `WU-40`) — the RGB
+boundary conversion itself, in real production use since `WU-40`
+(`src/core/pipeline.cpp` calls both Image variants at every boundary
+crossing) — had **zero test coverage of any kind**, in this file or
+anywhere else in `tests/`. This is the real, concrete WU-44a job: not a
+stale fixture to re-derive (the rest of `test_chroma.cpp` — the resampling
+filters, `upsampleRow`/`downsampleRow` and their NEON/Image siblings —
+is wire-domain, unaffected by ADR-085, and was already green and stays
+untouched), but a coverage gap in brand-new RGB-domain production code to
+close, per this unit's own re-derived scope. `test_v210.cpp`,
+`test_v210_neon.cpp`, `test_chroma_neon.cpp`, `test_ramp_roundtrip.cpp`
+confirmed unaffected (see `WU-44`'s own entry above) — not touched.
+
+**New tests added, six functions, each hand-derived independently from
+chroma.hpp's own stated BT.601 formula and cross-checked numerically
+before being written, never by calling the production function and
+trusting the result (WU-34b/ADR-084's own precedent, ADR-085's own stated
+preference):** `testAchromaticIdentity` (Cb=Cr=kChromaZero collapses to
+R=G=B=Y exactly, at five points including both ends of the range — and
+confirms directly, not assumes, that this holds despite
+Kr+Kg+Kb = 0.9999999999999999 in IEEE double, one ULP short of 1.0, not
+bit-exact 1.0 as the formula's real-number derivation would suggest);
+`testKnownVectorForward` (one off-achromatic point, forward and round-trip
+back, no clamp engaged, both directions exact); `testClampLowG`/
+`testClampHighB` (forward-direction clamp, both low and high side, per
+chroma.hpp's own documented "clips here for real" behaviour);
+`testReverseClamp` (three pure-primary RGB triples — the clamp is not
+forward-only, chroma.hpp says so and this proves it in the reverse
+direction too, two of the three clamping, one not, for contrast);
+`testRgbImageStride` (stride/row-independence for the Image wrappers,
+built only from vectors already proven exact above, so a failure here can
+only be an indexing bug, not a fresh arithmetic question).
+
+**Build/test: full twelve-configuration matrix (GCC 13.3.0 and Clang
+18.1.3, Release and Debug, tile 4 and tile 5 — eight — plus GCC with
+`-fsanitize=address` alone and GCC with `-fsanitize=undefined` alone,
+each at both tile sizes — four more, matching WU-42's own real count,
+checked directly against that entry's own wording rather than assumed to
+be two combined `-fsanitize=address,undefined` configurations) — a real
+source-code (test) change, unlike `WU-43`'s docs-only scoped-down check,
+so the full matrix applies again. Clean in all twelve: zero warnings,
+zero sanitizer traps. `test_chroma` itself: PASS, 21465
+checks, identical pass/fail shape in every configuration (chroma content
+does not depend on `SCATTER_TILE_LOG2`, confirmed rather than assumed).
+The suite's three genuinely red tests are unchanged, same lines, same
+counts in every configuration: `test_binner` (2 of 39139 at tile 5, 2 of
+10963 at tile 4, matching C-033), `test_zoneplate` (22 of 42537),
+`test_pipeline_bytes` (3 of 42) — this unit's own change cannot have
+affected any of the three (it adds test coverage for previously-untested
+functions; it does not touch `test_binner.cpp`, `test_zoneplate.cpp`,
+`test_pipeline_bytes.cpp`, or any `src/` file).**
+
+**Files, real:** `tests/test_chroma.cpp` (this unit's own file — 255 lines
+added, one `using` declaration, six new test functions; well inside
+`SESSION-PROTOCOL.md`'s own ~400-line/3-source-file sizing rule).
+`WORK-UNITS.md` (this entry, plus the `WU-44` split above).
+`HANDOFF.md`.
+
+No `src/` file touched — no bug found in `chroma.cpp`'s own
+`ycbcrToRgbRow`/`rgbToYcbcrRow`/`ycbcrToRgbImage`/`rgbToYcbcrImage`; every
+hand-derived expected value matched the production function's own output
+exactly, in every case checked.
+
+Depends on WU-40 (the functions under test). No unit depends on WU-44a
+landing; WU-44b–WU-44e are independent of it.
+
+*Status:* `red` — carries the same genuinely-red state `wu-43-red` already
+had forward unchanged (`test_binner`/`test_zoneplate`/`test_pipeline_bytes`,
+none of which this unit's own scope could affect). Tag `wu-44a-red`, not
+`-green`: this unit closes a coverage gap, it does not turn the suite
+green, and none of the three red tests' own failures are in this unit's
+own scope to fix.
+
+### WU-44b — `tests/test_binner.cpp`, `test_splat.cpp`, `test_scan_order_invariance.cpp`: PASS 1 fragment/splat colour fixtures `todo`
+**Scoped this session, not started.** Real file list, re-derived directly
+(see `WU-44`'s own entry above for method): `test_binner.cpp` (`Frag`=29,
+`SourceRaster`=5, `.R/.G/.B`=7, `Raster444`=6 hits) — **owns the shading-
+mirror fixture at `test_binner.cpp:794`/`:795`, the same two checks that
+make `test_binner` currently red** (`CORRECTIONS.md` C-033, `WORK-UNITS.md`
+WU-43's own entry: "shading-mirror fixture staleness — WU-44's own job").
+`test_splat.cpp` (`Frag`=17, `AccumCell`=20, `.R/.G/.B`=17). `test_scan_
+order_invariance.cpp` (`AccumCell`=10, `SourceRaster`=4, `.R/.G/.B`=3).
+`test_ewa.cpp`, `test_jacobian.cpp` checked and confirmed to need no work
+(zero signal — pure geometry, never touches a colour field; see `WU-44`'s
+own entry). This is the one sub-unit that can plausibly turn a currently-
+red test (`test_binner`) fully green — check this directly before
+assuming it, the same discipline `WU-44a` applied to its own scope, per
+this unit's own re-scoped acceptance criteria once someone starts it.
+Depends on WU-39 (`Frag`/`AccumCell` rename), WU-40 (`applyShading()`'s
+RGB round trip). Whoever starts this should re-grep first (this session's
+own list may already be stale by then) and split further if `test_binner`
+alone plus its own dependent fixtures do not fit `SESSION-PROTOCOL.md`'s
+sizing rule.
+
+### WU-44c — `tests/test_kbuffer_resolve.cpp`, `test_kbuffer_storage.cpp`, `test_layered_composite.cpp`, `test_pageturn.cpp`, `test_shapes.cpp`: PASS 2 resolve/composite colour fixtures `todo`
+**Scoped this session, not started — likely too large for one session as
+scoped, flagged rather than assumed to fit.** Real file list: `test_
+kbuffer_resolve.cpp` (`AccumCell`=19, `ResolvedCell`/`CompositedCell`/
+`Background`=21, `.R/.G/.B`=22 — substantial). `test_kbuffer_storage.cpp`
+(`Frag`=10, `AccumCell`=3, `.R/.G/.B`=14). `test_layered_composite.cpp`
+(`AccumCell`=24, `ResolvedCell`/`CompositedCell`/`Background`=21,
+`.R/.G/.B`=32 — substantial, the largest single file in the whole `WU-44`
+split). `test_pageturn.cpp` (`Frag`=1, `AccumCell`=9, `Background`=2,
+`SourceRaster`=3, `.R/.G/.B`=6). `test_shapes.cpp` (`Background`=1,
+`SourceRaster`=1, `.R/.G/.B`=4, `Raster444`=1). Five files, two of them
+substantial — whoever starts this should re-grep first and split into
+`WU-44c1`/`WU-44c2` (etc.) before writing any fixture, per
+`SESSION-PROTOCOL.md`'s own sizing rule, rather than attempt all five in
+one session. Depends on WU-39 (rename), WU-42 (`core/resolve.hpp`/`.cpp`
+PASS 2 reshape — the module this whole cluster's own fixtures check
+against).
+
+### WU-44d — `tests/test_pipeline_bytes.cpp`, `test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`: full-pipeline integration fixtures `todo`
+**Scoped this session, not started.** Real file list: `test_pipeline_
+bytes.cpp` (`SourceRaster`=2, `Raster444`=9, `Raster422`=4 — currently
+red, see `WU-44`'s own entry above for why its own three failing checks
+may be the same I7/non-achromatic root cause as `test_zoneplate.cpp`
+rather than a fixable stale fixture; check before assuming). `test_
+threading.cpp` (`Background`=1, `SourceRaster`=1, `Raster444`=5).
+`test_persistent_pool.cpp` (`SourceRaster`=1, `Raster444`=13). `test_
+field_pipeline.cpp` (`AccumCell`=2, `Background`=1, `SourceRaster`=6,
+`YCbCr`=6, `Raster444`=15). All four include `core/pipeline.hpp` and/or
+`core/resolve.hpp`/`core/binner.hpp`/`core/splat.hpp` directly (unlike the
+wire-domain files already cleared under `WU-44`'s own entry), confirming
+real PASS1/PASS2/pipeline-boundary involvement rather than a false-
+positive grep hit. Depends on WU-39–WU-42 (the whole production chain
+these integration tests exercise end to end).
+
+### WU-44e — `tests/test_lighting.cpp`, `test_coarse_shading.cpp`, `test_morph.cpp`: found empty this session `todo` (verify, likely no-op)
+**Scoped this session, not started — and this session's own real grep
+found no work here at all**, unlike the other four sub-units above:
+`grep -rn 'ResolvedCell\|CompositedCell\|SourceRaster\|Frag\|AccumCell\|
+YCbCr\|\.\(R\|G\|B\)\b\|\.\(Y\|Cb\|Cr\)\b'` against all three files
+returned zero hits, and none includes a `core/` header beyond what a
+zero-hit result would predict. `WU-44`'s own original "lighting/coarse-
+shading" cluster naming came from ADR-085's own "21 of 35" estimate, not
+from a real check at the time — this session's real check does not
+confirm it. Whoever picks this up should still re-verify directly (this
+project's own standing discipline — a scoping stub, even one written this
+carefully, is a plan, not a fact, C-027) rather than skip the unit purely
+on this note's say-so, but should expect to find nothing and be able to
+close it out immediately if that holds.
 
 ---
 

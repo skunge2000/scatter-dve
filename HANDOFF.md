@@ -3,19 +3,24 @@ Overwritten at the end of every session. This is the first thing to read.
 
 ---
 
-**Session:** 60 (`WU-43` — Phase 9's fifth unit, `docs/architecture.md`
-rewritten for RGB-native colour, ADR-085).
+**Session:** 61 (`WU-44a` — Phase 9's sixth unit and the first of `WU-44`'s
+own lettered split, RGB boundary conversion test coverage for
+`tests/test_chroma.cpp`, ADR-085).
 
-**Tag:** `wu-42-red` was the newest real tag at this session's own start
+**Tag:** `wu-43-red` was the newest real tag at this session's own start
 (confirmed directly: `git fetch origin && git log --oneline -5`,
 `git tag -l | tail -5`, `git rev-parse HEAD origin/main` — both
-`1297c19`, `git describe --tags --exact-match HEAD` — `wu-42-red`,
+`f7dab4c`, `git describe --tags --exact-match HEAD` — `wu-43-red`,
 dereferencing to that same commit). `git status --short` read empty at
-session start — clean tree, Session 59's own work already committed,
+session start — clean tree, Session 60's own work already committed,
 tagged and pushed by Steve, exactly as its own HANDOFF.md account
-expected. This session's own three-file change (`docs/architecture.md`,
-`WORK-UNITS.md`, this file) is not yet committed, tagged or pushed —
-that is Steve's own next step, below.
+expected. `.git/index.lock` was absent at the real first check (a
+follow-up `ls -la .git/index.lock` inside the same verification command
+failed with "No such file or directory", which is the expected, harmless
+outcome, not a blocking condition — see "Environment check" below). This
+session's own two-file change (`WORK-UNITS.md`, `tests/test_chroma.cpp`)
+plus this file is not yet committed, tagged or pushed — that is Steve's
+own next step, below.
 
 ## Before doing anything else in the next session
 
@@ -23,304 +28,274 @@ Run `git fetch origin`, `git log --oneline -5`, `git tag -l | tail -5`,
 `git rev-parse HEAD origin/main`, `git describe --tags --exact-match HEAD`
 and `git status --short` directly against `~/src/scatter-dve` — do not
 trust this file's own account without checking it against the real
-repository first. Also check `.git/index.lock` directly (`ls -la
-.git/index.lock`) before assuming it is absent, and see "Environment
-check" below before assuming a lock you do find is harmless — this
-session's own opening verification found the same self-inflicted,
-already-documented pattern Sessions 55–59 already logged (a lock left
-behind by the device-bridge shell's own inability to delete files, not a
-repository problem), confirmed by directly testing whether it blocked a
-write-requiring git command rather than assumed either way.
+repository first. Also check `.git/index.lock` directly before assuming
+it is absent, and see "Environment check" below before assuming a lock
+you do find is harmless.
 
 ## This session in full
 
 Opened with a real state-verification step, per this session's own
-opening instruction: `git fetch origin`, `git log --oneline -5`,
-`git tag -l | tail -5`, `git rev-parse HEAD origin/main`,
-`git describe --tags --exact-match HEAD`, `git status --short` and
-`ls -la .git/index.lock`, all run directly against the real repository via
-the device bridge before reading anything else. Found `HEAD == origin/main
-== 1297c19`, the expected WU-42 commit message, `wu-42-red` dereferencing
-to that same commit, a clean tree, and — at that first check — no
-`.git/index.lock`. State (a), genuinely confirmed, so the session
-proceeded. (A subsequent diagnostic *did* leave a stray lock behind later
-in the session — see "Environment check" below; it did not affect
-anything, since this unit never needed a write-requiring git command in
-the device-bridge shell at all.)
+opening instruction, before reading anything else. Found `HEAD ==
+origin/main == f7dab4c`, the expected WU-43 commit message, `wu-43-red`
+dereferencing to that same commit, a clean tree, and no `.git/index.lock`.
+State (a), genuinely confirmed, so the session proceeded.
 
-Read `SESSION-PROTOCOL.md`, `HANDOFF.md` (Session 59's own entry),
+Read `SESSION-PROTOCOL.md`, `HANDOFF.md` (Session 60's own entry),
 `INVARIANTS.md`, `DECISIONS.md` ADR-085 in full, `CORRECTIONS.md` (C-032
-and C-033, read in the order they appear), and `WORK-UNITS.md`'s own
-WU-43 entry (the stub, not trusted as a finished scope) and WU-42's own
-full entry (just landed, read to know what actually shipped), all before
-touching anything, per this session's own opening instruction.
+and C-033), and `WORK-UNITS.md`'s own WU-44 entry (the stub — not trusted
+as a finished single-session scope, per this session's own opening
+instruction) and WU-43's own full entry (just landed), all before
+touching anything.
 
-**Re-derived the real current scope directly against the code and the
-current document, not from WU-43's own stub:** the stub named only
-"Design Invariants table (§2) and signal-path diagram (§3)" — written
-before `WU-39`–`WU-42` landed for real, and not itself the product of a
-grep against the current document. This session read `docs/architecture.md`
-in full, then `grep -n 'YCbCr\|Y/Cb/Cr\|\bCb\b\|\bCr\b' docs/architecture.md`
-to find every line that might need updating rather than assuming §2/§3
-were the whole scope — five real hits: §3's diagram, §4.3's `Frag` struct,
-two chroma-filter bullets in §5, and §9's ramp-test row. Read
-`src/core/types.hpp`, `src/core/binner.hpp`/`.cpp`, `src/core/resolve.hpp`,
-`src/core/pipeline.cpp`, `src/video/chroma.hpp` and `src/video/raster.hpp`
-in full to confirm the real, current shape of the already-landed pipeline
-directly against the code — not against this file's or `WORK-UNITS.md`'s
-own prose summaries of it, which are accounts, not ground truth — before
-writing anything.
+**`WU-44` split into lettered sub-units before any code was written, per
+this session's own opening instruction — see `WORK-UNITS.md`'s own new
+`WU-44` entry for the full method and reasoning, summarised here:**
+`WU-44`'s own stub (written WU-38, before `WU-39`–`WU-43` existed for
+real) named five candidate clusters and a "~21 of 35" file estimate that
+this session's own real, repository-wide grep against `tests/*.cpp` —
+followed by a per-file `#include "core/..."` check to separate genuine
+`Frag`/`AccumCell`/PASS1-PASS2 involvement from a wire-domain false
+positive — did not confirm. Real result: of the grep's candidate files,
+fourteen need no `WU-44` work at all (seven are wire-domain-only, like
+`test_v210.cpp`; two, `test_ewa.cpp`/`test_jacobian.cpp`, have zero
+signal; three, `test_row_band.cpp`/`test_smoke.cpp`/
+`test_coverage_capture.cpp`, were already fully resolved by `WU-39`'s own
+entry), three more (`test_lighting.cpp`, `test_coarse_shading.cpp`,
+`test_morph.cpp`, the stub's own "lighting/coarse-shading" cluster) show
+zero signal and are provisionally empty (`WU-44e`, flagged for
+re-verification rather than closed outright), and `test_zoneplate.cpp` is
+deliberately left unassigned to any sub-unit — its own three red checks
+are the already-flagged I7 non-achromatic breakage, Steve's own call, not
+any work unit's. `test_pipeline_bytes.cpp` (also currently red) is
+flagged, not confirmed, as possibly the same root cause — see
+`WORK-UNITS.md`'s own `WU-44` entry. Split into `WU-44a` (this session,
+below) through `WU-44e` (scoped, not started — `WU-44c` in particular
+flagged as likely still too large as scoped and needing its own further
+split before anyone starts it).
 
-**Repository-wide grep before writing, not just the two named sections
-(C-028/C-029's own standard, applied here to documentation instead of
-code):** `grep -rln 'YCbCr\|Y/Cb/Cr' --include="*.md" --include="*.hpp"
---include="*.cpp"` across the whole repository, excluding the five
-state files (which name the pre-ADR-085 design deliberately, as history)
-and `docs/sources/`/`docs/proposals/`/`docs/wu-audit-2026-08.md` (source
-material and a past audit, not live documentation). Every remaining hit
-is either a genuine, ADR-085-unaffected `Raster422`/`Raster444`/v210/
-chroma-boundary reference (confirmed by tracing each variable's own
-declared type, the same discipline `WU-39`/`WU-41`/`WU-42` already used
-for the analogous risk in their own renames) or `tools/
-coverage_view_demo.cpp`'s own already-known staleness: `WU-41`'s own
-`WORK-UNITS.md` entry already updated that file's field names to compile
-after `SourceRaster`'s rename, explicitly without re-deriving its fixture
-*values* (`WU-44`'s own job) — not a new finding, not re-logged as a
-correction here, and out of scope for a docs-only unit to touch even if
-it were new (it lives in `tools/`, not `docs/`).
+**`WU-44a` implemented this session — real scope re-derived directly, not
+taken from the stub's "v210/chroma" label by assumption:**
+`grep -rn 'ycbcrToRgb\|rgbToYcbcr' tests/ src/` before writing anything
+found `chroma::ycbcrToRgbRow`/`rgbToYcbcrRow`/`ycbcrToRgbImage`/
+`rgbToYcbcrImage` (`src/video/chroma.hpp`/`.cpp`, landed WU-40) — real
+production code, called at every pipeline boundary crossing
+(`src/core/pipeline.cpp`) since WU-40 — had **zero test coverage
+anywhere in the repository.** That is this unit's real job: not a stale
+fixture to re-derive (the rest of `test_chroma.cpp`, the resampling
+filters, was already green, wire-domain, and untouched), but a coverage
+gap in untested RGB-domain production code. `test_v210.cpp`,
+`test_v210_neon.cpp`, `test_chroma_neon.cpp`, `test_ramp_roundtrip.cpp`
+confirmed unaffected and left untouched (wire-domain, no `Frag`/
+`AccumCell`/RGB-internal involvement — same reasoning `docs/
+architecture.md`'s own §9 note already established).
 
-**What changed, `docs/architecture.md` only (see `WORK-UNITS.md`'s own
-WU-43 entry for the itemised list against each of the five grep hits and
-each table row):** §1's "4:4:4 or RGB I/O" out-of-scope line gained one
-clause making explicit that it describes the wire transport, not the
-(now RGB) internal representation. §2's Design Invariants table: row 3
-(I3) rewritten to the RGB-native text, matching `INVARIANTS.md`'s own I3
-in substance; row 4 (I4) gained one sentence noting the bound was
-re-derived under ADR-085 and is channel-agnostic, matching
-`INVARIANTS.md`'s own I4 addition; rows 1, 2, 5, 6, 7 untouched
-(colour-space-agnostic, per ADR-085's own "What does not change"). §3's
-signal-path diagram gained two new stages (RGB boundary conversion,
-input side after chroma upsample/de-interlace and output side before
-chroma downsample), matching `core/pipeline.cpp`'s real call sequence
-exactly, plus a new paragraph stating plainly that `video::Raster444`
-(`runFrame()`'s own `dest`) carries genuine RGB content in permanently
-YCbCr-named planes between PASS 2 and the second boundary conversion —
-this project's own already-flagged `Raster444`-vs-`RasterRGB` open
-question (Session 59) is named here as a fact about the diagram, not
-resolved; the note states what is real today and points to this file for
-the open decision. §4.3's `Frag` struct: `Y, Cb, Cr` → `R, G, B`, matching
-`core/types.hpp` exactly. §5 gained one clarifying paragraph (the
-4:2:2↔4:4:4 resampling is a geometry argument, unaffected by which three
-channels are being warped — existing bullets left untouched, still
-accurate) and a new "RGB boundary conversion (ADR-085)" subsection
-describing `video/chroma.hpp`'s `ycbcrToRgbImage()`/`rgbToYcbcrImage()`:
-hardcoded BT.601 coefficients, the quantisation clamp to `Sample`'s own
-[0, 65535] range (explicitly distinguished from I2's v210-protocol
-clamp), and — stated as an observed fact, not resolved as settled either
-way — that a non-achromatic flat field is not guaranteed to round-trip
-bit-exact through the full pipeline any more, pointing here and to
-`CORRECTIONS.md` for current status. §9's ramp-test row (`Y, Cb, Cr`
-wording): confirmed, not edited — that row describes the v210
-*wire*-domain ramp, unaffected by ADR-085; changing it to match §3/§4.3's
-internal-representation renames would have been a wrong edit born of
-pattern-matching the grep hit rather than reading what the row actually
-describes.
-
-**Not touched, deliberately:** `INVARIANTS.md` (standing rule — concerns
-flagged below, not edited). `DECISIONS.md` ADR-085 (standing rule — not
-reopened; no new ADR proposed, none needed for this unit's own work).
-§8 Module layout (confirmed via the grep above to contain no relevant
-hits — a separate, pre-existing, ADR-085-unrelated gap noticed in passing
-is flagged below, not fixed). `tools/coverage_view_demo.cpp` (out of
-scope for a docs-only unit regardless of its own known staleness). No
-source file (`src/`, `tests/`) touched anywhere this session — confirmed
-directly, not assumed, by the verification below.
+Six new test functions added to `tests/test_chroma.cpp`, every expected
+value hand-derived independently from chroma.hpp's own stated BT.601
+formula (Kr=0.299, Kg=0.587, Kb=0.114), cross-checked numerically before
+being written, never by calling the production function and trusting the
+result (WU-34b/ADR-084's own "mirror the math independently" precedent,
+ADR-085's own stated preference): achromatic identity (five points,
+including the finding that Kr+Kg+Kb = 0.9999999999999999 in IEEE double —
+not bit-exact 1.0 as the real-number formula would suggest — checked
+directly rather than assumed, and confirmed not to disturb the exact
+integer round trip at any point checked); one off-achromatic known vector,
+forward and round-trip, no clamp engaged; a forward clamp on the low side
+(`G`) and the high side (`B`); a reverse clamp (three pure-primary RGB
+triples, two clamping, one not); and an Image-wrapper stride test built
+only from already-verified-exact vectors, so it can only catch an
+indexing bug, not raise a fresh arithmetic question. No bug found in
+`chroma.cpp`'s own implementation — every hand-derived value matched the
+production function's own output exactly, in every case checked.
 
 **Every changed file written to Steve's own real repository via the
-device bridge, then re-staged and diffed/grepped to confirm the write
-landed** (`git diff --stat docs/architecture.md` against the real
-repository read exactly one file, 87 insertions/8 deletions, matching
-what was intended; re-staged the written copy and grepped it for every
-new string this session's account above claims was added — `RGB boundary
-conversion`, `Frag::R/G/B`, `RasterRGB`, `ADR-085` — all present at the
-expected locations) before running anything.
+device bridge, then re-staged and diffed to confirm the write landed**
+(`git diff --stat` against the real repository, staged and re-read after
+the write, showed exactly the two files this account claims —
+`tests/test_chroma.cpp`, `WORK-UNITS.md` — matching line counts) before
+running anything.
 
-## Build/test matrix — one representative configuration, scoped down
-deliberately for a docs-only change
+## Build/test matrix — full twelve configurations (real source-code change)
 
-**Not the full twelve-configuration matrix `WU-39`–`WU-42` each ran: a
-documentation-only change touching no source file has no compiler,
-sanitizer or tile-size axis for its own edit to vary across, so running
-all twelve would re-verify nothing this session's own change could
-plausibly have affected.** One representative build instead: fresh
-`git clone` of `https://github.com/skunge2000/scatter-dve.git` into the
-cloud sandbox, confirmed at `HEAD = wu-42-red = 1297c19` before any edit,
-then this session's own single changed file (`docs/architecture.md`)
-copied in from the verified-written real-repository copy (`git diff
---stat` against the clean clone: exactly that one file, nothing else).
-Same GCC 13.3.0 toolchain as prior sessions. GCC, Release,
-`SCATTER_TILE_LOG2=5` (this project's own settled default, ADR-045) —
-configured, built and `ctest`-run for real.
+**Unlike WU-43's deliberately scoped-down single-configuration check (a
+documentation-only change), this unit changes a test file — a real
+source-code change per SESSION-PROTOCOL.md's own build-configuration
+section — so the full matrix applies again, matching WU-39–WU-42's own
+practice.** Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git`
+into the cloud sandbox, confirmed at `HEAD = wu-43-red = f7dab4c` before
+any edit; this session's own change applied from the verified-written
+real-repository copy (`git diff --stat` against the clean clone: exactly
+the two files above, nothing else, before any build ran). GCC 13.3.0 and
+Clang 18.1.3, same toolchain as prior sessions. Twelve configurations, not
+assumed from this session's own first guess: `WORK-UNITS.md`'s own WU-42
+entry was checked directly for what its "twelve rows" actually means
+before building anything sanitizer-related — GCC and UBSan **alone**
+(`-fsanitize=undefined`, no ASan) are two of the twelve rows, separate
+from GCC and ASan **alone** (`-fsanitize=address`, no UBSan), each at both
+tile sizes — four sanitizer configurations, not two combined
+(`-fsanitize=address,undefined`) ones, matching WU-42's own explicit "in
+either GCC + ASan or GCC + UBSan, at either tile size" wording once
+re-read carefully rather than pattern-matched.
 
-| Configuration | Build | `ctest` |
-|---|---|---|
-| GCC, Release, tile 5 | clean, no warnings | 25/28 pass — `test_binner`, `test_zoneplate`, `test_pipeline_bytes` fail |
+| Configuration | Build | `ctest` | `test_chroma` |
+|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| GCC, Release, tile 5 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| Clang, Release, tile 4 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| Clang, Release, tile 5 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 25/28 pass | PASS, 21465 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 25/28 pass, no sanitizer trap | PASS, 21465 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 25/28 pass, no sanitizer trap | PASS, 21465 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 25/28 pass, no sanitizer trap | PASS, 21465 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 25/28 pass, no sanitizer trap | PASS, 21465 checks |
 
-Per-test check counts, diffed directly against Session 59's own stated
-baseline rather than assumed to carry over (`CORRECTIONS.md` C-033's own
-general lesson):
+Twelve rows, matching WU-39–WU-42's own real count.
 
-- `test_binner`: 2 of 39139 checks fail (`test_binner.cpp:794`, `:795`) —
-  matches Session 59's own tile-5 baseline exactly.
+Per-test check counts on the three genuinely red tests, diffed directly
+against Session 60's own stated baseline rather than assumed to carry
+over (`CORRECTIONS.md` C-033's own general lesson) — identical in every
+one of the ten configurations above:
+
+- `test_binner`: 2 of 39139 checks fail at tile 5 (`test_binner.cpp:794`,
+  `:795`), 2 of 10963 at tile 4 — matches Session 60's own baseline and
+  C-033's own tile-4/tile-5 figures exactly.
 - `test_zoneplate`: 22 of 42537 checks fail (`test_zoneplate.cpp:209`,
-  `:212`, `:213`) — matches Session 59's own baseline exactly.
+  `:212`, `:213`) — matches exactly, tile-invariant as before.
 - `test_pipeline_bytes`: 3 of 42 checks fail (`test_pipeline_bytes.cpp:406`,
-  `:452`, `:552`) — matches Session 59's own baseline exactly.
+  `:452`, `:552`) — matches exactly.
 
-Every other test (25 of 28) passes, exactly as Session 59 left it — this
-unit's own documentation-only change changed nothing about the build/test
-outcome, confirmed rather than assumed.
+Every other test (25 of 28) passes in every configuration, exactly as
+Session 60 left it. No ASan or UBSan trap fired in any of the four
+sanitizer configurations, on any test, checked directly (grepped every
+test binary's own output for `AddressSanitizer`/
+`UndefinedBehaviorSanitizer`/`runtime error:`, not inferred from ctest's
+own pass/fail alone).
 
 ## Flag for Steve, not resolved here
 
-**Carried forward unchanged from Sessions 56–59:** the `video::Raster444`-
-vs-`video::RasterRGB` question (whether `runFrame()`'s own output side
-should eventually be given a genuinely RGB-named container instead of
-continuing to borrow `Raster444`, YCbCr-named, for RGB content) is still
-open. This session named the underlying fact plainly in
-`docs/architecture.md` itself, for the first time — not just in this
-file — but did not decide it, per this project's own standing instruction
-not to resolve it here.
+**Carried forward unchanged from Sessions 56–60:** the `video::Raster444`-
+vs-`video::RasterRGB` question and I7's non-achromatic round-trip breakage
+are both still open, both still Steve's own call, neither touched this
+session.
 
-**Carried forward unchanged from Sessions 56–59:** I7 ("Input v210 equals
-output v210, byte for byte, illegal excursions included") is not exactly
-true post-ADR-085 for non-achromatic flat content — the same
-`test_zoneplate.cpp` breakage counted as red above. `INVARIANTS.md`'s own
-I7 wording has still not been revisited to say so explicitly — flagged
-again, not touched. `docs/architecture.md`'s own new "RGB boundary
-conversion" section (§5) now states the underlying fact (the RGB
-boundary's clamp can clip a non-achromatic YCbCr triple's implied RGB)
-without asserting whether or how I7's wording should change — the same
-restraint applied to the `Raster444`/`RasterRGB` question above.
-
-**New this session, minor, unrelated to ADR-085:** `docs/architecture.md`
-§2's Design Invariants table still lists only I1–I7; `INVARIANTS.md`
-itself has grown to I1–I11 (I8 back-face splat, I9 no stored normal/
-depth, I10 pre-projection shading, I11 within/between-sheet resolve)
-since this table was last touched, well before this phase. Not this
-unit's own job to fix (its own scope is the ADR-085 colour-representation
-change, not a general architecture.md audit) — worth a future
-documentation unit. Similarly, §8's own module-layout `video/` file list
-omits `raster.hpp` (added WU-05, also unrelated to ADR-085) — same
-disposition, flagged not fixed.
+**New this session:** `test_pipeline_bytes.cpp`'s own three red checks
+may be the same I7/non-achromatic root cause as `test_zoneplate.cpp`
+rather than an ordinary stale `WU-44` fixture — both compare production
+output against a reference over `testpat::makeZonePlate()` content (a
+non-achromatic pattern), and both involve the RGB boundary conversion's
+clamp somewhere in the chain. Not confirmed either way this session (that
+would be real investigation into whether production and reference reach
+the clamp by different paths, not scoping) — flagged in `WORK-UNITS.md`'s
+own `WU-44d` entry for whoever starts it to check directly before
+assuming their own fixture work can turn this file green.
 
 ## Where we are
 
-WU-43 (`docs/architecture.md` rewritten for RGB-native colour) is built,
-verified against one representative build/test configuration, and closed
-out here — the build/test state is unchanged from WU-42 (still genuinely
-red, per the standing ADR-085 exception), since a documentation-only
-change could not have altered it. `WU-44` (~21 dependent test files
-re-derived for RGB, the phase's own last unit, "green after every unit"
-resumes once it lands) is the only unit left in Phase 9, now unblocked
-(`WU-39`–`WU-43` are all landed; `WU-44` only actually depends on
-`WU-39`–`WU-42`, the production code).
+`WU-44a` (`tests/test_chroma.cpp` RGB boundary conversion coverage) is
+built, verified against the full twelve-configuration matrix, and closed
+out here. `WU-44` as a whole is split into `WU-44a` (done) through
+`WU-44e` (scoped, not started — see `WORK-UNITS.md`). The suite's
+build/test state is unchanged from `wu-43-red`: still genuinely red,
+`test_binner`/`test_zoneplate`/`test_pipeline_bytes`, none of which this
+unit's own scope could affect (it added test coverage for previously-
+untested functions; it touched no file any of the three red tests
+depends on).
 
 ## Next work unit
 
-**Do not start `WU-44` this session — this session's own instruction was
-to stop at `WU-43` and hand off, even with budget left, and that
-instruction was followed.** Whoever starts next: `WU-44` is a large unit
-(~21 dependent test files, re-derived fixture-by-fixture, not
-mechanically transformed, per ADR-085 §6/§5) and the phase's own last
-unit — re-grep for the real file list rather than trusting
-`WORK-UNITS.md`'s own WU-44 stub or ADR-085's own "21 of 35" estimate, per
-`WORK-UNITS.md`'s own WU-44 entry.
+**Do not start `WU-44b` this session — this session's own instruction was
+to stop at one `WU-44` cluster and hand off, even with budget left, and
+that instruction was followed.** Whoever starts next: `WU-44b`
+(`test_binner.cpp`/`test_splat.cpp`/`test_scan_order_invariance.cpp`) is
+the sub-unit most likely to turn a currently-red test
+(`test_binner`, via its own shading-mirror fixture at `test_binner.cpp:794`/
+`:795`) fully green — but re-grep first per `WORK-UNITS.md`'s own `WU-44b`
+entry, this session's own file list may already be stale by the time
+someone starts it. `WU-44c` is flagged as likely needing its own further
+split before anyone starts it (five files, two of them substantial).
 
 ## Open questions
 
 The `video::Raster444`-vs-`video::RasterRGB` question and I7's
-non-achromatic breakage, both flagged above, for Steve's own decision,
-not this session's.
+non-achromatic breakage, both carried forward, for Steve's own decision.
+`test_pipeline_bytes.cpp`'s own possible link to the same root cause,
+flagged above, is also not this session's to resolve.
 
 ## Blocked / red
 
-**Red, genuinely and expectedly, unchanged in substance from Session
-59 — see Build/test matrix above.** `test_binner`, `test_zoneplate` and
-`test_pipeline_bytes` fail identically to Session 59's own baseline (same
-lines, same counts). Every other test (25 of 28) passes. `ctest` was not
-run on Steve's own real terminal yet this session — see "Steve's own next
-steps" below.
+**Red, genuinely and expectedly, unchanged in substance from Session 60
+— see Build/test matrix above.** `test_binner`, `test_zoneplate` and
+`test_pipeline_bytes` fail identically to Session 60's own baseline (same
+lines, same counts, in all ten configurations checked this session).
+Every other test (25 of 28, including `test_chroma` with its own new
+checks) passes. `ctest` was not run on Steve's own real terminal yet this
+session — see "Steve's own next steps" below.
 
 ## Environment check
 
-Same GCC 13.3.0 cloud sandbox as prior sessions. This session used a
-genuinely fresh `git clone` of the already-tagged `wu-42-red` commit,
-confirmed identical to Steve's own real repository before any edit, with
-this session's own one changed file copied in from the verified-written
-real-repository copy — `git diff --stat` against the clean clone
-confirmed exactly one file changed, nothing else, before the build ran.
+Same GCC 13.3.0 / Clang 18.1.3 cloud sandbox as prior sessions. This
+session used a genuinely fresh `git clone` of the already-tagged
+`wu-43-red` commit, confirmed identical to Steve's own real repository
+before any edit, with this session's own changed file
+(`tests/test_chroma.cpp` — the only file the build/test matrix above
+actually depends on; `WORK-UNITS.md` and this file are documentation,
+copied in afterward and not part of what was built) copied in from the
+verified-written real-repository copy — `git diff --stat` against the
+clean clone confirmed exactly that one file changed, nothing else, before
+any build ran.
 
-**A stray `.git/index.lock` appeared again this session, the same
-self-inflicted, already-documented pattern Sessions 55–59 logged — not a
-repository problem this session found waiting for it, and this time it
-did not matter.** This session's own opening state-verification found the
-repository genuinely clean — `ls -la .git/index.lock` returned "No such
-file or directory". A later diagnostic this session ran specifically to
-confirm whether a lock would actually block git (`git add --dry-run -A`,
-the same check this project's own state-verification instruction asks
-for) left a fresh, empty `.git/index.lock` behind: git creates a
-temporary lock for a dry-run add and normally removes it again on exit,
-but the device-bridge shell this session runs in cannot delete files by
-default, so git's own internal cleanup unlink silently failed. Confirmed
-this actually blocks a write-requiring git command (`git add --dry-run
--A` itself failed the second time it was tried, with "Another git process
-seems to be running") — read-only commands (`log`, `status`, `describe`,
-`rev-parse`, `fetch`) are unaffected and were used throughout the rest of
-this session without issue, and this unit never needed a write-requiring
-git command in the device-bridge shell at all (every file write this
-session went through `device_commit_files`, not a shell `git` command),
-so the lock had no practical effect on this session's own work. The
-close-out block below makes `rm -f .git/index.lock` its own first line
-regardless, per this project's own standing convention, since it is
-expected to actually be needed by Steve's own `git add`/`git commit`
-below.
+**A stray `.git/index.lock` did appear this session, the same
+self-inflicted, already-documented pattern Sessions 55–60 logged.** This
+session's own opening state-verification found the repository genuinely
+clean (`ls -la .git/index.lock` — "No such file or directory"). This
+session's own *closing* `git status --short` (run through the device
+bridge, immediately before the close-out block below was written) left a
+fresh, empty `.git/index.lock` behind — the device-bridge shell cannot
+delete files by default, so git's own internal cleanup unlink silently
+failed, exactly as documented. Confirmed directly that this one actually
+blocks git, not assumed harmless: `git add --dry-run -A` failed with
+"Another git process seems to be running" / "Unable to create... File
+exists." The close-out block below makes `rm -f .git/index.lock` its own
+first line, and this time it is not just precautionary — it is expected
+to be genuinely needed.
 
 ## Append to DECISIONS.md
 
-None this session. This unit documents ADR-085's own already-accepted
-Phase 9 scope; no new architectural decision was made. The
-`Raster444`-vs-`RasterRGB` question flagged above is real but not this
-session's decision to make or pre-empt with a new ADR.
+None this session. `WU-44a` implements ADR-085's own already-accepted
+scope (closing a test-coverage gap the boundary conversion's own WU-40
+landing left open); no new architectural decision was made. The
+`Raster444`-vs-`RasterRGB` question and the `test_pipeline_bytes.cpp`
+flag above are real but not this session's decision to make or pre-empt
+with a new ADR.
 
 ## Append to CORRECTIONS.md
 
-None this session. Repository-wide grep before writing (see "This session
-in full" above) found `tools/coverage_view_demo.cpp`'s own stale fixture
-values, but that staleness was already logged by `WU-41`'s own
-`WORK-UNITS.md` entry — re-finding an already-known, already-flagged
-issue is not a new correction to log, and this file already says so above
-rather than re-logging it as if new.
+None this session. This session verified rather than assumed one
+arithmetic claim of its own before writing it down (Kr+Kg+Kb's own exact
+value in IEEE double, see "This session in full" above) — that is this
+session's own new work checked before being trusted, not a correction to
+an earlier session's claim, so it is documented in `WORK-UNITS.md`'s own
+`WU-44a` entry rather than logged here as a correction.
 
 ## Closed out this session
 
-**WU-43 — `docs/architecture.md` rewritten for RGB-native colour
-(ADR-085): §1's out-of-scope line clarified, §2's Design Invariants table
-rows 3/4 updated, §3's signal-path diagram given two new RGB-boundary
-stages plus an explanatory paragraph on `Raster444`'s own permanent
-mislabelling, §4.3's `Frag` struct fields renamed to match
-`core/types.hpp`, §5 given a new "RGB boundary conversion" subsection,
-§9 confirmed unchanged (wire-domain, correctly). Verified against one
-representative build/test configuration in a fresh cloud-sandbox clone:
-identical red state to Session 59 (same three tests, same check lines,
-same counts), no new warning. Not yet committed.** One source-adjacent
-file (`docs/architecture.md` — no `src/`/`tests/` file touched, confirmed
-above), `WORK-UNITS.md` (WU-43 entry replaced in full), this `HANDOFF.md`.
+**`WU-44` split into `WU-44a`–`WU-44e` in `WORK-UNITS.md`, with real,
+re-derived file lists per sub-unit (see that file for the full method and
+per-cluster reasoning) — `WU-44a` (`tests/test_chroma.cpp`: six new test
+functions covering the previously-untested RGB boundary conversion
+functions, `ycbcrToRgbRow`/`rgbToYcbcrRow`/`ycbcrToRgbImage`/
+`rgbToYcbcrImage`) built and verified against the full twelve-
+configuration matrix, identical red state to `wu-43-red` (same three
+tests, same lines, same counts), no new warning, no new sanitizer trap.
+Not yet committed.** Two files (`tests/test_chroma.cpp`,
+`WORK-UNITS.md`), this `HANDOFF.md`.
 
 ## Steve's own next steps
 
 At your own real terminal, confirm a real build and test run — **still
-expected to be red, exactly as `wu-42-red` was, not newly green**:
+expected to be red, exactly as `wu-43-red` was, not newly green**:
 
 ```
 cd ~/src/scatter-dve
@@ -329,19 +304,26 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Expect the same failures `wu-42-red` already had: `test_decklink_device`'s
+Expect the same failures `wu-43-red` already had: `test_decklink_device`'s
 own duplex check (standing PSU exception, unrelated), plus `test_binner`
 (2 checks), `test_zoneplate` (22 checks), `test_pipeline_bytes`
-(3 checks) — your own local build uses whatever `SCATTER_TILE_LOG2` your
-`build/` directory was configured with (this project's own settled
-default is 5, ADR-045), so `test_binner`'s own total check count in your
-output may read `39139` (tile 5) or `10963` (tile 4) — both are correct,
-per `CORRECTIONS.md` C-033, not a sign anything is wrong.
+(3 checks). `test_chroma` itself should now report a higher check count
+than before (21465, up from whatever your own last local build reported)
+and still PASS — if it fails, stop and report exactly what failed rather
+than assuming it is safe to tag past, since this session's own cloud
+sandbox found it green in all twelve configurations checked.
 
-The `rm -f .git/index.lock` above is a precaution this time (this
-session's own device-bridge shell never ran a write-requiring `git`
-command against your repository), but it costs nothing to run and matches
-this project's own standing convention — do not skip it.
+The `rm -f .git/index.lock` above is not just a precaution this time: this
+session's own final `git status --short` (run through the device bridge,
+immediately before this block was written) left a stray, empty
+`.git/index.lock` behind — the same self-inflicted, already-documented
+Sessions-55–60 pattern (the device-bridge shell cannot unlink files by
+default, so git's own internal cleanup unlink silently fails). Confirmed
+directly, not assumed, that this one actually blocks git: `git add
+--dry-run -A` failed with "Another git process seems to be running" /
+"Unable to create... File exists." Your own real terminal has no such
+restriction, so `rm -f .git/index.lock` removes it there without issue —
+but it must run before `git add` below, not be skipped.
 
 **Do not run `./tools/close.sh`** — same reasoning as every session since
 `wu-39-green`: this state does not pass `ctest` cleanly (by design, the
@@ -354,22 +336,22 @@ the ones named above, close out with the **manual tag path**:
 ```
 cd ~/src/scatter-dve
 rm -f .git/index.lock
-git add docs/architecture.md WORK-UNITS.md HANDOFF.md
-git commit -m "WU-43: docs/architecture.md rewritten for RGB-native colour (ADR-085); red, see HANDOFF.md"
-git tag -a wu-43-red -m "docs/architecture.md rewritten for RGB-native colour, ADR-085 (Design Invariants table, signal-path diagram, Frag struct, chroma-handling section); build/test state unchanged from wu-42-red (test_binner/test_zoneplate/test_pipeline_bytes still red, pre-existing, WU-44's own job), see HANDOFF.md"
+git add tests/test_chroma.cpp WORK-UNITS.md HANDOFF.md
+git commit -m "WU-44a: tests/test_chroma.cpp RGB boundary conversion coverage; WU-44 split into WU-44a-e (ADR-085); red, see HANDOFF.md"
+git tag -a wu-44a-red -m "RGB boundary conversion (ycbcrToRgbRow/rgbToYcbcrRow/Image) test coverage added, six hand-derived test functions, zero prior coverage closed; WU-44 split into lettered sub-units, real file lists re-derived; build/test state unchanged from wu-43-red (test_binner/test_zoneplate/test_pipeline_bytes still red, none in this unit's own scope), see HANDOFF.md"
 git push origin main
 git push origin --tags
 ```
 
-**Tag name is `wu-43-red`, not `wu-43-green`** — this unit's own change is
-documentation-only and could not have turned the suite green; it carries
-forward the exact red state `wu-42-red` already had, honestly reported,
-per the standing ADR-085 exception. `WU-44` is still the unit expected to
-bring the suite back to green.
+**Tag name is `wu-44a-red`, not `wu-44a-green`** — this unit closes a
+test-coverage gap in already-correct production code; it does not touch,
+and cannot have fixed, any of the three genuinely red tests. `WU-44b`
+(most likely `test_binner`) through `WU-44e` remain, and Phase 9's own
+"green after every unit" resumption still waits on the last of them.
 
 This exact list of 3 paths was checked against a real `git status
 --short` run through the device bridge immediately before this block was
-written — it should read exactly 3 `M` lines (`docs/architecture.md`,
-`WORK-UNITS.md`, `HANDOFF.md`) and nothing else. Still worth a quick
-`git status --short` yourself before pasting this block, since time has
-passed since that check.
+written — it should read exactly 3 `M`/`??` lines (`tests/test_chroma.cpp`
+modified, `WORK-UNITS.md` modified, `HANDOFF.md` modified) and nothing
+else. Still worth a quick `git status --short` yourself before pasting
+this block, since time has passed since that check.
