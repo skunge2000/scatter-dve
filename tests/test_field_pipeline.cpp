@@ -139,9 +139,9 @@ video::Raster444 resolveParityIndependently(const Lattice& lattice, const Source
                     const int dy = originY + ly;
                     const std::size_t idx =
                         std::size_t(dy) * std::size_t(params.destWidth) + std::size_t(dx);
-                    full.Y[idx] = out.Y;
-                    full.Cb[idx] = out.Cb;
-                    full.Cr[idx] = out.Cr;
+                    full.Y[idx] = out.R;
+                    full.Cb[idx] = out.G;
+                    full.Cr[idx] = out.B;
                 }
             }
         }

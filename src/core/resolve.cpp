@@ -41,9 +41,9 @@ ResolvedCell normaliseCell(const AccumCell& cell) noexcept {
         return ResolvedCell{};
     }
     ResolvedCell out;
-    out.Y  = divideRounded(cell.R, cell.w);
-    out.Cb = divideRounded(cell.G, cell.w);
-    out.Cr = divideRounded(cell.B, cell.w);
+    out.R = divideRounded(cell.R, cell.w);
+    out.G = divideRounded(cell.G, cell.w);
+    out.B = divideRounded(cell.B, cell.w);
     out.covered = true;
     return out;
 }
@@ -69,15 +69,15 @@ Sample blend(Sample colour, Sample bg, std::int64_t alpha) noexcept {
 CompositedCell composite(const AccumCell& cell, const Background& bg) noexcept {
     const ResolvedCell resolved = normaliseCell(cell);
     if (!resolved.covered) {
-        return CompositedCell{bg.Y, bg.Cb, bg.Cr};
+        return CompositedCell{bg.R, bg.G, bg.B};
     }
     const std::int64_t alpha = std::clamp<std::int64_t>(
         std::int64_t(cell.w), std::int64_t(0), std::int64_t(kWeightUnity));
 
     CompositedCell out;
-    out.Y  = blend(resolved.Y, bg.Y, alpha);
-    out.Cb = blend(resolved.Cb, bg.Cb, alpha);
-    out.Cr = blend(resolved.Cr, bg.Cr, alpha);
+    out.R = blend(resolved.R, bg.R, alpha);
+    out.G = blend(resolved.G, bg.G, alpha);
+    out.B = blend(resolved.B, bg.B, alpha);
     return out;
 }
 
@@ -85,12 +85,12 @@ namespace {
 
 // compositeLayered()'s own "read" step (resolve.hpp) hands its
 // CompositedCell result to the "write" step's composite() call as a
-// Background. Both structs are the same three Sample fields (Y, Cb, Cr) by
+// Background. Both structs are the same three Sample fields (R, G, B) by
 // construction -- this is a lossless relabelling, not a conversion, the
 // same way ResolvedCell and CompositedCell are also the same three fields
 // with different names for different pipeline stages.
 Background asBackground(const CompositedCell& c) noexcept {
-    return Background{c.Y, c.Cb, c.Cr};
+    return Background{c.R, c.G, c.B};
 }
 
 // WU-12a's own accumulation-sums default (architecture.md 4.7 phase 1):
@@ -181,7 +181,7 @@ CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
         const CompositedCell step = composite(occupied[std::size_t(i)]->cell, acc);
         acc = asBackground(step);
     }
-    return CompositedCell{acc.Y, acc.Cb, acc.Cr};
+    return CompositedCell{acc.R, acc.G, acc.B};
 }
 
 }  // namespace scatter

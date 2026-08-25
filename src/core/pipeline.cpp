@@ -54,12 +54,39 @@
 //   Y/Cb/Cr-named planes as the R/G/B input it actually holds, producing
 //   genuine YCbCr for chroma downsample. See WORK-UNITS.md's own WU-41
 //   entry and HANDOFF.md for the full derivation. This mislabelling is a
-//   known, temporary state of `video::Raster444` as used for `runFrame()`'s
-//   own `dest`/`warped`/`full`/`progressive` locals in this file --
-//   `Raster444` itself is untouched by this unit and keeps its genuine
-//   YCbCr semantics everywhere else (its own role either side of
-//   chroma::upsampleImage/downsampleImage, ADR-005) -- WU-42 resolves it
-//   for good by reshaping core/resolve.cpp/.hpp to R/G/B throughout.
+//   known state of `video::Raster444` as used for `runFrame()`'s own
+//   `dest`/`warped`/`full`/`progressive` locals in this file -- `Raster444`
+//   itself is untouched by this unit and keeps its genuine YCbCr semantics
+//   everywhere else (its own role either side of
+//   chroma::upsampleImage/downsampleImage, ADR-005).
+//
+// WU-42 (DECISIONS.md ADR-085, this session) completes the rename the
+// paragraph above anticipated: `core/resolve.cpp`/`.hpp`'s own
+// `ResolvedCell`/`CompositedCell`/`Background` are now genuinely `R`/`G`/`B`
+// -named (`out.R = divideRounded(cell.R, ...)` etc., matching WU-39's own
+// `AccumCell`/`Frag` precedent), not `Y`/`Cb`/`Cr`-named-but-RGB-valued.
+// Confirmed directly against the real code before assuming either way (per
+// this unit's own opening instruction), not carried over from WU-41's own
+// forward-looking note above ("WU-42 resolves it for good"): that framing
+// turns out to overstate what changes here. `runFrame()`'s own `dest`
+// parameter and `video::Raster444` stay genuinely YCbCr-*typed* throughout
+// -- `Raster444` is not this unit's file, and reshaping it would break its
+// other, genuine YCbCr role either side of chroma up/downsample -- so every
+// `chroma::rgbToYcbcrImage()`/`chroma::ycbcrToRgbImage()` call below is
+// unchanged, and `dest`'s own `.Y`/`.Cb`/`.Cr` planes still hold genuine RGB
+// positionally, mislabelled under `Raster444`'s permanently-YCbCr-named
+// fields. That mislabelling is `Raster444`'s own permanent role as a
+// generic three-plane container reused mid-pipeline for RGB content, not a
+// temporary state this unit resolves away -- flagged for Steve in
+// HANDOFF.md, not treated as a defect. This file's own two required edits
+// are mechanical: `resolveOneTile()`'s two `CompositedCell`-field reads
+// (`dest.Y[idx] = out.R;` etc., both call sites below) now read the
+// renamed fields -- the same "field-name substitution only, values
+// unchanged" pattern WU-39/WU-41 already used to keep the tree compiling
+// after their own renames. See CORRECTIONS.md C-032's own general lesson
+// for why this file -- not one of WU-42's two named files -- was grepped
+// for every real reader of `CompositedCell` before concluding that, rather
+// than assumed unaffected.
 //
 // WU-16a (ADR-040) added ThreadPool and threaded PASS 2 alone, deferring
 // PASS 1's own row-band parallelism (architecture.md section 6's fuller
@@ -325,9 +352,9 @@ void resolveOneTile(std::span<const TileBins* const> sources,
                 const int dy = originY + ly;
                 const std::size_t idx =
                     std::size_t(dy) * std::size_t(dest.width) + std::size_t(dx);
-                dest.Y[idx] = out.Y;
-                dest.Cb[idx] = out.Cb;
-                dest.Cr[idx] = out.Cr;
+                dest.Y[idx] = out.R;
+                dest.Cb[idx] = out.G;
+                dest.Cr[idx] = out.B;
 
                 // WU-22a's weightOut is deliberately not written along
                 // this path -- see PipelineParams::kBufferMode's own doc
@@ -353,9 +380,9 @@ void resolveOneTile(std::span<const TileBins* const> sources,
             const int dy = originY + ly;
             const std::size_t idx =
                 std::size_t(dy) * std::size_t(dest.width) + std::size_t(dx);
-            dest.Y[idx] = out.Y;
-            dest.Cb[idx] = out.Cb;
-            dest.Cr[idx] = out.Cr;
+            dest.Y[idx] = out.R;
+            dest.Cb[idx] = out.G;
+            dest.Cr[idx] = out.B;
 
             // WU-22a (DECISIONS.md ADR-056): opt-in side-channel capture of
             // the same cell's raw AccumCell::w that composite() above just

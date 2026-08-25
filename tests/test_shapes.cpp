@@ -373,17 +373,17 @@ PipelineRunResult runFlatSourceThroughLattice(const Lattice& lat, int srcSize,
     std::size_t bestIdx = 0;
     int bestDist = -1;
     for (std::size_t i = 0; i < dest.Y.size(); ++i) {
-        const bool isBackground = dest.Y[i] == params.background.Y &&
-                                   dest.Cb[i] == params.background.Cb &&
-                                   dest.Cr[i] == params.background.Cr;
+        const bool isBackground = dest.Y[i] == params.background.R &&
+                                   dest.Cb[i] == params.background.G &&
+                                   dest.Cr[i] == params.background.B;
         if (isBackground) continue;
         ++result.coveredCount;
-        if (!(inHull(dest.Y[i], srcY, params.background.Y) &&
-              inHull(dest.Cb[i], srcCb, params.background.Cb) &&
-              inHull(dest.Cr[i], srcCr, params.background.Cr))) {
+        if (!(inHull(dest.Y[i], srcY, params.background.R) &&
+              inHull(dest.Cb[i], srcCb, params.background.G) &&
+              inHull(dest.Cr[i], srcCr, params.background.B))) {
             result.allCoveredWithinHull = false;
         }
-        const int dist = std::abs(int(dest.Y[i]) - int(params.background.Y));
+        const int dist = std::abs(int(dest.Y[i]) - int(params.background.R));
         if (dist > bestDist) {
             bestDist = dist;
             bestIdx = i;

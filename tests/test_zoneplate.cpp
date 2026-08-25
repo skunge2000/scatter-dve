@@ -437,14 +437,14 @@ static void test_composite_partial_coverage_no_green_fringe() {
     const CompositedCell out = composite(cell, bg);
 
     // Correct: composite() normalises first, so the result is a genuine
-    // blend of srcY/Cb/Cr and bg.Y/Cb/Cr -- it must land within the closed
+    // blend of srcY/Cb/Cr and bg.R/G/B -- it must land within the closed
     // interval each channel's two endpoints define, never outside it.
     auto inHull = [](Sample v, Sample a, Sample b) noexcept {
         return v >= std::min(a, b) && v <= std::max(a, b);
     };
-    CHECK(inHull(out.Y,  srcY,  bg.Y));
-    CHECK(inHull(out.Cb, srcCb, bg.Cb));
-    CHECK(inHull(out.Cr, srcCr, bg.Cr));
+    CHECK(inHull(out.R, srcY,  bg.R));
+    CHECK(inHull(out.G, srcCb, bg.G));
+    CHECK(inHull(out.B, srcCr, bg.B));
 
     // Contrast: I5's actual bug -- compositing the *premultiplied* fields
     // (cell.G etc., which are Σ(w·colour), not colour -- renamed from
@@ -463,9 +463,9 @@ static void test_composite_partial_coverage_no_green_fringe() {
     // kChromaZero, and without dividing by cell.w first -- exactly the bug
     // I5 describes. It must NOT land in the same place composite()'s
     // actual (correct) output does, and must fall well outside the
-    // srcCr/bg.Cr hull the correct answer is required to stay inside.
-    CHECK(!inHull(Sample(wrongCr), srcCr, bg.Cr));
-    CHECK(wrongCr != std::int64_t(out.Cr));
+    // srcCr/bg.B hull the correct answer is required to stay inside.
+    CHECK(!inHull(Sample(wrongCr), srcCr, bg.B));
+    CHECK(wrongCr != std::int64_t(out.B));
 }
 
 // Full pipeline: a flat, strongly saturated 64x64 source composited into a
@@ -576,21 +576,21 @@ static void test_pipeline_partial_coverage_no_fringe() {
 
     for (int y = 0; y < destH; ++y) {
         for (int x = 0; x < 32; ++x) {
-            CHECK_ONCE(dest.Y[at(x, y)]  == params.background.Y);
-            CHECK_ONCE(dest.Cb[at(x, y)] == params.background.Cb);
-            CHECK_ONCE(dest.Cr[at(x, y)] == params.background.Cr);
+            CHECK_ONCE(dest.Y[at(x, y)]  == params.background.R);
+            CHECK_ONCE(dest.Cb[at(x, y)] == params.background.G);
+            CHECK_ONCE(dest.Cr[at(x, y)] == params.background.B);
         }
 
-        CHECK_ONCE(inHull(dest.Y[at(32, y)],  srcY,  params.background.Y));
-        CHECK_ONCE(inHull(dest.Cb[at(32, y)], srcCb, params.background.Cb));
-        CHECK_ONCE(inHull(dest.Cr[at(32, y)], srcCr, params.background.Cr));
+        CHECK_ONCE(inHull(dest.Y[at(32, y)],  srcY,  params.background.R));
+        CHECK_ONCE(inHull(dest.Cb[at(32, y)], srcCb, params.background.G));
+        CHECK_ONCE(inHull(dest.Cr[at(32, y)], srcCr, params.background.B));
         // Column 32 must show *some* real coverage -- not silently
         // degenerate to pure background on every channel, which the hull
         // check alone would not catch (background is one of the hull's
         // own endpoints).
-        CHECK_ONCE(!near(dest.Y[at(32, y)],  params.background.Y) ||
-                   !near(dest.Cb[at(32, y)], params.background.Cb) ||
-                   !near(dest.Cr[at(32, y)], params.background.Cr));
+        CHECK_ONCE(!near(dest.Y[at(32, y)],  params.background.R) ||
+                   !near(dest.Cb[at(32, y)], params.background.G) ||
+                   !near(dest.Cr[at(32, y)], params.background.B));
 
         for (int x = 33; x < 96; ++x) {
             CHECK_ONCE(near(dest.Y[at(x, y)],  srcY));
@@ -598,17 +598,17 @@ static void test_pipeline_partial_coverage_no_fringe() {
             CHECK_ONCE(near(dest.Cr[at(x, y)], srcCr));
         }
 
-        CHECK_ONCE(inHull(dest.Y[at(96, y)],  srcY,  params.background.Y));
-        CHECK_ONCE(inHull(dest.Cb[at(96, y)], srcCb, params.background.Cb));
-        CHECK_ONCE(inHull(dest.Cr[at(96, y)], srcCr, params.background.Cr));
-        CHECK_ONCE(!near(dest.Y[at(96, y)],  params.background.Y) ||
-                   !near(dest.Cb[at(96, y)], params.background.Cb) ||
-                   !near(dest.Cr[at(96, y)], params.background.Cr));
+        CHECK_ONCE(inHull(dest.Y[at(96, y)],  srcY,  params.background.R));
+        CHECK_ONCE(inHull(dest.Cb[at(96, y)], srcCb, params.background.G));
+        CHECK_ONCE(inHull(dest.Cr[at(96, y)], srcCr, params.background.B));
+        CHECK_ONCE(!near(dest.Y[at(96, y)],  params.background.R) ||
+                   !near(dest.Cb[at(96, y)], params.background.G) ||
+                   !near(dest.Cr[at(96, y)], params.background.B));
 
         for (int x = 97; x < destW; ++x) {
-            CHECK_ONCE(dest.Y[at(x, y)]  == params.background.Y);
-            CHECK_ONCE(dest.Cb[at(x, y)] == params.background.Cb);
-            CHECK_ONCE(dest.Cr[at(x, y)] == params.background.Cr);
+            CHECK_ONCE(dest.Y[at(x, y)]  == params.background.R);
+            CHECK_ONCE(dest.Cb[at(x, y)] == params.background.G);
+            CHECK_ONCE(dest.Cr[at(x, y)] == params.background.B);
         }
         // The bug I5 describes -- chroma collapsing toward the raw
         // offset-binary zero (far below kChromaZero) rather than blending

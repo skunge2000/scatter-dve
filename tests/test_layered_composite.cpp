@@ -123,9 +123,9 @@ static void test_compositeLayered_tag_mismatch_sums_then_composites() {
     const CompositedCell expected = composite(expectedSum(lower, upper), bg);
     const CompositedCell actual = compositeLayered(lower, upper, 7, 3, bg);
 
-    CHECK_ONCE(actual.Y == expected.Y);
-    CHECK_ONCE(actual.Cb == expected.Cb);
-    CHECK_ONCE(actual.Cr == expected.Cr);
+    CHECK_ONCE(actual.R == expected.R);
+    CHECK_ONCE(actual.G == expected.G);
+    CHECK_ONCE(actual.B == expected.B);
 }
 
 static void test_compositeLayered_opaque_full_alpha_ignores_lower_and_bg() {
@@ -146,11 +146,11 @@ static void test_compositeLayered_opaque_full_alpha_ignores_lower_and_bg() {
     const CompositedCell b = compositeLayered(lowerCovered, upper, 2, 2, bg2);
     const CompositedCell c = compositeLayered(lowerUncovered, upper, 2, 2, bg1);
 
-    CHECK_ONCE(a.Y == fromCode10(900));
-    CHECK_ONCE(a.Cb == fromCode10(150));
-    CHECK_ONCE(a.Cr == fromCode10(800));
-    CHECK_ONCE(a.Y == b.Y && a.Cb == b.Cb && a.Cr == b.Cr);
-    CHECK_ONCE(a.Y == c.Y && a.Cb == c.Cb && a.Cr == c.Cr);
+    CHECK_ONCE(a.R == fromCode10(900));
+    CHECK_ONCE(a.G == fromCode10(150));
+    CHECK_ONCE(a.B == fromCode10(800));
+    CHECK_ONCE(a.R == b.R && a.G == b.G && a.B == b.B);
+    CHECK_ONCE(a.R == c.R && a.G == c.G && a.B == c.B);
 }
 
 static void test_compositeLayered_opaque_zero_alpha_equals_lower_alone() {
@@ -162,9 +162,9 @@ static void test_compositeLayered_opaque_zero_alpha_equals_lower_alone() {
     const CompositedCell expected = composite(lower, bg);
     const CompositedCell actual = compositeLayered(lower, upperZero, 9, 9, bg);
 
-    CHECK_ONCE(actual.Y == expected.Y);
-    CHECK_ONCE(actual.Cb == expected.Cb);
-    CHECK_ONCE(actual.Cr == expected.Cr);
+    CHECK_ONCE(actual.R == expected.R);
+    CHECK_ONCE(actual.G == expected.G);
+    CHECK_ONCE(actual.B == expected.B);
 }
 
 static void test_compositeLayered_opaque_partial_alpha_matches_readreplacewrite_formula() {
@@ -178,20 +178,20 @@ static void test_compositeLayered_opaque_partial_alpha_matches_readreplacewrite_
     // lower is fully covered, so the "read" step's own alpha is unity too:
     // afterRead is exactly lower's own colour, independent of bg.
     const CompositedCell afterRead = composite(lower, bg);
-    CHECK_ONCE(afterRead.Y == fromCode10(300));
-    CHECK_ONCE(afterRead.Cb == fromCode10(500));
-    CHECK_ONCE(afterRead.Cr == fromCode10(700));
+    CHECK_ONCE(afterRead.R == fromCode10(300));
+    CHECK_ONCE(afterRead.G == fromCode10(500));
+    CHECK_ONCE(afterRead.B == fromCode10(700));
 
     const std::int64_t alpha = std::int64_t(quarterUnity);
-    const Sample expectedY = expectedBlend(fromCode10(900), afterRead.Y, alpha);
-    const Sample expectedCb = expectedBlend(fromCode10(150), afterRead.Cb, alpha);
-    const Sample expectedCr = expectedBlend(fromCode10(800), afterRead.Cr, alpha);
+    const Sample expectedY = expectedBlend(fromCode10(900), afterRead.R, alpha);
+    const Sample expectedCb = expectedBlend(fromCode10(150), afterRead.G, alpha);
+    const Sample expectedCr = expectedBlend(fromCode10(800), afterRead.B, alpha);
 
     const CompositedCell actual = compositeLayered(lower, upper, 4, 4, bg);
 
-    CHECK_ONCE(actual.Y == expectedY);
-    CHECK_ONCE(actual.Cb == expectedCb);
-    CHECK_ONCE(actual.Cr == expectedCr);
+    CHECK_ONCE(actual.R == expectedY);
+    CHECK_ONCE(actual.G == expectedCb);
+    CHECK_ONCE(actual.B == expectedCr);
 }
 
 // ---------------------------------------------------------------------------
@@ -349,14 +349,14 @@ static void test_pipeline_pageturn_opaque_flap_hides_page_behind() {
     const Sample upperY  = expectedDivide(upper.R, upper.w);
     const Sample upperCb = expectedDivide(upper.G, upper.w);
     const Sample upperCr = expectedDivide(upper.B, upper.w);
-    const Sample expectedY  = expectedBlend(upperY, afterRead.Y, alpha);
-    const Sample expectedCb = expectedBlend(upperCb, afterRead.Cb, alpha);
-    const Sample expectedCr = expectedBlend(upperCr, afterRead.Cr, alpha);
+    const Sample expectedY  = expectedBlend(upperY, afterRead.R, alpha);
+    const Sample expectedCb = expectedBlend(upperCb, afterRead.G, alpha);
+    const Sample expectedCr = expectedBlend(upperCr, afterRead.B, alpha);
 
     const CompositedCell actual = compositeLayered(lower, upper, kFlapTag, kOpaqueTag, bg);
-    CHECK_ONCE(actual.Y == expectedY);
-    CHECK_ONCE(actual.Cb == expectedCb);
-    CHECK_ONCE(actual.Cr == expectedCr);
+    CHECK_ONCE(actual.R == expectedY);
+    CHECK_ONCE(actual.G == expectedCb);
+    CHECK_ONCE(actual.B == expectedCr);
 
     // This pixel really is "well covered" by the flap, per HANDOFF.md's own
     // language -- alpha within 10% of full unity -- otherwise the exact
@@ -370,9 +370,9 @@ static void test_pipeline_pageturn_opaque_flap_hides_page_behind() {
     // tests/test_pageturn.cpp's own transparent-mode check uses.
     const CompositedCell transparentResult = composite(expectedSum(lower, upper), bg);
     constexpr int kRoundingMargin = 8;
-    const int dY = std::abs(int(actual.Y) - int(transparentResult.Y));
-    const int dCb = std::abs(int(actual.Cb) - int(transparentResult.Cb));
-    const int dCr = std::abs(int(actual.Cr) - int(transparentResult.Cr));
+    const int dY = std::abs(int(actual.R) - int(transparentResult.R));
+    const int dCb = std::abs(int(actual.G) - int(transparentResult.G));
+    const int dCr = std::abs(int(actual.B) - int(transparentResult.B));
     CHECK(dY > kRoundingMargin || dCb > kRoundingMargin || dCr > kRoundingMargin);
 }
 
@@ -395,9 +395,9 @@ static void test_pipeline_pageturn_opaque_unaffected_where_flap_absent() {
     const CompositedCell actual = compositeLayered(layers.pageOnly[idx], layers.flapOnly[idx],
                                                      kFlapTag, kOpaqueTag, bg);
 
-    CHECK_ONCE(actual.Y == expected.Y);
-    CHECK_ONCE(actual.Cb == expected.Cb);
-    CHECK_ONCE(actual.Cr == expected.Cr);
+    CHECK_ONCE(actual.R == expected.R);
+    CHECK_ONCE(actual.G == expected.G);
+    CHECK_ONCE(actual.B == expected.B);
 }
 
 int main() {

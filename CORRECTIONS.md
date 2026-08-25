@@ -1183,3 +1183,45 @@ different work unit's named file scope. Naming a file "not this unit's
 job" is a correct scope boundary for *making changes* to it; it is not
 license to skip *checking* whether this unit's own change silently
 changes that file's own correctness.
+
+**C-033 -- HANDOFF.md's own Session-57/58 claim that per-test check counts
+are "identical across all ten configurations" was not quite right:
+`test_binner`'s own total check count genuinely depends on
+`SCATTER_TILE_LOG2`, not just on which three checks fail.**
+
+*Claimed (`HANDOFF.md`'s Session 57 and Session 58 entries, both build/test
+matrices):* `test_binner: 2 of 39139 checks fail`, listed as one of three
+"per-test check counts, identical across all ten configurations."
+
+*Correct, found this session (`WU-42`) while diffing this unit's own
+twelve-configuration matrix against that stated baseline, per this
+session's own opening instruction to carry it forward and report any
+change as a real finding:* at `SCATTER_TILE_LOG2=4`, `test_binner` reports
+`2 of 10963 checks failed` -- the same two failing checks
+(`test_binner.cpp:794`, `:795`), but a different total denominator than
+the `39139` `SCATTER_TILE_LOG2=5` (this project's own settled default,
+ADR-045) reports. Isolated from this unit's own rename before being
+logged here: a fresh, unmodified clone of the already-tagged
+`wu-41-bgfix-red` commit, built at tile 4 with no `WU-42` changes applied
+at all, reproduces the identical `10963` figure -- so this is not a
+regression this unit introduced, and not noise from a nondeterministic
+test run either (repeated identically across every tile-4 configuration
+in this session's own matrix, GCC and Clang, Release and Debug, with and
+without sanitizers). `test_zoneplate` (`42537`) and `test_pipeline_bytes`
+(`42`) both genuinely are tile-size-invariant, matching the prior claim
+exactly -- only `test_binner`'s own total is not, so the "identical across
+all ten configurations" wording overstated by one test out of three.
+
+**General lesson:** `test_binner.cpp`'s failing checks (loops at
+`test_binner.cpp:780-803`, the shading-mirror-fixture staleness
+`WU-44`'s own job) sit inside a loop bounded by a real fragment count
+`generateFragments()` produces, which — like `CORRECTIONS.md` C-008's own
+already-documented floating-point-rounding-noise category for
+supersampling decisions near a determinant of exactly 1.0 — is genuinely
+sensitive to tile geometry, not a fixed constant a session can assume
+carries unchanged from one tile size to another without checking. A
+"such-and-such count, identical across every configuration" claim in a
+future `HANDOFF.md` is worth a direct, both-tile-sizes check before being
+carried forward as a trusted baseline, the same discipline this session's
+own opening instruction already applied by naming the three exact counts
+to diff against rather than asking "still red?" alone.

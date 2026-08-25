@@ -416,9 +416,9 @@ static void test_pipeline_pageturn_transparent_accumulates_over_page_behind() {
     // rounding-margin precedent) — proof the flap is genuinely visible
     // through it, not silently absorbed.
     constexpr int kRoundingMargin = 8;
-    const int dY = std::abs(int(combinedComposited.Y) - int(pageAloneComposited.Y));
-    const int dCb = std::abs(int(combinedComposited.Cb) - int(pageAloneComposited.Cb));
-    const int dCr = std::abs(int(combinedComposited.Cr) - int(pageAloneComposited.Cr));
+    const int dY = std::abs(int(combinedComposited.R) - int(pageAloneComposited.R));
+    const int dCb = std::abs(int(combinedComposited.G) - int(pageAloneComposited.G));
+    const int dCr = std::abs(int(combinedComposited.B) - int(pageAloneComposited.B));
     CHECK(dY > kRoundingMargin || dCb > kRoundingMargin || dCr > kRoundingMargin);
 }
 

@@ -69,12 +69,14 @@ class ThreadPool;
 
 // One resolved destination cell: the coverage-weighted average colour, or a
 // flag that Σw was zero -- 4.8's "flagged rather than silently producing
-// black". Y/Cb/Cr are meaningful only when covered is true; a caller that
-// reads them under covered == false is the same class of bug as reading
-// TileBins::tile() past its bounds elsewhere in this codebase (not checked
-// here, by the same convention).
+// black". R/G/B (renamed from Y/Cb/Cr, WU-42, ADR-085 -- matching WU-39's
+// AccumCell/Frag precedent and WU-41's SourceRaster precedent) are
+// meaningful only when covered is true; a caller that reads them under
+// covered == false is the same class of bug as reading TileBins::tile()
+// past its bounds elsewhere in this codebase (not checked here, by the same
+// convention).
 struct ResolvedCell {
-    Sample Y = 0, Cb = 0, Cr = 0;
+    Sample R = 0, G = 0, B = 0;
     bool covered = false;
 };
 
@@ -106,33 +108,33 @@ ResolvedCell normaliseCell(const AccumCell& cell) noexcept;
 // WU-41 fix (session following WU-41's own close-out, flagged by Steve
 // against tests/test_decklink_live_sphere.cpp's live output, not caught by
 // this repo's own build/test matrix since that test needs real DeckLink
-// hardware): this struct's own field names (Y/Cb/Cr) are still WU-42's own
-// future rename, unchanged here, but since ADR-085/WU-39 this file's own
-// AccumCell::R/G/B (splat.cpp) and core/pipeline.cpp's own output-side
-// conversion both treat every one of PASS 2's channels as RGB now, not
-// YCbCr -- composite()'s `bg` is blended against those same channels
-// unconverted (resolve.cpp's blend(), one channel at a time, Y with Y, Cb
-// with Cb, Cr with Cr). kBlack/kChromaZero was I3's own pre-ADR-085
+// hardware): this struct's own *value* was moved from its pre-ADR-085
 // YCbCr-domain "legal black" (Y=4096, Cb=Cr=32768, the achromatic
-// mid-point) -- correct for a genuine YCbCr channel, wrong for an RGB one,
-// where black is kBlack on every channel (I3's own new text: "R, G and B
-// are all full-range... no channel needs a mid-point offset any more").
-// Left at its old YCbCr-domain value, kDefaultBackground silently fed
-// Cb=Cr=32768 (mid-grey-blue in RGB terms) into every uncovered or
-// partially-covered destination pixel, then core/pipeline.cpp's own
-// blanket output-side rgbToYcbcrImage() reinterpreted that as genuine RGB
-// and converted it forward -- producing a visible cyan/blue tint on any
-// uncovered background, confirmed against test_decklink_live_sphere.cpp's
-// own real-hardware symptom. All three fields are kBlack now: black is
-// black on every channel once every channel is RGB.
+// mid-point -- correct for a genuine YCbCr channel, wrong for an RGB one)
+// to kBlack on every channel (I3's own text: "R, G and B are all
+// full-range... no channel needs a mid-point offset any more"), fixing a
+// visible cyan/blue tint on any uncovered background that had shipped in
+// the tagged, pushed wu-41-red commit -- see CORRECTIONS.md C-032. That
+// session left this struct's own field names (Y/Cb/Cr) unchanged,
+// explicitly named as WU-42's own future rename.
+//
+// WU-42 (this unit, ADR-085): the rename itself. Y/Cb/Cr -> R/G/B, matching
+// WU-39's AccumCell/Frag precedent and WU-41's SourceRaster precedent --
+// every one of PASS 2's channels has been genuine RGB since WU-39/WU-41
+// (composite()'s `bg` is blended against AccumCell-derived channels that
+// are already RGB, unconverted -- resolve.cpp's blend(), one channel at a
+// time), so the old Y/Cb/Cr names were honest about this struct's layout
+// but not about what it held. No value change here: kDefaultBackground
+// stays kBlack on every channel, exactly as WU-41's own fix above already
+// established.
 struct Background {
-    Sample Y = kBlack, Cb = kBlack, Cr = kBlack;
+    Sample R = kBlack, G = kBlack, B = kBlack;
 };
 
 inline constexpr Background kDefaultBackground{};
 
 struct CompositedCell {
-    Sample Y = 0, Cb = 0, Cr = 0;
+    Sample R = 0, G = 0, B = 0;
 };
 
 // Normalises `cell` (calling normaliseCell() exactly once -- so a caller

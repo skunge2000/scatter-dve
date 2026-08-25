@@ -3453,13 +3453,142 @@ landing next; `WU-43` depends on `WU-39`–`WU-42`.
 forced green by cutting scope, not treated as suspicious on its own. See
 `HANDOFF.md`.
 
-### WU-42 — `src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped to R/G/B `todo`
-**New this session (WU-38, ADR-085 §6 item 4).** PASS 2's splat/
-accumulate/normalise/composite math is written in terms of `Y`/`Cb`/`Cr`
-fields today; reshapes to `R`/`G`/`B`. The arithmetic *shape* (weighted
-accumulate, divide by weight, offset-binary-safe) does not change per
-ADR-085/I4's own re-derivation — only what the three channels mean does.
-Depends on WU-39.
+### WU-42 — `src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped to R/G/B `red`
+**Built this session.** `ResolvedCell`, `Background`/`kDefaultBackground`
+and `CompositedCell` (`src/core/resolve.hpp`) renamed their own `Y`/`Cb`/
+`Cr` fields to `R`/`G`/`B`, matching WU-39's `Frag`/`AccumCell` precedent
+and WU-41's `SourceRaster` precedent; `normaliseCell()`, `composite()`,
+`asBackground()` and `compositeKBuffer()` (`src/core/resolve.cpp`) updated
+to read/write the renamed fields. The arithmetic *shape* is unchanged, per
+this unit's own stub and ADR-085/I4's own re-derivation — every one of
+these functions was already a straight positional divide/blend
+(`divideRounded()`/`blend()`), channel-agnostic before this unit and
+channel-agnostic after it; this is a rename, not a behaviour change,
+confirmed by the identical build/test matrix below.
+
+**Re-derived the real scope before writing anything, per this session's
+own opening instruction not to trust this stub as a finished scope:**
+read `src/core/resolve.hpp`/`.cpp` in full (both already read fully the
+prior session while diagnosing the WU-41 background-colour bug; read
+again this session per SESSION-PROTOCOL.md's "never edit a file you have
+not been shown this session" rule) and `src/core/pipeline.cpp` in full,
+then `grep -n 'ResolvedCell\|CompositedCell\|\.Y\s*=\|\.Cb\s*=\|\.Cr\s*=\|
+normaliseCell(\|composite(\|compositeLayered(\|compositeKBuffer('
+src/core/resolve.hpp src/core/resolve.cpp src/core/pipeline.cpp` and
+`grep -rln 'ResolvedCell\|CompositedCell\|Background\b' --include="*.cpp"
+--include="*.hpp" .` across the whole repository, confirming the real
+list of files touching any of these three types before deciding what
+needed to change.
+
+**`core/pipeline.cpp` needed touching after all — confirmed directly, not
+assumed either way, per this unit's own opening instruction.** Two real,
+compile-breaking sites: `resolveOneTile()`'s two `CompositedCell`-field
+reads (`dest.Y[idx] = out.Y;` etc., one in the plain path, one in the
+k-buffer path) reference the renamed fields and needed updating to
+`out.R`/`out.G`/`out.B` — mechanical, values unchanged, `dest.Y`/`.Cb`/
+`.Cr` (the `video::Raster444` side) themselves untouched. Beyond that
+mechanical fix, **no further change was needed or made**: `runFrame()`'s
+own `dest` parameter and `video::Raster444` stay genuinely YCbCr-*typed*
+throughout — `Raster444` is not one of this unit's files, and reshaping it
+would break its own genuine YCbCr role either side of chroma up/downsample
+(ADR-005, unaffected) — so every `chroma::rgbToYcbcrImage()`/
+`chroma::ycbcrToRgbImage()` call in `pipeline.cpp` is unchanged, and
+`dest`'s own `.Y`/`.Cb`/`.Cr` planes still hold genuine RGB positionally,
+mislabelled under `Raster444`'s permanently-YCbCr-named fields. WU-41's own
+forward-looking note ("WU-42 resolves it for good by reshaping
+core/resolve.cpp/.hpp to R/G/B throughout") turns out to overstate what
+changes: the mislabelling moves from "two independent layers of it"
+(PASS-2-internal types *and* `Raster444`) down to one (`Raster444` alone,
+by permanent design, not a temporary state) — it is not eliminated. Left
+as an explicit, updated note in `pipeline.cpp`'s own file-header comment
+(not corrected by rewriting WU-41's own historical paragraph, per this
+project's own layered-comment convention) and flagged for Steve below,
+not treated as a defect.
+
+**Repository-wide grep before closing out (C-028/C-029/C-032's own
+standard — every real writer/reader of these three types, not just the
+files that fail to compile):** `grep -rln 'ResolvedCell\|CompositedCell\|
+Background\b' --include="*.cpp" --include="*.hpp" .` found exactly eleven
+files: this unit's own three (`src/core/resolve.hpp`/`.cpp`,
+`src/core/pipeline.cpp`) plus eight test files. Read each in full (not
+grep-and-guess) before editing: `tests/test_threading.cpp` and
+`tests/test_persistent_pool.cpp` matched only via comment prose
+("Background per PipelineParams' own default", `sawNonBackground`/
+`hasNonBackground` local names) — no real field access, no edit needed.
+The other six needed real, mechanical field-name edits (values unchanged
+throughout — every `Background{...}` positional-aggregate construction in
+these files keeps its own literal values, since aggregate init is
+positional, not name-based, and only named-field *reads* on
+`CompositedCell`/`Background` break at compile time):
+`tests/test_layered_composite.cpp` (`CompositedCell` field reads across
+all six of its own test functions), `tests/test_kbuffer_resolve.cpp`
+(`CompositedCell`/`Background` field reads, including three
+`Background{step.Y, step.Cb, step.Cr}`-style relabellings), 
+`tests/test_pageturn.cpp` (one site, `combinedComposited`/
+`pageAloneComposited`), `tests/test_field_pipeline.cpp` (one site,
+`resolveParityIndependently()`'s own independent-recomputation loop,
+mirroring `pipeline.cpp`'s own `out.R`/`out.G`/`out.B` fix), and
+`tests/test_shapes.cpp`/`tests/test_zoneplate.cpp` (`params.background.Y`/
+`.Cb`/`.Cr`-style reads against `PipelineParams::background`, a real
+`Background`). Re-confirmed via grep after editing: no
+`(bg|out|acc|resolved|got|expected|actual|step|afterRead|afterBack|
+afterMid|afterB)\.(Y|Cb|Cr)` pattern remains anywhere in the repository;
+every remaining `.Y`/`.Cb`/`.Cr` site left untouched is a genuine
+`video::Raster444` (or `testpat::Frame`) field, confirmed by tracing each
+variable's own declared type, the same discipline WU-39's and WU-41's own
+entries record for the analogous risk in their own renames. `tools/` and
+`docs/` grepped too: no matches, nothing to touch there.
+
+**Files, real:** `src/core/resolve.hpp`, `src/core/resolve.cpp`,
+`src/core/pipeline.cpp` (the three source files this unit's own name
+covers, plus the one file, per SESSION-PROTOCOL.md's 3-source-file cap,
+this unit needed beyond its own two named ones). `WORK-UNITS.md` (this
+entry). `CORRECTIONS.md` (C-033 appended). `HANDOFF.md`. Also updated, not
+counted against the cap (mechanical field-rename only, values unchanged,
+needed to keep the tree compiling after `ResolvedCell`/`CompositedCell`/
+`Background`'s field rename, per the repository-wide grep above):
+`tests/test_layered_composite.cpp`, `tests/test_kbuffer_resolve.cpp`,
+`tests/test_pageturn.cpp`, `tests/test_field_pipeline.cpp`,
+`tests/test_shapes.cpp`, `tests/test_zoneplate.cpp`.
+
+**Accept / build-test outcome — genuinely red, honestly reported, per the
+standing exception (ADR-085 §5): 25/28 tests pass in every one of the
+twelve sandbox configurations this project calls its own "ten-
+configuration matrix" (GCC/Clang × Release/Debug × tile 4/5, plus GCC +
+ASan/UBSan at both tile sizes — twelve rows, the same count Session 57/58
+both actually ran and tabulated under that name); the same three tests
+fail, identically, in all twelve; no compiler warning in any configuration;
+no sanitizer finding in either GCC + ASan or GCC + UBSan, at either tile
+size.** `test_zoneplate` (22 of 42537 checks) and `test_pipeline_bytes` (3
+of 42 checks) match Session 58's own baseline exactly, at both tile sizes.
+`test_binner` matches Session 58's own baseline (2 of 39139 checks) at
+`SCATTER_TILE_LOG2=5` exactly, but reports a different, tile-4-specific
+total (2 of 10963 checks) at `SCATTER_TILE_LOG2=4` — the same two failing
+checks (`test_binner.cpp:794`, `:795`) either way. Isolated before logging:
+a fresh, unmodified clone of the already-tagged `wu-41-bgfix-red` commit,
+built at tile 4 with none of this unit's own changes applied, reproduces
+the identical `10963` figure — so this is not a regression this unit
+introduced, it is a correction to Session 57/58's own "identical across
+all ten configurations" claim. See `CORRECTIONS.md` C-033 for the full
+account. Every other test (25 of 28) passes in every configuration.
+
+**Not done, and explicitly not this unit's job:** `docs/architecture.md`
+(`WU-43`). Re-deriving `test_binner.cpp`'s shading-mirror fixture,
+`test_zoneplate.cpp`'s I7 non-achromatic round-trip fixture, or
+`test_pipeline_bytes.cpp`'s deinterlaced-path reference functions (all
+three still `WU-44`'s own explicit job, not cut short here to force a
+false green — ADR-085 §5 forbids exactly that). Reshaping
+`video::Raster444` itself, or `runFrame()`'s own `dest` parameter type —
+confirmed, not assumed, to be outside this unit's own scope (see above);
+no future unit is implied by this note either, since `Raster444`'s own
+Y/Cb/Cr-mislabelled-as-RGB mid-pipeline role is by design, not a defect.
+
+Depends on WU-39, WU-40, WU-41 (all landed). `WU-44` depends on this one
+landing next; `WU-43` depends on `WU-39`–`WU-42`.
+
+*Status:* `red` — genuinely, honestly, per the standing exception; not
+forced green by cutting scope, not treated as suspicious on its own. See
+`HANDOFF.md`.
 
 ### WU-43 — `docs/architecture.md`: Design invariants table (§2) and signal-path diagram (§3) rewritten for RGB `todo`
 **New this session (WU-38, ADR-085 §6 item 5).** Documentation-only

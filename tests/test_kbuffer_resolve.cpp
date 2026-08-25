@@ -81,9 +81,9 @@ static void test_opaque_nearest_wins_exactly() {
     const CompositedCell got = compositeKBuffer(slots, KBufferResolveMode::Opaque);
     const CompositedCell expected = composite(near);  // z=10 is nearest ("near = 0")
 
-    CHECK(got.Y == expected.Y);
-    CHECK(got.Cb == expected.Cb);
-    CHECK(got.Cr == expected.Cr);
+    CHECK(got.R == expected.R);
+    CHECK(got.G == expected.G);
+    CHECK(got.B == expected.B);
 }
 
 static void test_opaque_z_tie_breaks_by_smallest_tag() {
@@ -103,8 +103,8 @@ static void test_opaque_z_tie_breaks_by_smallest_tag() {
     const CompositedCell got2 = compositeKBuffer(order2, KBufferResolveMode::Opaque);
     const CompositedCell expected = composite(a);  // tag 2 < tag 9
 
-    CHECK(got1.Y == expected.Y && got1.Cb == expected.Cb && got1.Cr == expected.Cr);
-    CHECK(got2.Y == expected.Y && got2.Cb == expected.Cb && got2.Cr == expected.Cr);
+    CHECK(got1.R == expected.R && got1.G == expected.G && got1.B == expected.B);
+    CHECK(got2.R == expected.R && got2.G == expected.G && got2.B == expected.B);
 }
 
 static void test_no_occupied_slot_is_pure_background_both_modes() {
@@ -113,9 +113,9 @@ static void test_no_occupied_slot_is_pure_background_both_modes() {
 
     for (KBufferResolveMode mode : {KBufferResolveMode::Opaque, KBufferResolveMode::Blend}) {
         const CompositedCell got = compositeKBuffer(empty, mode, bg);
-        CHECK(got.Y == bg.Y);
-        CHECK(got.Cb == bg.Cb);
-        CHECK(got.Cr == bg.Cr);
+        CHECK(got.R == bg.R);
+        CHECK(got.G == bg.G);
+        CHECK(got.B == bg.B);
     }
 }
 
@@ -140,9 +140,9 @@ static void test_blend_two_slots_matches_compositeLayered() {
     const CompositedCell expected = compositeLayered(farther, nearer, /*upperTag=*/6,
                                                        /*opaqueTag=*/6);
 
-    CHECK(got.Y == expected.Y);
-    CHECK(got.Cb == expected.Cb);
-    CHECK(got.Cr == expected.Cr);
+    CHECK(got.R == expected.R);
+    CHECK(got.G == expected.G);
+    CHECK(got.B == expected.B);
 }
 
 static void test_blend_three_slots_matches_hand_ordered_chain() {
@@ -161,14 +161,14 @@ static void test_blend_three_slots_matches_hand_ordered_chain() {
     // Independent re-derivation: chain composite() calls farthest to
     // nearest, not a call into compositeKBuffer() itself.
     const CompositedCell step1 = composite(back);
-    const Background afterBack{step1.Y, step1.Cb, step1.Cr};
+    const Background afterBack{step1.R, step1.G, step1.B};
     const CompositedCell step2 = composite(mid, afterBack);
-    const Background afterMid{step2.Y, step2.Cb, step2.Cr};
+    const Background afterMid{step2.R, step2.G, step2.B};
     const CompositedCell expected = composite(front, afterMid);
 
-    CHECK(got.Y == expected.Y);
-    CHECK(got.Cb == expected.Cb);
-    CHECK(got.Cr == expected.Cr);
+    CHECK(got.R == expected.R);
+    CHECK(got.G == expected.G);
+    CHECK(got.B == expected.B);
 }
 
 static void test_blend_z_tie_breaks_by_smallest_tag() {
@@ -182,14 +182,14 @@ static void test_blend_z_tie_breaks_by_smallest_tag() {
 
     // Tag 1 < tag 5, so a is "nearer" and composited last (on top).
     const CompositedCell step = composite(b);
-    const Background afterB{step.Y, step.Cb, step.Cr};
+    const Background afterB{step.R, step.G, step.B};
     const CompositedCell expected = composite(a, afterB);
 
     const CompositedCell got1 = compositeKBuffer(order1, KBufferResolveMode::Blend);
     const CompositedCell got2 = compositeKBuffer(order2, KBufferResolveMode::Blend);
 
-    CHECK(got1.Y == expected.Y && got1.Cb == expected.Cb && got1.Cr == expected.Cr);
-    CHECK(got2.Y == expected.Y && got2.Cb == expected.Cb && got2.Cr == expected.Cr);
+    CHECK(got1.R == expected.R && got1.G == expected.G && got1.B == expected.B);
+    CHECK(got2.R == expected.R && got2.G == expected.G && got2.B == expected.B);
 }
 
 // "Known ratio": a fully-covered back slot, an exactly half-covered front
@@ -216,9 +216,9 @@ static void test_blend_known_ratio() {
                         unity / 2) /
                        unity);
     };
-    CHECK(got.Y == expectChannel(fromCode10(1000), fromCode10(200)));
-    CHECK(got.Cb == expectChannel(fromCode10(100), fromCode10(300)));
-    CHECK(got.Cr == expectChannel(fromCode10(50), fromCode10(400)));
+    CHECK(got.R == expectChannel(fromCode10(1000), fromCode10(200)));
+    CHECK(got.G == expectChannel(fromCode10(100), fromCode10(300)));
+    CHECK(got.B == expectChannel(fromCode10(50), fromCode10(400)));
 }
 
 // ---------------------------------------------------------------------------
