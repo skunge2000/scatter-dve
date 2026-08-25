@@ -68,9 +68,9 @@ int main() {
     SourceRaster src;
     src.width = kSrcSize;
     src.height = kSrcSize;
-    src.y = srcRaster.Y.data();
-    src.cb = srcRaster.Cb.data();
-    src.cr = srcRaster.Cr.data();
+    src.r = srcRaster.Y.data();
+    src.g = srcRaster.Cb.data();
+    src.b = srcRaster.Cr.data();
 
     shapes::SphereParams sphereParams;
     sphereParams.radius = 220.0;

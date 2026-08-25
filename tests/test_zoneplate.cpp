@@ -351,9 +351,9 @@ static void testZonePlateCompression(int srcSize, int scale, double perPixelTole
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = zp.Y.data();
-    src.cb = cbFull.data();
-    src.cr = crFull.data();
+    src.r = zp.Y.data();
+    src.g = cbFull.data();
+    src.b = crFull.data();
 
     const int destSize = srcSize / scale;
     CHECK(destSize * scale == srcSize);  // exact division keeps the reference simple
@@ -532,9 +532,9 @@ static void test_pipeline_partial_coverage_no_fringe() {
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = yFull.data();
-    src.cb = cbFull.data();
-    src.cr = crFull.data();
+    src.r = yFull.data();
+    src.g = cbFull.data();
+    src.b = crFull.data();
 
     const Lattice lat = makeAffineLattice(1.0, 1.0, 32.5, 0.0, srcSize, srcSize);
     PipelineParams params;

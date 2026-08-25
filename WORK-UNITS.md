@@ -3183,17 +3183,229 @@ one landing next.
 forced green by cutting scope, not treated as suspicious on its own. See
 `HANDOFF.md`.
 
-### WU-41 — `src/core/binner.cpp`/`.hpp`: `sampleBilinear()` reads RGB; `applyShading()` simplifies `todo`
-**New this session (WU-38, ADR-085 §6 item 3).** `sampleBilinear()` reads
-RGB directly once `WU-40` delivers an RGB-shaped source. WU-34b's
-`applyShading()` (ADR-084) simplifies from a full YCbCr→RGB→multiply→
-YCbCr round trip to a bare per-channel multiply by intensity, since the
-colour arriving at that call site is already RGB. `ColourStandard`/
-`coeffsFor()` (BT601/BT709, ADR-084) no longer belong solely to shading —
-the I/O boundary (`WU-40`) needs them too; where they should live
-(promoted to a shared colour-conversion module near `types.hpp` is
-ADR-085's own suggestion, not decided here) is this unit's own first
-design question. Depends on WU-39, WU-40.
+### WU-41 — `src/core/binner.cpp`/`.hpp`: `sampleBilinear()` reads RGB; `applyShading()` simplifies `red`
+**Built this session.** `SourceRaster` (`src/core/binner.hpp`) renamed its
+own `y`/`cb`/`cr` pointer fields to `r`/`g`/`b`; `sampleBilinear()`
+(`src/core/binner.cpp`) reads them directly with no conversion;
+`applyShading()` simplifies from WU-34b/ADR-084's full
+YCbCr→RGB→multiply→RGB→YCbCr round trip to a bare per-channel multiply by
+intensity, since its own colour argument is already RGB. `core/pipeline.cpp`'s
+three real `SourceRaster`-building call sites (`runFrameBytes()`,
+`runFrameBytesDeinterlaced()`, `runFrameFile()`) feed `SourceRaster`
+directly from WU-40's `video::RasterRGB` on the input side instead of
+round-tripping back to YCbCr.
+
+**Re-derived the real scope before writing anything, per this session's own
+opening instruction not to trust this stub, WU-40's own HANDOFF.md account,
+or this unit's own prior WORK-UNITS.md entry:** `grep -n
+'sampleBilinear\|applyShading\|coeffsFor\|ColourStandard'
+src/core/binner.hpp src/core/binner.cpp`, `grep -rn 'SourceRaster'
+src/core/pipeline.cpp src/core/binner.hpp`, and `grep -rln
+'RasterRGB\|ycbcrToRgbImage\|rgbToYcbcrImage' src/ tests/`, then read
+`src/core/binner.hpp`/`.cpp`, `src/core/pipeline.cpp`,
+`src/video/raster.hpp`, `src/video/chroma.hpp`/`.cpp` directly before
+touching anything. Confirmed `video::RasterRGB` and
+`ycbcrToRgbImage()`/`rgbToYcbcrImage()` exist exactly as WU-40 left them,
+unchanged by this unit as planned, and confirmed the three
+`core/pipeline.cpp` production `SourceRaster` sites WU-40's own account
+named.
+
+**Real `SourceRaster` construction-site count is much larger than three —
+worth a future session's attention, not an error in WU-40's own account.**
+Per this session's own opening instruction ("do not trust WU-40's own
+HANDOFF.md account that there are exactly three... re-confirm it directly"):
+`grep -rn 'SourceRaster' src/ tests/ tools/` finds exactly three real
+*production* construction sites, all in `core/pipeline.cpp` — WU-40's own
+claim there was accurate, and is the one this unit's own pipeline.cpp
+rewiring needed. But roughly a dozen *test* files, plus
+`tools/coverage_view_demo.cpp`, also construct a `SourceRaster` directly
+from synthetic data (`tests/test_threading.cpp`,
+`test_layered_composite.cpp` ×2, `test_persistent_pool.cpp`,
+`test_pipeline_bytes.cpp` ×2, `test_coverage_capture.cpp` ×4,
+`test_row_band.cpp` ×2, `test_pageturn.cpp` ×2, `test_zoneplate.cpp` ×2,
+`test_scan_order_invariance.cpp`, `test_binner.cpp` ×3, `test_shapes.cpp`,
+`test_field_pipeline.cpp`, `test_kbuffer_resolve.cpp`,
+`tools/coverage_view_demo.cpp`) — WU-40's own "every test file... does so
+directly from synthetic data, never through this boundary" was true and
+not misleading about *that* claim, but renaming `SourceRaster`'s own field
+names (this unit's job) breaks every one of those sites at compile time
+regardless of whether they go through the chroma boundary, so this unit
+updated all of them (field-name substitution only, `.y=`/`.cb=`/`.cr=` →
+`.r=`/`.g=`/`.b=`, values unchanged) to keep the tree compiling. None of
+these files' own fixture *values* were re-derived — WU-44's own job, per
+ADR-085 §5 — several now assert stale expectations against genuinely
+different production behaviour (see Accept below).
+
+**`ColourStandard`/`coeffsFor`'s own eventual shared home (ADR-085 §7,
+this unit's own first design question per the WU-38 stub): resolved by
+deleting them, not promoting them.** Once `applyShading()`'s own colour
+argument is already RGB, a bare per-channel multiply needs no coefficient
+set at all — the premise ADR-085 §7 posed ("where should this live once
+*both* shading and the I/O boundary need it") no longer holds, since
+shading no longer needs one. Repository-wide grep before deciding (not
+assumed): `core::ColourStandard`/`coeffsFor()`'s only real uses anywhere in
+the tree were `core/binner.cpp`'s own `coeffsFor()` and `applyShading()`'s
+now-deleted `standard` parameter, plus two `tests/test_binner.cpp` call
+sites (both updated this session to drop the now-nonexistent trailing
+argument). `video/chroma.hpp`'s own RGB boundary conversion (WU-40)
+already deliberately hardcodes its own BT.601 literals rather than taking
+this enum, precisely so this unit could make this call without a second,
+independent copy of the type existing simultaneously — that duplication is
+unaffected and unchanged by this decision. The enum and its coefficient
+function are deleted from `core/binner.hpp`/`.cpp` entirely rather than
+promoted to a shared module near `core/types.hpp`: nothing left in the
+tree needs a *shared* colour-standard type once shading has no use for
+one, and keeping it alive against a hypothetical future caller would be
+exactly the kind of premature module-placement ADR-085 §7 itself warned
+against. A future unit that genuinely parameterises the I/O boundary's own
+coefficient choice can reintroduce a shared type at that point, against a
+real caller. `docs/binner.hpp`'s own comment ahead of `SourceRaster` (where
+`ColourStandard` used to be declared) records the full reasoning and the
+grep that grounds it.
+
+**`core/pipeline.cpp`'s six RGB-boundary-conversion blocks (three call
+sites × input/output side, WU-40): re-derived against the real code, not
+implemented from this unit's own prior stub text or WU-40's own HANDOFF.md
+"Next work unit" note, both of which described a simpler, symmetric
+shape that turns out not to be correct.** Both accounts said, in effect,
+"delete the convert-back-to-YCbCr half of each of the six blocks." That is
+exactly right for the *input* side: `chroma::ycbcrToRgbImage()` is kept,
+its result (`video::RasterRGB`) now feeds `SourceRaster` directly, and the
+`chroma::rgbToYcbcrImage()` call that used to convert it straight back to
+YCbCr is deleted. It is **not** right for the *output* side, confirmed by
+reading `src/core/resolve.cpp` directly before implementing anything (not
+assumed from the input side's own symmetry): PASS 2 is still WU-42's own
+job, untouched by this unit, and its normalise step
+(`out.Y = divideRounded(cell.R, cell.w); out.Cb = divideRounded(cell.G,
+cell.w); out.Cr = divideRounded(cell.B, cell.w);`) copies `AccumCell`'s
+`R`/`G`/`B` fields into a `CompositedCell`'s/`Raster444`'s `Y`/`Cb`/`Cr`
+fields *positionally*, with no channel-meaning check either side —
+exactly the channel-agnostic arithmetic ADR-085 itself describes PASS 2
+as. Since PASS 1 now feeds it genuine RGB (this unit's own
+`sampleBilinear()`/`applyShading()` change), `runFrame()`'s own `dest`
+(`warped` in `core/pipeline.cpp`) comes back holding genuine RGB values
+*mislabelled* onto a `Raster444`'s `Y`/`Cb`/`Cr`-named planes, not YCbCr —
+running the *forward* `chroma::ycbcrToRgbImage()` call on it first, as the
+naive symmetric plan would, would misinterpret already-RGB data as YCbCr
+and produce garbage. What each output-side block actually needs, and what
+this unit ships, is only the second half: a single
+`chroma::rgbToYcbcrImage()` call, reinterpreting `warped`'s own
+Y/Cb/Cr-named planes as the R/G/B input they actually hold, producing
+genuine YCbCr into a fresh `video::Raster444` for chroma downsample. This
+mislabelling is a known, temporary, and *only* PASS-1-through-2-internal
+state — `video::Raster444` itself is untouched by this unit and keeps its
+genuine YCbCr semantics everywhere else (its own role either side of
+`chroma::upsampleImage`/`downsampleImage`, ADR-005 — unaffected) — WU-42
+resolves it for good by reshaping `core/resolve.cpp`/`.hpp` to `R`/`G`/`B`
+throughout, exactly as already planned. See `core/pipeline.cpp`'s own
+rewritten file-header comment for the same account in place, and
+`HANDOFF.md` for how this was caught before implementing the wrong,
+simpler shape.
+
+**Files, real:** `src/core/binner.hpp` (`ColourStandard` enum deleted;
+`SourceRaster`'s `y`/`cb`/`cr` → `r`/`g`/`b`; `shadingStandard` parameter
+removed from all five public entry points; doc comments updated).
+`src/core/binner.cpp` (`Kcoeffs`/`coeffsFor()` deleted; `applyShading()`
+simplified to a bare per-channel multiply, `standard` parameter removed;
+`sampleBilinear()`'s own local `Colour` struct renamed `y/cb/cr` →
+`r/g/b` and reads `src.r/g/b` directly; `Frag::R/G/B` construction reads
+`c.r/g/b` directly; `shadingStandard` removed from the shared templated
+loop and all five public wrappers). `src/core/pipeline.cpp` (file-header
+comment rewritten for this unit's own account above; all three
+`SourceRaster`-building call sites' input-side blocks feed `SourceRaster`
+from `video::RasterRGB` directly; all three output-side blocks replaced
+with the single `rgbToYcbcrImage()` reinterpretation described above).
+Comment-only, not counted against the cap: `src/video/chroma.cpp`/`.hpp`
+(two small comment corrections — `coeffsFor()`/`ColourStandard` no longer
+exist in `core/binner.*`, referenced only in past tense now; no behavioural
+change, the same "fix a stale comment while touching the surrounding
+context" precedent ADR-082/C-031 already used). `WORK-UNITS.md` (this
+entry). `HANDOFF.md`. Also updated, not counted against the cap (mechanical
+field-rename only, needed to keep the tree compiling after `SourceRaster`'s
+field rename, per the construction-site count above — no fixture *values*
+changed): `tests/test_threading.cpp`, `test_layered_composite.cpp`,
+`test_persistent_pool.cpp`, `test_pipeline_bytes.cpp`,
+`test_coverage_capture.cpp`, `test_row_band.cpp`, `test_pageturn.cpp`,
+`test_zoneplate.cpp`, `test_scan_order_invariance.cpp`, `test_binner.cpp`
+(plus its own two `ColourStandard::BT601` call-site arguments dropped),
+`test_shapes.cpp`, `test_field_pipeline.cpp`, `test_kbuffer_resolve.cpp`,
+`tools/coverage_view_demo.cpp`.
+
+**Repository-wide grep before closing out (C-028/C-029), not just the
+files touched:** every real reference to `ColourStandard`/`coeffsFor`/
+`shadingStandard` across `src/`, `tests/`, `tools/` re-confirmed to be
+comment prose only (historical/explanatory), no live declarations, after
+this unit's edits. Every real `.y=`/`.cb=`/`.cr=`-style assignment
+repository-wide re-confirmed to be either a `SourceRaster` site this unit
+updated, or an unrelated field on a different type (`Vec3::y`, `Frag::x/y`
+position fields, or a local test-fixture struct's own differently-typed
+`y`/`cb`/`cr` members that feed a `SourceRaster` construction rather than
+being one) — traced to each variable's own real declared type before
+deciding whether to touch it, the same discipline WU-39's own entry
+records for the analogous risk in its own rename. No method-style
+`.y()`/`.cb()`/`.cr()` accessors exist anywhere in the tree (grepped,
+none found), so no such site could have been missed by the assignment-only
+grep above.
+
+**Accept / build-test outcome — genuinely red, honestly reported, per the
+standing exception (ADR-085 §5): 25/28 tests pass in every one of the ten
+sandbox configurations; three tests fail, identically, in all ten; no
+sanitizer findings anywhere.** See `HANDOFF.md` for the full matrix.
+`test_zoneplate` fails the identical 22 of 42537 checks WU-40's own session
+already found and explained (the three non-achromatic flat 10-bit codes,
+4/64/1019) — unchanged in count or content by this unit, a reassuring
+cross-check that this unit's own re-derived output-side conversion
+produces the same result for this fixture's own content as WU-40's
+original symmetric round trip did (both are exact identities for
+achromatic content, and empirically agree at the fixture's own clipped,
+non-achromatic extremes too). `test_binner` newly fails 2 of 39139 checks
+— `test_shading_multiply_applies_rgb_round_trip_before_quantisation`'s own
+hand-derived expected values (`mirrorToRgbBt601`/`mirrorFromRgbBt601`, a
+YCbCr→RGB→multiply→RGB→YCbCr independent mirror) assume the pre-WU-41
+round-trip shading math; `applyShading()`'s own real new behaviour (bare
+multiply, no round trip) genuinely differs from that mirror now — this
+test's own fixture is WU-44's job to re-derive, not fixed here, per ADR-085
+§5. `test_pipeline_bytes` newly fails 3 of 42 checks, all three inside its
+own deinterlaced-path reference-comparison tests
+(`test_deinterlaced_matches_reference_and_first_push_is_a_noop`,
+`test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace`,
+`test_deinterlaced_sd_geometry_sanity`) — each compares real
+`runFrameBytesDeinterlaced()` output against this test file's own
+hand-rolled `referenceRunFrameBytesDeinterlaced()`/
+`referenceWithExplicitReinterlace()`, neither of which this unit touched
+or was asked to touch; those references still feed `SourceRaster` directly
+from YCbCr with no RGB conversion at all (mechanically field-renamed only,
+per this entry's own construction-site note above), so they now diverge
+from real production, which does apply the conversion. Not a defect in
+production code — this is the same class of reference-implementation
+staleness `test_zoneplate`'s own I7 check already exposed under WU-40, now
+also visible here; re-deriving these two reference functions to mirror the
+real RGB boundary conversion independently (matching WU-34b's own
+"mirror the math, never call the production function" precedent) is
+WU-44's own job. `test_runframebytes_identity_round_trips_exactly` (the
+non-deinterlaced I7 check via `runFrameBytes()`) and
+`test_deinterlaced_anchor_rows_survive_identity_round_trip` both stay
+green — neither depends on the stale reference functions. Every other test
+(25 of 28) passes in every configuration; all ten configurations compile
+with no warnings; both sanitizer configurations (GCC + ASan/UBSan, tile
+sizes 4 and 5) report no findings.
+
+**Not done, and explicitly not this unit's job:** PASS 2
+(`core/resolve.cpp`/`.hpp`) is still `Y`/`Cb`/`Cr`-shaped, channel-agnostic
+arithmetic untouched by this unit — `WU-42`'s own job, and the reason
+`core/pipeline.cpp`'s `warped`/`dest` locals hold genuine RGB mislabelled
+as YCbCr until that unit lands. `docs/architecture.md` (`WU-43`).
+Re-deriving `test_binner.cpp`'s shading-mirror fixture, or
+`test_pipeline_bytes.cpp`'s deinterlaced-path reference functions, or any
+other fixture (`WU-44`'s own explicit job, not cut short here to force a
+false green — ADR-085 §5 forbids exactly that).
+
+Depends on WU-39, WU-40 (both landed). `WU-42`, `WU-44` depend on this one
+landing next; `WU-43` depends on `WU-39`–`WU-42`.
+
+*Status:* `red` — genuinely, honestly, per the standing exception; not
+forced green by cutting scope, not treated as suspicious on its own. See
+`HANDOFF.md`.
 
 ### WU-42 — `src/core/resolve.hpp`/`.cpp`: PASS 2 reshaped to R/G/B `todo`
 **New this session (WU-38, ADR-085 §6 item 4).** PASS 2's splat/

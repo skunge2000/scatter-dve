@@ -356,9 +356,9 @@ PipelineRunResult runFlatSourceThroughLattice(const Lattice& lat, int srcSize,
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = y.data();
-    src.cb = cb.data();
-    src.cr = cr.data();
+    src.r = y.data();
+    src.g = cb.data();
+    src.b = cr.data();
 
     PipelineParams params;
     params.destWidth = destW;

@@ -92,9 +92,9 @@ struct SignatureRaster {
         SourceRaster r;
         r.width = width;
         r.height = height;
-        r.y = y.data();
-        r.cb = cb.data();
-        r.cr = cr.data();
+        r.r = y.data();
+        r.g = cb.data();
+        r.b = cr.data();
         return r;
     }
 };

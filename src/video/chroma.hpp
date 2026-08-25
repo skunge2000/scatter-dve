@@ -191,22 +191,29 @@ void downsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
 // centre), matching applyShading()'s own convention exactly.
 //
 // Coefficients: hardcoded to the ordinary ITU-R BT.601 luma coefficients
-// (Kr=0.299, Kg=0.587, Kb=0.114) -- the same values core/binner.hpp's
-// ColourStandard::BT601 selects and every real caller of applyShading()
-// already defaults to (this project's own real target is SD, ADR-007).
-// Not parameterised by ColourStandard here: ADR-085 Section 7 leaves "where
-// ColourStandard/coeffsFor should live once both shading and the I/O
-// boundary need them" as an explicitly open question, assigned to whoever
-// starts WU-41 (WORK-UNITS.md) -- this unit does not decide it, and adding
-// a second, independent copy of the ColourStandard enum here to parameterise
-// against would be exactly the kind of premature module-placement decision
-// that open question defers. Duplicating the BT.601 constants directly
-// (rather than including core/binner.hpp from this file) also avoids
-// inverting this project's own core-depends-on-video layering: every
-// existing include edge between core/ and video/ runs one way (core/
-// binner.cpp, pipeline.cpp, resolve.hpp, types.hpp all include video/
-// headers; no video/ header includes a core/ one), and this file is not
-// the place to become the first exception.
+// (Kr=0.299, Kg=0.587, Kb=0.114) -- at the time this was written (WU-40),
+// the same values core/binner.hpp's ColourStandard::BT601 selected and
+// every real caller of applyShading() already defaulted to (this project's
+// own real target is SD, ADR-007). Not parameterised by ColourStandard
+// here: ADR-085 Section 7 left "where ColourStandard/coeffsFor should live
+// once both shading and the I/O boundary need them" as an explicitly open
+// question, assigned to whoever started WU-41 (WORK-UNITS.md) -- this unit
+// did not decide it, and adding a second, independent copy of the
+// ColourStandard enum here to parameterise against would have been exactly
+// the kind of premature module-placement decision that open question
+// deferred. WU-41 (DECISIONS.md ADR-085) has since resolved that question
+// the other way: applyShading() no longer needs any coefficient set once
+// its own input is already RGB, so core/binner.hpp's ColourStandard/
+// coeffsFor() were deleted rather than promoted to a shared module -- see
+// that unit's own WORK-UNITS.md entry for the full reasoning. This file's
+// own hardcoded BT.601 literals are unaffected and unchanged by that
+// decision; duplicating them directly (rather than including a shared
+// header) also still avoids inverting this project's own
+// core-depends-on-video layering: every existing include edge between
+// core/ and video/ runs one way (core/binner.cpp, pipeline.cpp,
+// resolve.hpp, types.hpp all include video/ headers; no video/ header
+// includes a core/ one), and this file is still not the place to become
+// the first exception, even now that core/ has nothing left to share.
 //
 // Quantisation: round to nearest, then clamp to Sample's own representable
 // range [0, 65535] -- not I2's v210 protocol clamp ([kCode10Min,

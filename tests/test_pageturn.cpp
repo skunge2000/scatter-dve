@@ -329,9 +329,9 @@ static void test_pipeline_pageturn_transparent_accumulates_over_page_behind() {
     SourceRaster pageSrc;
     pageSrc.width = kSrc;
     pageSrc.height = kSrc;
-    pageSrc.y = pageY.data();
-    pageSrc.cb = pageCb.data();
-    pageSrc.cr = pageCr.data();
+    pageSrc.r = pageY.data();
+    pageSrc.g = pageCb.data();
+    pageSrc.b = pageCr.data();
 
     // The flap: a genuinely curling page turn, sized comfortably inside the
     // destination canvas, with a larger source raster than its own on-screen
@@ -351,9 +351,9 @@ static void test_pipeline_pageturn_transparent_accumulates_over_page_behind() {
     SourceRaster flapSrc;
     flapSrc.width = kSrc;
     flapSrc.height = kSrc;
-    flapSrc.y = flapY.data();
-    flapSrc.cb = flapCb.data();
-    flapSrc.cr = flapCr.data();
+    flapSrc.r = flapY.data();
+    flapSrc.g = flapCb.data();
+    flapSrc.b = flapCr.data();
 
     // Tags chosen now in anticipation of WU-12b's own priority-tag opacity
     // mechanism (see HANDOFF.md and DECISIONS.md ADR-028's scope note); not

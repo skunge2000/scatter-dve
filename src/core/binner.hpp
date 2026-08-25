@@ -61,31 +61,33 @@ namespace scatter {
 // #include "core/coarse_shading.hpp" itself to do so.
 class CoarseShadingGrid;
 
-// WU-34b (DECISIONS.md ADR-084): which RGB<->YCbCr coefficient set
-// applyShading() (binner.cpp) uses when multiplying a coarse-grid shading
-// intensity I into a source sample. This project's own internal colour was
-// Y/Cb/Cr when this was written; ADR-085 (accepted WU-38) has since moved
-// I3 to native RGB -- though this function's own source samples stay in
-// the YCbCr domain until WU-40/41 land, so applyShading()'s real RGB round
-// trip below is unchanged by that acceptance alone. The historical
-// machine's own STARLIGHT stage multiplied a genuine RGB triple, and
-// Steve's own domain knowledge
-// (not inferred from any held document) confirms Mirage was RGB-native
-// internally throughout, with the 4:2:2 YCbCr and analogue/composite I/O
-// converted to/from RGB at the boundary alone. So "multiply RGB by I" is
-// implemented here as a real (if narrow, double-precision-only, entirely
-// ahead of this loop's own quantisation) RGB round trip, not a YCbCr
-// approximation of one -- see binner.cpp's own applyShading() comment for
-// the exact derivation and why this does not touch I3/I4/I6.
+// WU-34b (DECISIONS.md ADR-084) introduced `ColourStandard`/`coeffsFor()`
+// so applyShading() (binner.cpp) could pick which RGB<->YCbCr coefficient
+// set to use for a real (double-precision, pre-quantisation) round trip
+// when multiplying a coarse-grid shading intensity I into a source sample
+// -- at the time, this file's own source samples were still YCbCr, so
+// "multiply RGB by I" needed a conversion in and back out again.
 //
-// BT601 is this project's own real target (an SD machine, ADR-007's own
-// 625i25/576p25 internal development raster) and every existing caller's
-// default; BT709 is kept selectable for whenever real HD output work
-// needs it, not used by any caller yet.
-enum class ColourStandard : std::uint8_t {
-    BT601,
-    BT709,
-};
+// WU-41 (DECISIONS.md ADR-085, this session): `SourceRaster`/
+// `sampleBilinear()` below are now RGB-native (fed directly from
+// `video::RasterRGB`, WU-40), so applyShading()'s own colour argument is
+// already RGB at the call site -- no conversion, therefore no coefficient
+// choice, is needed there any more. Repository-wide grep before removing
+// this enum (not assumed): its only real uses were `coeffsFor()` and
+// `applyShading()`'s own now-deleted `standard` parameter, both in
+// binner.cpp, plus two `tests/test_binner.cpp` call sites (updated this
+// session to drop the now-nonexistent trailing argument) -- nothing else
+// in the tree reads `core::ColourStandard`. `video/chroma.hpp`'s own RGB
+// boundary conversion (WU-40) deliberately hardcodes its BT.601 literals
+// rather than taking this enum (see that file's own comment on why); this
+// unit does not change that. See WORK-UNITS.md's own WU-41 entry for the
+// full "where should ColourStandard/coeffsFor live" reasoning ADR-085 §7
+// left open: the answer this session reached is that neither shading nor
+// the I/O boundary needs a *shared* one any more, so the enum is deleted
+// rather than relocated. A future unit that genuinely needs a selectable
+// coefficient set at the I/O boundary can reintroduce one at that point,
+// against a real caller, rather than this unit keeping a now-unused type
+// alive against a hypothetical one.
 
 // Number of tiles needed to cover a destination raster of extent `dim`:
 // ceil(dim / kTileSize). A raster whose dimension is not a multiple of
@@ -98,17 +100,21 @@ constexpr int tileCount(int dim) noexcept {
 }
 
 // Source raster for fragment generation: three full-rate, already
-// chroma-upsampled 4:4:4 planes. architecture.md section 3's signal path
-// runs "chroma upsample 4:2:2->4:4:4" before "PASS 1: fragment
-// generation", so binner.hpp never sees 4:2:2 data — that conversion
-// (src/video/chroma.hpp, WU-04) has already happened by the time this
-// runs. Row-major, width*height samples per plane, no stride padding.
+// RGB-converted 4:4:4-shaped planes (WU-41, DECISIONS.md ADR-085).
+// architecture.md section 3's signal path runs "chroma upsample
+// 4:2:2->4:4:4" then the RGB boundary conversion (WU-40) before "PASS 1:
+// fragment generation", so binner.hpp never sees 4:2:2 data, and — since
+// this unit — never sees YCbCr-labelled data either: both conversions
+// (src/video/chroma.hpp) have already happened by the time this runs, and
+// core/pipeline.cpp feeds this struct directly from a `video::RasterRGB`
+// (WU-40) rather than round-tripping back to `video::Raster444`. Row-major,
+// width*height samples per plane, no stride padding.
 struct SourceRaster {
     int width = 0;
     int height = 0;
-    const Sample* y  = nullptr;
-    const Sample* cb = nullptr;
-    const Sample* cr = nullptr;
+    const Sample* r = nullptr;
+    const Sample* g = nullptr;
+    const Sample* b = nullptr;
 };
 
 // architecture.md 4.6: "Subdivide each source sample into 2x2 or 4x4
@@ -197,11 +203,15 @@ struct BinStats {
 // WU-34b (DECISIONS.md ADR-084): shadingGrid, when non-null, is sampled at
 // each sub-sample's own (u, v) -- the same lattice-parameter coordinate
 // this loop already computes for lattice.eval(), no extra evaluation --
-// and multiplied into that sub-sample's colour, in RGB (shadingStandard's
-// own coefficients), ahead of Frag construction (I10's own binding
-// location). Default nullptr: every existing caller keeps compiling and
-// behaving exactly as before, byte for byte -- the same "optional,
-// caller-owned, default-off, zero-cost-when-absent" shape
+// and multiplied into that sub-sample's colour, ahead of Frag construction
+// (I10's own binding location). WU-41: that colour is now genuine RGB
+// (src is RGB-native), so the multiply is a bare per-channel scale with no
+// coefficient choice involved -- the `ColourStandard shadingStandard`
+// parameter this comment used to describe is gone, see this file's own
+// comment above `SourceRaster`'s definition removing `ColourStandard`.
+// Default nullptr: every existing caller keeps compiling and behaving
+// exactly as before, byte for byte -- the same "optional, caller-owned,
+// default-off, zero-cost-when-absent" shape
 // PipelineParams::pool/weightOut/kBufferMode (core/resolve.hpp) already
 // established, applied here to individual function parameters instead of
 // a struct field since this file has no per-call config struct of its
@@ -212,8 +222,7 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
                                     double maxK, const SupersampleConfig& ss,
                                     std::uint8_t tag, int rowStart, int rowEnd,
                                     TileBins& outBins,
-                                    const CoarseShadingGrid* shadingGrid = nullptr,
-                                    ColourStandard shadingStandard = ColourStandard::BT601);
+                                    const CoarseShadingGrid* shadingGrid = nullptr);
 
 // Pass 1: generate and bin fragments for an entire source raster.
 //
@@ -236,8 +245,7 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins,
-                            const CoarseShadingGrid* shadingGrid = nullptr,
-                            ColourStandard shadingStandard = ColourStandard::BT601);
+                            const CoarseShadingGrid* shadingGrid = nullptr);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, row-range
 // variant. New, additive tag mode alongside generateFragmentsRowRange()
@@ -267,8 +275,7 @@ BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const Sour
                                                double maxK, const SupersampleConfig& ss,
                                                std::uint8_t frontTag, std::uint8_t backTag,
                                                int rowStart, int rowEnd, TileBins& outBins,
-                                               const CoarseShadingGrid* shadingGrid = nullptr,
-                                               ColourStandard shadingStandard = ColourStandard::BT601);
+                                               const CoarseShadingGrid* shadingGrid = nullptr);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, whole-raster
 // variant. A thin wrapper around generateFragmentsRowRangeTagByFacing()
@@ -278,8 +285,7 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
                                        double maxK, const SupersampleConfig& ss,
                                        std::uint8_t frontTag, std::uint8_t backTag,
                                        TileBins& outBins,
-                                       const CoarseShadingGrid* shadingGrid = nullptr,
-                                       ColourStandard shadingStandard = ColourStandard::BT601);
+                                       const CoarseShadingGrid* shadingGrid = nullptr);
 
 // WU-23a2a (DECISIONS.md ADR-076): field-parity row visitation, the
 // lattice-aware half of field mode (video/interlace.hpp's own file comment;
@@ -317,7 +323,6 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
                                      double maxK, const SupersampleConfig& ss,
                                      std::uint8_t tag, int rowOffset,
                                      TileBins& outBins,
-                                     const CoarseShadingGrid* shadingGrid = nullptr,
-                                     ColourStandard shadingStandard = ColourStandard::BT601);
+                                     const CoarseShadingGrid* shadingGrid = nullptr);
 
 }  // namespace scatter

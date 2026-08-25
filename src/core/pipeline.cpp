@@ -14,23 +14,52 @@
 // PASS 1 and PASS 2 over already-4:4:4 rasters; runFrameFile() adds the
 // v210/chroma stages either side of it.
 //
-// WU-40 (DECISIONS.md ADR-085) adds a new RGB boundary conversion
+// WU-40 (DECISIONS.md ADR-085) added a new RGB boundary conversion
 // immediately adjacent to chroma upsample/downsample, on both sides, in
 // every function below that owns that middle sequence
-// (runFrameBytes()/runFrameBytesDeinterlaced()/runFrameFile()): chroma
-// upsample -> chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage() ->
-// [PASS 1/2 as before, still reading/writing YCbCr-labelled Raster444
-// planes -- SourceRaster/sampleBilinear() are not RGB-native yet, that is
-// WU-41's own job] -> chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage()
-// -> chroma downsample. The round trip back to YCbCr immediately after each
-// conversion is deliberate, not a no-op left in by mistake: PASS 1/2 still
-// expect Raster444's own Y/Cb/Cr planes on both sides (that does not change
-// until WU-41/WU-42 land), so this unit's own job is limited to proving the
-// new conversion is wired in and exercised for real at the actual boundary,
-// not to reshaping what runs between the two conversions -- see WORK-UNITS.md's
-// WU-40 entry and HANDOFF.md for which existing tests this was found to
-// affect (the round trip is not bit-exact in general, per I2 -- see
-// video/chroma.hpp's own comment on the new functions).
+// (runFrameBytes()/runFrameBytesDeinterlaced()/runFrameFile()). At the
+// time, PASS 1/2 were not yet RGB-native, so that unit's own conversion
+// round-tripped straight back to YCbCr on both sides (chroma upsample ->
+// chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage() -> [PASS 1/2,
+// still reading/writing YCbCr-labelled Raster444 planes] ->
+// chroma::ycbcrToRgbImage() -> chroma::rgbToYcbcrImage() -> chroma
+// downsample), deliberately, to prove the new conversion was wired in and
+// exercised for real at the actual boundary without reshaping what ran
+// between the two conversions.
+//
+// WU-41 (DECISIONS.md ADR-085, this session) makes `SourceRaster`/
+// `sampleBilinear()` (core/binner.hpp/.cpp) RGB-native, so each site's own
+// round trip is no longer symmetric:
+//
+// - Input side: the forward `chroma::ycbcrToRgbImage()` call is kept, but
+//   its result (a `video::RasterRGB`, WU-40) now feeds `SourceRaster`
+//   directly -- the `chroma::rgbToYcbcrImage()` call that used to convert
+//   it straight back to YCbCr is deleted, along with the intermediate
+//   YCbCr `Raster444` it used to write into.
+// - Output side: PASS 2 (core/resolve.cpp) is still WU-42's own job, not
+//   this unit's -- it has not been reshaped and is still exactly the
+//   channel-agnostic weighted-accumulate/normalise/composite arithmetic
+//   it always was, writing whatever colour it is given into a
+//   `video::Raster444`'s `.Y`/`.Cb`/`.Cr` fields positionally
+//   (core/resolve.cpp's own `out.Y = divideRounded(cell.R, ...)` etc.).
+//   Since PASS 1 now feeds it genuine RGB (via `Frag::R/G/B`, WU-39's
+//   rename, populated from real RGB since this unit), `runFrame()`'s own
+//   `dest` below is genuine RGB *mislabelled* as YCbCr, not YCbCr -- so
+//   the forward `chroma::ycbcrToRgbImage()` call WU-40 ran first on this
+//   side would misinterpret already-RGB data as YCbCr and produce
+//   garbage. What each output-side block below actually needs, confirmed
+//   directly against core/resolve.cpp rather than assumed from WU-40's own
+//   symmetric shape, is only the second half: a single
+//   `chroma::rgbToYcbcrImage()` call, reinterpreting `dest`'s own
+//   Y/Cb/Cr-named planes as the R/G/B input it actually holds, producing
+//   genuine YCbCr for chroma downsample. See WORK-UNITS.md's own WU-41
+//   entry and HANDOFF.md for the full derivation. This mislabelling is a
+//   known, temporary state of `video::Raster444` as used for `runFrame()`'s
+//   own `dest`/`warped`/`full`/`progressive` locals in this file --
+//   `Raster444` itself is untouched by this unit and keeps its genuine
+//   YCbCr semantics everywhere else (its own role either side of
+//   chroma::upsampleImage/downsampleImage, ADR-005) -- WU-42 resolves it
+//   for good by reshaping core/resolve.cpp/.hpp to R/G/B throughout.
 //
 // WU-16a (ADR-040) added ThreadPool and threaded PASS 2 alone, deferring
 // PASS 1's own row-band parallelism (architecture.md section 6's fuller
@@ -668,55 +697,47 @@ void runFrameBytes(const Lattice& lattice,
                            srcWidth, srcHeight,
                            full.Cr.data(), full.planeCr().strideSamples);
 
-    // RGB boundary conversion, input side (WU-40, ADR-085) -- see this
-    // file's own header comment above for why this round-trips back to
-    // YCbCr immediately rather than feeding SourceRaster with RGB directly.
-    {
-        video::RasterRGB rgb(srcWidth, srcHeight);
-        chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
-                                 full.planeY().strideSamples, srcWidth, srcHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
-                                 full.Y.data(), full.Cb.data(), full.Cr.data(),
-                                 full.planeY().strideSamples);
-    }
+    // RGB boundary conversion, input side (WU-40, ADR-085; WU-41: feeds
+    // SourceRaster directly instead of round-tripping back to YCbCr -- see
+    // this file's own header comment above). `rgb` must outlive the
+    // runFrame() call below, since `src` points into it.
+    video::RasterRGB rgb(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
+                             full.planeY().strideSamples, srcWidth, srcHeight,
+                             rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                             rgb.planeR().strideSamples);
 
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.y = full.Y.data();
-    src.cb = full.Cb.data();
-    src.cr = full.Cr.data();
+    src.r = rgb.R.data();
+    src.g = rgb.G.data();
+    src.b = rgb.B.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
 
-    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
-    // with the input side above, immediately before chroma downsample.
-    {
-        video::RasterRGB rgb(params.destWidth, params.destHeight);
-        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples);
-    }
+    // RGB boundary conversion, output side (WU-40, ADR-085; WU-41: `warped`
+    // is genuine RGB already, mislabelled onto Raster444's Y/Cb/Cr fields --
+    // PASS 2 (core/resolve.cpp) is still channel-agnostic and untouched by
+    // this unit (WU-42's own job to reshape it). Only the RGB->YCbCr half
+    // of WU-40's original round trip is still meaningful here -- see this
+    // file's own header comment above for the full derivation.
+    video::Raster444 ycbcr(params.destWidth, params.destHeight);
+    chroma::rgbToYcbcrImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                             warped.planeY().strideSamples,
+                             params.destWidth, params.destHeight,
+                             ycbcr.Y.data(), ycbcr.Cb.data(), ycbcr.Cr.data(),
+                             ycbcr.planeY().strideSamples);
 
     // Chroma downsample 4:4:4 -> 4:2:2 (ADR-005) before pack; luma again
     // passes straight through.
     video::Raster422 out(params.destWidth, params.destHeight);
-    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
-    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+    std::copy(ycbcr.Y.begin(), ycbcr.Y.end(), out.Y.begin());
+    chroma::downsampleImage(ycbcr.Cb.data(), ycbcr.planeCb().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cb.data(), out.planeCb().strideSamples);
-    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+    chroma::downsampleImage(ycbcr.Cr.data(), ycbcr.planeCr().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cr.data(), out.planeCr().strideSamples);
 
@@ -774,26 +795,20 @@ bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
         return false;
     }
 
-    // RGB boundary conversion, input side (WU-40, ADR-085) -- applied to
-    // `progressive`, not `weave`: this sits immediately before SourceRaster
-    // is built, the same relative position runFrameBytes() above uses,
-    // downstream of deinterlace rather than wrapping it (deinterlace still
-    // operates on genuine, unperturbed chroma-upsampled YCbCr). See this
-    // file's own header comment above for why this round-trips back to
-    // YCbCr immediately rather than feeding SourceRaster with RGB directly.
-    {
-        video::RasterRGB rgb(srcWidth, srcHeight);
-        chroma::ycbcrToRgbImage(progressive.Y.data(), progressive.Cb.data(),
-                                 progressive.Cr.data(),
-                                 progressive.planeY().strideSamples, srcWidth, srcHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
-                                 progressive.Y.data(), progressive.Cb.data(),
-                                 progressive.Cr.data(),
-                                 progressive.planeY().strideSamples);
-    }
+    // RGB boundary conversion, input side (WU-40, ADR-085; WU-41: feeds
+    // SourceRaster directly instead of round-tripping back to YCbCr -- see
+    // this file's own header comment above) -- applied to `progressive`,
+    // not `weave`: this sits immediately before SourceRaster is built, the
+    // same relative position runFrameBytes() above uses, downstream of
+    // deinterlace rather than wrapping it (deinterlace still operates on
+    // genuine, unperturbed chroma-upsampled YCbCr). `rgb` must outlive the
+    // runFrame() call below, since `src` points into it.
+    video::RasterRGB rgb(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(progressive.Y.data(), progressive.Cb.data(),
+                             progressive.Cr.data(),
+                             progressive.planeY().strideSamples, srcWidth, srcHeight,
+                             rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                             rgb.planeR().strideSamples);
 
     // The reconstructed full-height progressive frame -- not `weave` -- is
     // this call's own source raster for the warp, exactly the same relative
@@ -801,46 +816,42 @@ bool runFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.y = progressive.Y.data();
-    src.cb = progressive.Cb.data();
-    src.cr = progressive.Cr.data();
+    src.r = rgb.R.data();
+    src.g = rgb.G.data();
+    src.b = rgb.B.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
 
-    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
-    // with the input side above, immediately before chroma downsample.
-    {
-        video::RasterRGB rgb(params.destWidth, params.destHeight);
-        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples);
-    }
+    // RGB boundary conversion, output side (WU-40, ADR-085; WU-41: `warped`
+    // is genuine RGB already, mislabelled onto Raster444's Y/Cb/Cr fields --
+    // see this file's own header comment above for the full derivation).
+    // Only the RGB->YCbCr half of WU-40's original round trip is still
+    // meaningful here.
+    video::Raster444 ycbcr(params.destWidth, params.destHeight);
+    chroma::rgbToYcbcrImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                             warped.planeY().strideSamples,
+                             params.destWidth, params.destHeight,
+                             ycbcr.Y.data(), ycbcr.Cb.data(), ycbcr.Cr.data(),
+                             ycbcr.planeY().strideSamples);
 
     // Output-side "[re-interlace]" is a provable no-op for this project's
     // own frame-rate-only mode (ADR-080: video::extractField() applied for
     // both parities followed by video::interleaveFields() over the *same*
     // source frame reproduces every row at its own original index exactly,
     // an algebraic identity of the row-index arithmetic itself) -- so
-    // `warped` goes straight to chroma downsample below, exactly as
-    // runFrameBytes() above does with its own (non-deinterlaced) warped
-    // output. Not a corner cut: WORK-UNITS.md's own WU-23b2a Accept line
-    // checks this identity directly, by building the same output via an
-    // explicit extractField() x2 + interleaveFields() pass and comparing
-    // byte for byte against the no-op path shipped here.
+    // `ycbcr` goes straight to chroma downsample below, exactly as
+    // runFrameBytes() above does with its own (non-deinterlaced) output.
+    // Not a corner cut: WORK-UNITS.md's own WU-23b2a Accept line checks
+    // this identity directly, by building the same output via an explicit
+    // extractField() x2 + interleaveFields() pass and comparing byte for
+    // byte against the no-op path shipped here.
     video::Raster422 out(params.destWidth, params.destHeight);
-    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
-    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+    std::copy(ycbcr.Y.begin(), ycbcr.Y.end(), out.Y.begin());
+    chroma::downsampleImage(ycbcr.Cb.data(), ycbcr.planeCb().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cb.data(), out.planeCb().strideSamples);
-    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+    chroma::downsampleImage(ycbcr.Cr.data(), ycbcr.planeCr().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cr.data(), out.planeCr().strideSamples);
 
@@ -874,56 +885,47 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                            srcWidth, srcHeight,
                            full.Cr.data(), full.planeCr().strideSamples);
 
-    // RGB boundary conversion, input side (WU-40, ADR-085) -- see
-    // runFrameBytes() above (this file's own header comment covers the full
-    // rationale) for why this round-trips back to YCbCr immediately rather
-    // than feeding SourceRaster with RGB directly.
-    {
-        video::RasterRGB rgb(srcWidth, srcHeight);
-        chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
-                                 full.planeY().strideSamples, srcWidth, srcHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples, srcWidth, srcHeight,
-                                 full.Y.data(), full.Cb.data(), full.Cr.data(),
-                                 full.planeY().strideSamples);
-    }
+    // RGB boundary conversion, input side (WU-40, ADR-085; WU-41: feeds
+    // SourceRaster directly instead of round-tripping back to YCbCr -- see
+    // runFrameBytes() above, and this file's own header comment, for the
+    // full rationale). `rgb` must outlive the runFrame() call below, since
+    // `src` points into it.
+    video::RasterRGB rgb(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
+                             full.planeY().strideSamples, srcWidth, srcHeight,
+                             rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                             rgb.planeR().strideSamples);
 
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.y = full.Y.data();
-    src.cb = full.Cb.data();
-    src.cr = full.Cr.data();
+    src.r = rgb.R.data();
+    src.g = rgb.G.data();
+    src.b = rgb.B.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
 
-    // RGB boundary conversion, output side (WU-40, ADR-085) -- symmetric
-    // with the input side above, immediately before chroma downsample.
-    {
-        video::RasterRGB rgb(params.destWidth, params.destHeight);
-        chroma::ycbcrToRgbImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples);
-        chroma::rgbToYcbcrImage(rgb.R.data(), rgb.G.data(), rgb.B.data(),
-                                 rgb.planeR().strideSamples,
-                                 params.destWidth, params.destHeight,
-                                 warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
-                                 warped.planeY().strideSamples);
-    }
+    // RGB boundary conversion, output side (WU-40, ADR-085; WU-41: `warped`
+    // is genuine RGB already, mislabelled onto Raster444's Y/Cb/Cr fields --
+    // see this file's own header comment above for the full derivation).
+    // Only the RGB->YCbCr half of WU-40's original round trip is still
+    // meaningful here.
+    video::Raster444 ycbcr(params.destWidth, params.destHeight);
+    chroma::rgbToYcbcrImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                             warped.planeY().strideSamples,
+                             params.destWidth, params.destHeight,
+                             ycbcr.Y.data(), ycbcr.Cb.data(), ycbcr.Cr.data(),
+                             ycbcr.planeY().strideSamples);
 
     // Chroma downsample 4:4:4 -> 4:2:2 (ADR-005) before pack; luma again
     // passes straight through.
     video::Raster422 out(params.destWidth, params.destHeight);
-    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
-    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+    std::copy(ycbcr.Y.begin(), ycbcr.Y.end(), out.Y.begin());
+    chroma::downsampleImage(ycbcr.Cb.data(), ycbcr.planeCb().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cb.data(), out.planeCb().strideSamples);
-    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+    chroma::downsampleImage(ycbcr.Cr.data(), ycbcr.planeCr().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cr.data(), out.planeCr().strideSamples);
 

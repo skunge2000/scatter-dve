@@ -82,9 +82,9 @@ void test_capture_is_side_effect_free() {
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = y.data();
-    src.cb = cb.data();
-    src.cr = cr.data();
+    src.r = y.data();
+    src.g = cb.data();
+    src.b = cr.data();
 
     // Deliberately compressive (2:1) and off-centre, so both fully-covered
     // and uncovered destination cells exist — a livelier regression check
@@ -137,9 +137,9 @@ void test_capture_zero_at_uncovered_and_near_unity_at_full_coverage() {
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = y.data();
-    src.cb = cb.data();
-    src.cr = cr.data();
+    src.r = y.data();
+    src.g = cb.data();
+    src.b = cr.data();
 
     const Lattice lat = makeAffineLattice(1.0, 1.0, 32.5, 0.0, srcSize, srcSize);
     PipelineParams params;
@@ -230,9 +230,9 @@ void test_capture_matches_independent_recomputation() {
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = y.data();
-    src.cb = cb.data();
-    src.cr = cr.data();
+    src.r = y.data();
+    src.g = cb.data();
+    src.b = cr.data();
 
     // 3:2 compression (96 -> 64), off-centre, so K > 1 everywhere and many
     // source samples land per destination cell — architecture.md 4.4's own
@@ -342,9 +342,9 @@ void test_capture_matches_across_thread_counts() {
     SourceRaster src;
     src.width = srcSize;
     src.height = srcSize;
-    src.y = y.data();
-    src.cb = cb.data();
-    src.cr = cr.data();
+    src.r = y.data();
+    src.g = cb.data();
+    src.b = cr.data();
 
     // Magnifying this time (1.5x), off a non-multiple-of-tile-size raster,
     // so PASS 1's supersampling and PASS 2's tile partitioning both do

@@ -80,83 +80,31 @@ int chooseSupersample(double detJ, const SupersampleConfig& ss) noexcept {
 }
 
 struct Colour {
-    double y, cb, cr;
+    double r, g, b;
 };
 
-// WU-34b (DECISIONS.md ADR-084): Kr/Kb for whichever ColourStandard the
-// caller selects (core/binner.hpp); Kg = 1 - Kr - Kb always. BT601 values
-// are the ordinary ITU-R BT.601 luma coefficients (0.299/0.587/0.114);
-// BT709's are ITU-R BT.709's (0.2126/0.7152/0.0722) -- kept selectable, not
-// used by any caller yet (this project's own real target is SD, ADR-007).
-struct Kcoeffs {
-    double kr, kg, kb;
-};
-
-Kcoeffs coeffsFor(ColourStandard standard) noexcept {
-    switch (standard) {
-        case ColourStandard::BT709:
-            return Kcoeffs{0.2126, 0.7152, 0.0722};
-        case ColourStandard::BT601:
-        default:
-            return Kcoeffs{0.299, 0.587, 0.114};
-    }
-}
-
-// WU-34b (DECISIONS.md ADR-084): multiplies a coarse-grid shading
-// intensity I into colour c by converting to RGB, scaling by I, and
-// converting back -- Steve's own direct confirmation that Mirage was
-// RGB-native internally, with the 4:2:2 YCbCr and analogue/composite I/O
-// converted to/from RGB at the boundary alone, is why this is a real RGB
-// round trip and not a YCbCr approximation of one (docs/sources/WU-SM-01.md
-// §3.9.2's own "STARLIGHT (RGB x I)" stage, S5 FIG. 1).
-//
-// Standard derivation for any Kr/Kg/Kb triple with Kr + Kg + Kb == 1
-// (the ordinary "luma plus two colour differences" construction every
-// component-video colour standard uses):
-//
-//   R = Y + 2*(1-Kr)*Cr'
-//   B = Y + 2*(1-Kb)*Cb'
-//   G = (Y - Kr*R - Kb*B) / Kg
-//
-// and its exact algebraic inverse, used to convert back after scaling:
-//
-//   Y  = Kr*R + Kg*G + Kb*B
-//   Cb' = (B - Y) / (2*(1-Kb))
-//   Cr' = (R - Y) / (2*(1-Kr))
-//
-// Cb'/Cr' are chroma deltas from kChromaZero -- I3's own achromatic centre
-// -- not an 8-bit "video range" delta from a separate black-level
-// subtraction; c.y itself already sits at its own I3 black code and needs
-// no separate offset here, the same convention this loop already uses for
-// c.y/c.cb/c.cr elsewhere (plain doubles in Sample's own representable
-// scale, not yet quantised). Pure double-precision arithmetic, entirely
-// ahead of this loop's own quantisation step (toSample()/toWeight() below)
-// -- I3/I4/I6 govern the *stored* Frag fields (R/G/B, renamed from Y/Cb/Cr
-// this session, WU-39) and the integer accumulation path, not this
-// already-floating-point intermediate, so this does not touch either
-// invariant. intensity is not clamped here (I2: nothing in
-// this pipeline legalises before the v210 pack stage; ADR-069's own I can
-// be negative, fixture 12's own cancellation) -- toSample()'s existing
-// clamp to Sample's representable range, unchanged, handles any resulting
-// excursion exactly as it already does for ordinary warp-induced ones.
-Colour applyShading(const Colour& c, double intensity, ColourStandard standard) noexcept {
-    const Kcoeffs k = coeffsFor(standard);
-    const double cbDelta = c.cb - double(kChromaZero);
-    const double crDelta = c.cr - double(kChromaZero);
-
-    const double r = c.y + 2.0 * (1.0 - k.kr) * crDelta;
-    const double b = c.y + 2.0 * (1.0 - k.kb) * cbDelta;
-    const double g = (c.y - k.kr * r - k.kb * b) / k.kg;
-
-    const double r2 = r * intensity;
-    const double g2 = g * intensity;
-    const double b2 = b * intensity;
-
-    const double y2 = k.kr * r2 + k.kg * g2 + k.kb * b2;
-    const double cb2 = (b2 - y2) / (2.0 * (1.0 - k.kb)) + double(kChromaZero);
-    const double cr2 = (r2 - y2) / (2.0 * (1.0 - k.kr)) + double(kChromaZero);
-
-    return Colour{y2, cb2, cr2};
+// WU-34b (DECISIONS.md ADR-084) originally implemented this as a real
+// YCbCr->RGB->multiply->RGB->YCbCr round trip, converting `c` because this
+// file's own source samples were still YCbCr at the time. WU-41
+// (DECISIONS.md ADR-085, this session): `c` is now genuine RGB already --
+// `sampleBilinear()` below reads it directly from a `video::RasterRGB`-fed
+// `SourceRaster`, no conversion in between -- so multiplying a coarse-grid
+// shading intensity I into it (the historical machine's own STARLIGHT
+// stage, docs/sources/WU-SM-01.md §3.9.2's "STARLIGHT (RGB x I)", S5 FIG.
+// 1) is now exactly what it always conceptually was: a bare per-channel
+// scale, no coefficient choice, no round trip, nothing left to convert.
+// intensity is not clamped here (I2: nothing in this pipeline legalises
+// before the v210 pack stage; ADR-069's own I can be negative, fixture
+// 12's own cancellation) -- toSample()'s existing clamp to Sample's
+// representable range, applied to this function's result afterward,
+// handles any resulting excursion exactly as it already does for ordinary
+// warp-induced ones. Pure double-precision arithmetic, entirely ahead of
+// this loop's own quantisation step (toSample()/toWeight() below) -- I3/
+// I4/I6 govern the *stored* Frag fields (R/G/B) and the integer
+// accumulation path, not this already-floating-point intermediate, so
+// this does not touch either invariant.
+Colour applyShading(const Colour& c, double intensity) noexcept {
+    return Colour{c.r * intensity, c.g * intensity, c.b * intensity};
 }
 
 // Bilinear source-colour lookup at a fractional (px, py), clamped to the
@@ -183,7 +131,7 @@ Colour sampleBilinear(const SourceRaster& src, double px, double py) noexcept {
         const double bot = at(plane, x0, y1) * (1.0 - fx) + at(plane, x1, y1) * fx;
         return top * (1.0 - fy) + bot * fy;
     };
-    return Colour{lerp2(src.y), lerp2(src.cb), lerp2(src.cr)};
+    return Colour{lerp2(src.r), lerp2(src.g), lerp2(src.b)};
 }
 
 Sample toSample(double v) noexcept {
@@ -237,17 +185,18 @@ SubPos encodeTileLocal(double relativePixels) noexcept {
 // the loop already computes for the supersampling decision — see
 // core/binner.hpp's own comment on generateFragmentsRowRangeTagByFacing()
 // for why that matters (ADR-063's dz/du, dz/dv-loss warning).
-// WU-34b (DECISIONS.md ADR-084): shadingGrid/shadingStandard thread
-// through from every public wrapper below, unchanged from generateFragments()
-// through to here -- the shared loop is the one and only place that
-// actually calls applyShading(), immediately ahead of Frag construction.
+// WU-34b (DECISIONS.md ADR-084): shadingGrid threads through from every
+// public wrapper below, unchanged from generateFragments() through to here
+// -- the shared loop is the one and only place that actually calls
+// applyShading(), immediately ahead of Frag construction. WU-41: the
+// shadingStandard parameter this comment used to also describe is gone --
+// applyShading() no longer takes one, see its own comment above.
 template <typename TagFn>
 BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaster& src,
                                         double maxK, const SupersampleConfig& ss,
                                         TagFn&& tagFor, int rowStart, int rowEnd,
                                         int rowStep, TileBins& outBins,
-                                        const CoarseShadingGrid* shadingGrid,
-                                        ColourStandard shadingStandard) {
+                                        const CoarseShadingGrid* shadingGrid) {
     BinStats stats;
 
     // WU-16b (ADR-041): the loop bound is the caller's own row band
@@ -328,7 +277,7 @@ BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaste
                     // ahead of Frag construction (I10). Null preserves
                     // today's exact existing output byte-for-byte.
                     const Colour c = (shadingGrid != nullptr)
-                        ? applyShading(rawColour, shadingGrid->sample(u, v), shadingStandard)
+                        ? applyShading(rawColour, shadingGrid->sample(u, v))
                         : rawColour;
 
                     const int baseX = int(std::floor(dest.x));
@@ -353,9 +302,9 @@ BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaste
                         (localY == kTileSize - 1) && (tileY + 1 < outBins.tilesY());
 
                     Frag frag{};
-                    frag.R = toSample(c.y);
-                    frag.G = toSample(c.cb);
-                    frag.B = toSample(c.cr);
+                    frag.R = toSample(c.r);
+                    frag.G = toSample(c.g);
+                    frag.B = toSample(c.b);
                     frag.w = toWeight(weight);
                     frag.z = toDepth(dest.z);
                     frag.tag = tagFor(rawJ);
@@ -392,26 +341,25 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
                                     double maxK, const SupersampleConfig& ss,
                                     std::uint8_t tag, int rowStart, int rowEnd,
                                     TileBins& outBins,
-                                    const CoarseShadingGrid* shadingGrid,
-                                    ColourStandard shadingStandard) {
+                                    const CoarseShadingGrid* shadingGrid) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [tag](const Jacobian&) noexcept { return tag; },
-        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid, shadingStandard);
+        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid);
 }
 
 // WU-16b: a thin wrapper — the whole raster is exactly the row range
 // [0, src.height). Signature and behaviour are exactly WU-08's frozen
-// ones, unchanged (WU-34b's shadingGrid/shadingStandard are new optional
-// trailing parameters, default nullptr/BT601, per ADR-084 -- every
-// pre-existing caller is unaffected); see ADR-041.
+// ones, unchanged (WU-34b's shadingGrid was a new optional trailing
+// parameter, default nullptr, per ADR-084 -- every pre-existing caller is
+// unaffected; WU-41 removes the shadingStandard parameter ADR-084 also
+// added, now unused -- see binner.hpp's own comment); see ADR-041.
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins,
-                            const CoarseShadingGrid* shadingGrid,
-                            ColourStandard shadingStandard) {
+                            const CoarseShadingGrid* shadingGrid) {
     return generateFragmentsRowRange(lattice, src, maxK, ss, tag, 0, src.height, outBins,
-                                      shadingGrid, shadingStandard);
+                                      shadingGrid);
 }
 
 // WU-28c (DECISIONS.md ADR-065): see core/binner.hpp's own comment.
@@ -421,15 +369,14 @@ BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const Sour
                                                double maxK, const SupersampleConfig& ss,
                                                std::uint8_t frontTag, std::uint8_t backTag,
                                                int rowStart, int rowEnd, TileBins& outBins,
-                                               const CoarseShadingGrid* shadingGrid,
-                                               ColourStandard shadingStandard) {
+                                               const CoarseShadingGrid* shadingGrid) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [frontTag, backTag](const Jacobian& rawJ) noexcept {
             // ADR-027/ADR-063: front-facing means normal.z < 0.
             return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
         },
-        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid, shadingStandard);
+        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid);
 }
 
 // WU-28c: a thin wrapper, exactly generateFragments()'s own relationship to
@@ -438,11 +385,10 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
                                        double maxK, const SupersampleConfig& ss,
                                        std::uint8_t frontTag, std::uint8_t backTag,
                                        TileBins& outBins,
-                                       const CoarseShadingGrid* shadingGrid,
-                                       ColourStandard shadingStandard) {
+                                       const CoarseShadingGrid* shadingGrid) {
     return generateFragmentsRowRangeTagByFacing(lattice, src, maxK, ss, frontTag, backTag,
                                                  0, src.height, outBins,
-                                                 shadingGrid, shadingStandard);
+                                                 shadingGrid);
 }
 
 // WU-23a2a (DECISIONS.md ADR-076): see core/binner.hpp's own comment.
@@ -453,12 +399,11 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
                                      double maxK, const SupersampleConfig& ss,
                                      std::uint8_t tag, int rowOffset,
                                      TileBins& outBins,
-                                     const CoarseShadingGrid* shadingGrid,
-                                     ColourStandard shadingStandard) {
+                                     const CoarseShadingGrid* shadingGrid) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [tag](const Jacobian&) noexcept { return tag; },
-        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid, shadingStandard);
+        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid);
 }
 
 }  // namespace scatter

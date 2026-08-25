@@ -92,9 +92,9 @@ SourceRaster viewOf(const video::Raster444& r) noexcept {
     SourceRaster src;
     src.width = r.width;
     src.height = r.height;
-    src.y = r.Y.data();
-    src.cb = r.Cb.data();
-    src.cr = r.Cr.data();
+    src.r = r.Y.data();
+    src.g = r.Cb.data();
+    src.b = r.Cr.data();
     return src;
 }
 

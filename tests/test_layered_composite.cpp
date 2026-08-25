@@ -281,9 +281,9 @@ TwoLayers buildPageAndFlap() {
     SourceRaster pageSrc;
     pageSrc.width = kSrc;
     pageSrc.height = kSrc;
-    pageSrc.y = pageY.data();
-    pageSrc.cb = pageCb.data();
-    pageSrc.cr = pageCr.data();
+    pageSrc.r = pageY.data();
+    pageSrc.g = pageCb.data();
+    pageSrc.b = pageCr.data();
 
     // The flap: a genuinely curling page turn, sized comfortably inside the
     // destination canvas, with a larger source raster than its own
@@ -303,9 +303,9 @@ TwoLayers buildPageAndFlap() {
     SourceRaster flapSrc;
     flapSrc.width = kSrc;
     flapSrc.height = kSrc;
-    flapSrc.y = flapY.data();
-    flapSrc.cb = flapCb.data();
-    flapSrc.cr = flapCr.data();
+    flapSrc.r = flapY.data();
+    flapSrc.g = flapCb.data();
+    flapSrc.b = flapCr.data();
 
     constexpr double kMaxK = 1000.0;
     const SupersampleConfig ss{};

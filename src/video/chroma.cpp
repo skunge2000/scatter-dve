@@ -290,16 +290,18 @@ void downsampleImageNeon(const Sample* in, std::ptrdiff_t inStrideSamples,
 
 // ---------------------------------------------------------------------------
 // RGB boundary conversion -- WU-40, DECISIONS.md ADR-085. See chroma.hpp for
-// the full design account (coefficient choice, quantisation, why this
-// duplicates rather than reuses core/binner.cpp's coeffsFor()).
+// the full design account (coefficient choice, quantisation, why this does
+// not share code with core/binner.cpp).
 // ---------------------------------------------------------------------------
 
 namespace {
 
 // ITU-R BT.601 luma coefficients -- deliberately the same literals
-// core/binner.cpp's coeffsFor(ColourStandard::BT601) uses, not shared code;
-// see chroma.hpp's own comment on why this file does not include
-// core/binner.hpp to reuse them.
+// core/binner.cpp's applyShading() used to compute via its own (now-deleted,
+// WU-41) coeffsFor(ColourStandard::BT601) before that unit simplified
+// applyShading() to a bare per-channel multiply with no coefficients of its
+// own; see chroma.hpp's own comment on why this file does not include
+// core/binner.hpp to share them instead of duplicating the literals.
 inline constexpr double kKr = 0.299;
 inline constexpr double kKg = 0.587;
 inline constexpr double kKb = 0.114;

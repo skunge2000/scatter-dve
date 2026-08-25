@@ -142,9 +142,9 @@ struct SignatureRaster {
         SourceRaster r;
         r.width = width;
         r.height = height;
-        r.y = y.data();
-        r.cb = cb.data();
-        r.cr = cr.data();
+        r.r = y.data();
+        r.g = cb.data();
+        r.b = cr.data();
         return r;
     }
 };
@@ -587,9 +587,9 @@ static void test_field_rows_reject_naive_half_height_extraction_bug() {
         SourceRaster s;
         s.width = r.width;
         s.height = r.height;
-        s.y = r.Y.data();
-        s.cb = r.Cb.data();
-        s.cr = r.Cr.data();
+        s.r = r.Y.data();
+        s.g = r.Cb.data();
+        s.b = r.Cr.data();
         return s;
     };
 
@@ -742,9 +742,9 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
     SourceRaster src;
     src.width = W;
     src.height = H;
-    src.y = yPlane.data();
-    src.cb = cbPlane.data();
-    src.cr = crPlane.data();
+    src.r = yPlane.data();
+    src.g = cbPlane.data();
+    src.b = crPlane.data();
 
     SupersampleConfig ss;
 
@@ -753,7 +753,7 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
 
     TileBins shadedBins(64, 64);
     generateFragments(lat, src, /*maxK=*/1000.0, ss, /*tag=*/0, shadedBins,
-                       &grid, ColourStandard::BT601);
+                       &grid);
 
     // Independent expected value: convert the known uniform source colour to
     // RGB, scale by expectedI, convert back -- a separate reimplementation
@@ -818,10 +818,12 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
 
 static void test_shading_grid_defaults_to_null_and_preserves_existing_output() {
     // Every pre-existing test in this file already calls generateFragments()
-    // (and its siblings) without the new trailing shadingGrid/shadingStandard
-    // parameters, exercising the default nullptr path throughout -- this
-    // test checks the default explicitly, once: an explicit nullptr call and
-    // the implicit-default call must produce byte-for-byte identical bins.
+    // (and its siblings) without the trailing shadingGrid parameter
+    // (WU-41: the shadingStandard parameter this comment used to also
+    // mention is gone -- applyShading() no longer takes one), exercising
+    // the default nullptr path throughout -- this test checks the default
+    // explicitly, once: an explicit nullptr call and the implicit-default
+    // call must produce byte-for-byte identical bins.
     const int W = 20, H = 15;
     SignatureRaster src(W, H);
     Lattice lat = makePixelAffineLattice(0.5, 0.5, 5.0, 5.0, W, H);
@@ -832,7 +834,7 @@ static void test_shading_grid_defaults_to_null_and_preserves_existing_output() {
 
     TileBins explicitBins(64, 64);
     generateFragments(lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, explicitBins,
-                       /*shadingGrid=*/nullptr, ColourStandard::BT601);
+                       /*shadingGrid=*/nullptr);
 
     CHECK(implicitBins.tilesX() == explicitBins.tilesX() &&
           implicitBins.tilesY() == explicitBins.tilesY());

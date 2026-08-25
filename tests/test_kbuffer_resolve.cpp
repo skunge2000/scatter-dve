@@ -268,9 +268,9 @@ void runOnce(const WarpedFrame& w, int destW, int destH, int threads,
     SourceRaster src;
     src.width = w.srcSize;
     src.height = w.srcSize;
-    src.y = w.y.data();
-    src.cb = w.cb.data();
-    src.cr = w.cr.data();
+    src.r = w.y.data();
+    src.g = w.cb.data();
+    src.b = w.cr.data();
 
     PipelineParams params;
     params.destWidth = destW;

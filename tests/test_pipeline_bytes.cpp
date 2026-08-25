@@ -250,9 +250,9 @@ bool referenceRunFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.y = progressive.Y.data();
-    src.cb = progressive.Cb.data();
-    src.cr = progressive.Cr.data();
+    src.r = progressive.Y.data();
+    src.g = progressive.Cb.data();
+    src.b = progressive.Cr.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
@@ -307,9 +307,9 @@ bool referenceWithExplicitReinterlace(video::Deinterlacer& deinterlacer,
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.y = progressive.Y.data();
-    src.cb = progressive.Cb.data();
-    src.cr = progressive.Cr.data();
+    src.r = progressive.Y.data();
+    src.g = progressive.Cb.data();
+    src.b = progressive.Cr.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
