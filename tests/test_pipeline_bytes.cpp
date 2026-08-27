@@ -178,11 +178,18 @@ static void test_runframebytes_identity_round_trips_exactly() {
     // lattice, including the identity map exercised here, so a ramp (whose
     // chroma planes are themselves ramps, per tools/testpat.hpp) is exactly
     // the wrong pattern for a byte-exact check. tools/testpat.hpp's own
-    // makeZonePlate() holds chroma flat (kChromaZero) for precisely this
-    // reason (its own file header); flat chroma is C-006's own "what is
-    // exact" case, matching tests/test_zoneplate.cpp's own
-    // testI7Pattern(..., chromaExpectedExact=true) convention for flat
-    // chroma patterns.
+    // makeZonePlate() holds chroma flat at kChromaZero (its own file
+    // header) -- I3's achromatic centre, not just "flat chroma" generically.
+    // That distinction now matters beyond C-006: ADR-086 narrowed I7 itself
+    // to in-gamut content, and kChromaZero is the one flat chroma value
+    // that stays in-gamut under the RGB boundary conversion (ADR-085,
+    // video/chroma.hpp), so this is the case tests/test_zoneplate.cpp's own
+    // testI7Pattern() also expects exact in both channels
+    // (lumaExpectedExact=true, chromaExpectedExact=true). The other three
+    // flat codes that function exercises (kCode10Min, kCode10Black,
+    // kCode10Max) are saturated non-achromatic colours that clip at that
+    // same boundary conversion and no longer round-trip exactly -- not
+    // relevant here since this function's own fixture never uses them.
     const testpat::Frame src = testpat::makeZonePlate(W, H);
 
     const std::size_t rowBytes = v210::rowBytesMin(W);

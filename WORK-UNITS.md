@@ -4883,6 +4883,122 @@ and `test_morph.cpp` never touch `core/binner.hpp`/`resolve.hpp`/
 `splat.hpp`/`pipeline.hpp`/`types.hpp` at all, so `WU-39`–`WU-42`'s own
 production changes were never in this unit's own blast radius.
 
+### WU-45 — `tests/test_zoneplate.cpp`: I7 narrowed to in-gamut content (DECISIONS.md ADR-086, INVARIANTS.md I7); suite fully green `green`
+
+**Built this session, following Steve's own direct decision.** Phase 9
+(`WU-38`–`WU-44e`) closed with `test_zoneplate` as the suite's sole red
+test — 22 of 42537 checks, `test_i7_identity_full_pipeline()`'s own I7
+check, already flagged by `WU-40`'s own session (`core/resolve.hpp`'s
+`runFrameFile()` comment) as "the honestly-reportable breakage ADR-085
+Section 5 accepts for this phase" — a provisional judgment explicitly
+scoped to Phase 9's own duration, not resolved permanently. With Phase 9
+complete, this session made that deferred real decision.
+
+**Mechanism, re-confirmed and found broader than the WU-40 note implied.**
+`video/chroma.hpp`'s RGB boundary conversion (`ycbcrToRgbRow()`/
+`rgbToYcbcrRow()`, WU-40) clamps to `Sample`'s own `[0, 65535]` range; not
+every I2-legal YCbCr triple's implied RGB fits, and when it doesn't, the
+clip is real on both channels — including luma, since Y is a linear
+combination of R, G and B. `test_zoneplate.cpp`'s own `makeFlat()` sets Y,
+Cb and Cr to the same code for three of its four tested values
+(`kCode10Min=4`, `kCode10Black=64`, `kCode10Max=1019`), which is a
+saturated non-achromatic colour, not achromatic (I3's achromatic centre is
+`kCode10ChromaZero=512`) — those three fail on both channels, uniformly,
+across the whole frame.
+
+**Checked before assuming ramp/excursion were exempt, per this project's
+own standing discipline (C-027) — they were not.** The original 22-check
+failure count was previously read as confined to `flat`'s own
+construction. Verified directly against a fresh, unmodified clone of
+`wu-44e-red` before making any change (not assumed from `ramp`/
+`excursion`'s own gradual/cyclic shape): `makeRamp()`'s own
+`rampCode(0, span)` and `makeExcursion()`'s own `kCycle[0]` are both
+`kCode10Min` by construction, aligning luma and the nearest chroma sample
+at their shared `x=0` on the identical extreme combination `flat`'s bad
+codes hit — confirmed with a temporary diagnostic against the pristine
+baseline, not inferred. Both patterns' own luma check was already failing
+there too, previously masked in the raw failure count (`CHECK` dedups by
+file:line, not by call site) rather than genuinely exempt. The original
+22 already included this; it was undercounted in scope, not miscounted in
+total.
+
+**Why accepted rather than fixed, checked directly, not assumed.** A real
+fix — carrying full precision through the RGB path so no clamp happens
+before the one I2 already licenses, at `v210::packRow` — collides
+directly with `core/types.hpp`'s `Frag` struct: `static_assert(sizeof(Frag)
+== 16)`, with its own comment that fragment traffic is pass 1's dominant
+memory cost and the size is deliberately load-bearing. `Frag::R/G/B` are
+`Sample` (`uint16_t`) today; widening them to survive out-of-range values
+through the whole splat/resolve hot path breaks that budget on the single
+most performance-sensitive struct in the pipeline. This is a second
+migration comparable in scope to Phase 9 itself, with a real, unbudgeted
+cost — not undertaken here. See `DECISIONS.md`'s own `ADR-086` for the
+full reasoning.
+
+**Fixed: one file, `tests/test_zoneplate.cpp` (74 insertions, 14
+deletions) — well inside `SESSION-PROTOCOL.md`'s own sizing rule.**
+`testI7Pattern()` now takes independent `lumaExpectedExact`/
+`chromaExpectedExact` flags (previously chroma-only, luma unconditionally
+exact); both are `true` only for the genuinely achromatic flat code (512),
+and legal-range-only otherwise — `flat`'s other three codes, `ramp`, and
+`excursion` all move to this treatment on both channels. No `src/` file
+touched — the RGB boundary conversion is confirmed correct as built, not
+a defect. `INVARIANTS.md`'s I7 text superseded directly (`DECISIONS.md`
+`ADR-086`), `DECISIONS.md` gains that entry.
+
+**Result: `test_zoneplate` is now fully green, 109203 of 109203 checks**
+(up from 22 of 42537 failing; the check count itself grows because the
+newly-legal-range-gated branches check per-sample via `CHECK_ONCE` rather
+than one whole-vector `CHECK`, the same shape chroma's own legal-range
+branch already used). **The suite as a whole is fully green: 28 of 28
+tests pass.** "Green after every unit" (ADR-085 §5, whole-project
+resumption) resumes for real with this unit.
+
+## Build/test matrix — full twelve configurations (run to confirm, not assumed)
+
+Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git` into
+the cloud sandbox, confirmed at `HEAD = wu-44e-red = 72bbdac` before any
+build; only `tests/test_zoneplate.cpp` was ever edited there — `git status
+--short` in the sandbox read exactly that one modified file throughout.
+GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 4 and tile 5 (eight),
+plus GCC + ASan alone and GCC + UBSan alone, each at both tile sizes (four
+more) — twelve total, not two combined `-fsanitize=address,undefined`
+builds.
+
+| Configuration | Build | `ctest` | `test_zoneplate` |
+|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| GCC, Release, tile 5 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| Clang, Release, tile 4 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| Clang, Release, tile 5 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 28/28 pass | PASS, 109203 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 28/28 pass, no sanitizer trap | PASS, 109203 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 28/28 pass, no sanitizer trap | PASS, 109203 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 28/28 pass, no sanitizer trap | PASS, 109203 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 28/28 pass, no sanitizer trap | PASS, 109203 checks |
+
+Twelve rows, zero real warnings (the same harmless configure-time
+`CMAKE_C_COMPILER` `CMake Warning` every prior session's own matrix
+already reports), zero sanitizer traps — grepped every `ctest
+--output-on-failure` log for `AddressSanitizer`/`UndefinedBehaviorSanitizer`/
+`runtime error:` (zero hits across all twelve) — and confirmed via `nm -D`
+plus `ldd` against `test_zoneplate` itself that the ASan/UBSan binaries
+genuinely carry sanitizer instrumentation (28 and 14 case-insensitive
+`asan`/`ubsan` dynamic-symbol hits respectively, `libasan.so.8`/
+`libubsan.so.1` actually linked). `test_zoneplate`'s own 109203 checks are
+tile-invariant, confirmed directly (identical at tile 4 and tile 5 in
+every case). **28 of 28 tests pass in every configuration — the whole
+suite, not just this unit's own file.**
+
+Depends on ADR-085/WU-40's own RGB boundary conversion (`video/
+chroma.hpp`), confirmed correct as built; on `core/types.hpp`'s `Frag`
+struct (the reason a real fix is not undertaken here); and on every
+`WU-44` sub-unit's own confirmation that nothing else in the suite was
+affected by ADR-085's migration.
+
 ---
 
 ## Cross-cutting documentation units

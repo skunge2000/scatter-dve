@@ -15,13 +15,38 @@
 //    patterns through runFrameFile() with an identity affine lattice and
 //    checks the same three-tier property tests/test_ramp_roundtrip.cpp's
 //    own I7 milestone established at WU-05 (CORRECTIONS.md C-006): luma
-//    exact always; chroma exact for a flat field; chroma legal-range-only
-//    (not equality) for ramp/excursion, since the chroma downsample filter
-//    is a deliberately lossy anti-aliasing stage, not a perfect-
-//    reconstruction pair with the upsample filter -- unchanged by this
-//    unit, still true here. What is new is that this now holds with the
-//    lattice/binner/splat/resolve stages spliced into the middle of that
-//    chain, not just file I/O and chroma resampling either side of it.
+//    and chroma both exact for an *achromatic* flat field; luma and chroma
+//    both legal-range-only (not equality) otherwise. Before WU-45 this read
+//    "luma exact always; chroma exact for a flat field; chroma legal-range-
+//    only for ramp/excursion" -- narrower than reality even then, see below.
+//
+//    WU-45 (DECISIONS.md ADR-086): under ADR-085's RGB-native pipeline, a
+//    non-achromatic YCbCr triple's implied RGB is not guaranteed to fall
+//    inside Sample's own representable range (video/chroma.hpp's own
+//    comment on ycbcrToRgbRow), and clips there for real when it doesn't --
+//    and because Y is a linear combination of R, G and B, a clip on any one
+//    of the three moves the recovered Y too, even though luma itself never
+//    entered a chroma filter and the identity map's own splat/resolve
+//    stages never touch it either. A genuine behavioural consequence of
+//    RGB-native internal representation, ADR-086 accepts rather than fixes
+//    it (see that entry for why: the real fix would widen Frag's own colour
+//    fields, and Frag's 16-byte size is explicitly load-bearing,
+//    core/types.hpp's own static_assert and comment).
+//
+//    This affects more than makeFlat()'s three non-achromatic codes
+//    (kCode10Min, kCode10Black, kCode10Max -- I3's achromatic centre is
+//    kCode10ChromaZero, 512, the only one of the four that is actually
+//    colourless). Confirmed empirically this session, not assumed from
+//    either pattern's own gradual/cyclic shape: makeRamp()'s own
+//    rampCode(0, span) and makeExcursion()'s own kCycle[0] are both
+//    kCode10Min, aligned across luma and the nearest chroma sample at their
+//    shared x=0 -- the exact same non-achromatic-extreme combination
+//    flat's own bad codes hit, just at specific columns rather than across
+//    the whole frame. Luma was never actually exempt for these two
+//    patterns; it was previously untested at those specific columns. Only
+//    the genuinely achromatic flat code (512) is still expected to
+//    round-trip both channels exactly below; flat's other three codes and
+//    both ramp and excursion are now legal-range-only on both channels.
 //
 // 2. "Zone plate through 4:1 and 32:1 compression shows no aliasing":
 //    test_zoneplate_4to1_matches_reference() and
@@ -184,7 +209,7 @@ bool inLegalRange(Sample s) noexcept {
 // ---------------------------------------------------------------------------
 
 static void testI7Pattern(const video::Raster422& src, const std::string& tag,
-                           bool chromaExpectedExact) {
+                           bool lumaExpectedExact, bool chromaExpectedExact) {
     const int W = src.width, H = src.height;
     const std::string inPath  = "test_zoneplate_i7_" + tag + "_a.v210";
     const std::string outPath = "test_zoneplate_i7_" + tag + "_b.v210";
@@ -204,9 +229,24 @@ static void testI7Pattern(const video::Raster422& src, const std::string& tag,
 
     // Luma never enters a chroma filter and the identity map lands every
     // fragment's full weight on exactly one destination cell (no bilinear
-    // split -- see this file's header), so it must survive exactly,
-    // always.
-    CHECK(result.Y == src.Y);
+    // split -- see this file's header), so within the pipeline's own
+    // splat/resolve stages luma is always exact. ADR-086: that is no
+    // longer the whole story once the RGB boundary conversion (ADR-085)
+    // is in the path -- Y is a linear combination of R, G and B, so if
+    // *any* of the three implied RGB values clips (video/chroma.hpp's own
+    // ycbcrToRgbRow/rgbToYcbcrRow), the recovered Y no longer matches the
+    // original either, even though nothing in the splat/resolve stages
+    // themselves touched it. Empirically confirmed this session: exact
+    // only when the whole (Y, Cb, Cr) triple's implied RGB stays in-gamut
+    // -- true for genuinely achromatic content, and NOT reliably true for
+    // ramp/excursion either (see test_i7_identity_full_pipeline()'s own
+    // call-site comments below for why both patterns' own x=0 column hits
+    // the same extreme combination flat's own bad codes do).
+    if (lumaExpectedExact) {
+        CHECK(result.Y == src.Y);
+    } else {
+        for (Sample s : result.Y) CHECK_ONCE(inLegalRange(s));
+    }
 
     if (chromaExpectedExact) {
         CHECK(result.Cb == src.Cb);
@@ -244,10 +284,29 @@ static void test_i7_identity_full_pipeline() {
     for (int W : {8, 128}) {
         const int H = (W == 8) ? 2 : 65;
         for (std::uint16_t code : {kCode10Min, kCode10Black, kCode10ChromaZero, kCode10Max}) {
-            testI7Pattern(makeFlat(W, H, code), "flat", /*chromaExpectedExact=*/true);
+            // ADR-086: only the genuinely achromatic code (Y == Cb == Cr ==
+            // kCode10ChromaZero) is expected to round-trip exactly under
+            // RGB-native internal representation -- the other three are
+            // saturated, non-achromatic colours whose implied RGB is not
+            // guaranteed in-gamut, so a real clip at the RGB boundary
+            // conversion can move luma too, not only chroma (see
+            // testI7Pattern's own comment above). Same legal-range-only
+            // treatment ramp/excursion already use below, on both channels.
+            const bool expectedExact = (code == kCode10ChromaZero);
+            testI7Pattern(makeFlat(W, H, code), "flat", expectedExact, expectedExact);
         }
-        testI7Pattern(makeRamp(W, H), "ramp", /*chromaExpectedExact=*/false);
-        testI7Pattern(makeExcursion(W, H), "excursion", /*chromaExpectedExact=*/false);
+        // ADR-086: both patterns' own extreme endpoint/cycle positions
+        // (rampCode(0, span) and kCycle[0] are both kCode10Min, aligned
+        // across luma and the nearest chroma sample at x=0) hit the exact
+        // same non-achromatic-extreme combination flat's own bad codes do
+        // -- confirmed empirically this session, not assumed from the
+        // pattern's own gradual/cyclic shape: luma is not, in fact, exempt
+        // here either. Legal-range-only on both channels, same as flat's
+        // non-achromatic codes above.
+        testI7Pattern(makeRamp(W, H), "ramp",
+                       /*lumaExpectedExact=*/false, /*chromaExpectedExact=*/false);
+        testI7Pattern(makeExcursion(W, H), "excursion",
+                       /*lumaExpectedExact=*/false, /*chromaExpectedExact=*/false);
     }
 }
 

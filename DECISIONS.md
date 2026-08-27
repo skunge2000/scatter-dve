@@ -8806,3 +8806,100 @@ around the same call site; and the fixture-value re-derivation strategy
 for the affected tests (hand-derive each independently, matching WU-34b's
 own test-design precedent, versus a mechanical fixture transform — the
 former is safer and is what this project has done every time so far).
+**ADR-086 — I7 narrowed to in-gamut YCbCr content; the RGB boundary
+conversion's own clamp (WU-40, ADR-085) accepted as permanent, not
+phase-transitional.**
+
+Accepted this session (WU-45), confirming and formalising the provisional
+judgment WU-40's own session already wrote into `core/resolve.hpp`'s
+`runFrameFile()` comment ("the honestly-reportable breakage ADR-085
+Section 5 accepts for this phase, not a defect in this function or in the
+new conversion") -- that acceptance was explicitly scoped to Phase 9's own
+duration (ADR-085's own "Migration decision: hard cutover" paragraph:
+"'Green after every unit' resumes once the phase's last unit (WU-44)
+lands"). `WU-44e` (Session 67) closed Phase 9 in full; this is the
+deferred real decision, made now, not carried forward again.
+
+**Mechanism, re-confirmed and found broader than WU-40's own note
+implied.** `video/chroma.hpp`'s `ycbcrToRgbRow()`/`rgbToYcbcrRow()`
+(WU-40) convert via the standard BT.601 matrix and immediately quantise
+each result to `Sample`'s own representable range `[0, 65535]`
+(`toSampleClamped()`, `chroma.cpp`). Not every YCbCr triple I2 permits
+(including the "illegal excursion" content I2 explicitly protects --
+sub-black, super-white, filter ringing) has an implied RGB inside that
+range; when it doesn't, this clamp is a real, silent loss, confirmed on
+both the forward and the return conversion, not a rounding artefact.
+Because Y is a linear combination of R, G and B, a clip on *any one* of
+the three moves the recovered Y too -- luma is not exempt, even though it
+never enters a chroma filter and the identity map's own splat/resolve
+stages never touch it either.
+
+`tests/test_zoneplate.cpp`'s own `test_i7_identity_full_pipeline()` found
+this directly, and this session confirmed it is broader than a first read
+suggests. `makeFlat()`'s three non-achromatic codes (`kCode10Min=4`,
+`kCode10Black=64`, `kCode10Max=1019`; I3's achromatic centre is
+`kCode10ChromaZero=512`) fail on both channels across the whole frame,
+since they hold the same extreme value on Y, Cb and Cr uniformly.
+`makeRamp()`/`makeExcursion()` were not, in fact, exempt either --
+checked empirically against a fresh, unmodified clone of `wu-44e-red`
+before any change was made, confirming this was already true of the
+pristine codebase, not introduced this session: both patterns' own x=0
+column aligns luma and the nearest chroma sample on `kCode10Min` too
+(`rampCode(0, span)` and `kCycle[0]` are both `kCode10Min` by
+construction), hitting the identical extreme combination at that one
+column. The original 22-check failure count (`wu-44d-red` through
+`wu-44e-red`) already included this; it was previously read as confined
+to `flat`'s own construction, which undercounted the real scope.
+
+**Why this is accepted rather than fixed.** A genuine fix -- carrying
+full precision through the RGB path so no clamp happens before the one
+I2 already licenses, at `v210::packRow` -- was assessed this session and
+found to collide directly with an existing, deliberate performance
+decision: `core/types.hpp`'s `Frag` struct carries
+`static_assert(sizeof(Frag) == 16)` with its own comment that "fragment
+traffic is the dominant memory cost of pass 1, so the size is
+load-bearing, not incidental." `Frag::R/G/B` are `Sample` (`uint16_t`)
+today; widening them (or whatever feeds them) to survive out-of-range
+values through the whole splat/resolve hot path would break that budget
+on the single most performance-sensitive struct in the pipeline. This is
+not a `SESSION-PROTOCOL.md`-sized work unit -- it is a second migration
+comparable in scope to Phase 9 itself, with a real, currently-unbudgeted
+memory/performance cost, and is not undertaken by this ADR. If a future
+session wants to pursue it, it needs its own proposal and its own
+explicit sign-off, the same way ADR-085 itself got one, not a quiet
+reopening of this ADR.
+
+**I7, superseded directly.** `INVARIANTS.md`'s new text: "Identity map
+round-trips bit-exactly for in-gamut content. Input v210 equals output
+v210, byte for byte, illegal excursions included, whenever every
+sample's implied RGB (under the RGB boundary conversion, ADR-085) falls
+inside Sample's own representable range -- true for all achromatic
+content (Cb = Cr at I3's achromatic centre) and for the overwhelming
+majority of real broadcast signal, illegal excursions included. Content
+that pushes implied RGB outside that range clips at the RGB boundary
+conversion (`video/chroma.hpp`), on both the forward and return
+conversion, moving both luma and chroma -- Y is a linear combination of
+R, G and B, so a clip on any one of the three moves the recovered Y too.
+A real, accepted consequence of RGB-native internal representation
+(ADR-085), not a defect. Within that range, this is still the foundation
+test: if it passes, the transport, the offsets, the accumulators and the
+normalisation are all honest, and every artefact seen afterwards is
+genuinely the warp."
+
+**Scope -- one file, matching this ADR's own narrow claim.**
+`tests/test_zoneplate.cpp`'s `test_i7_identity_full_pipeline()`/
+`testI7Pattern()`: luma and chroma are now independently gated
+(`lumaExpectedExact`, `chromaExpectedExact`), each `true` only for the
+genuinely achromatic flat code (512); `flat`'s other three codes and both
+`ramp` and `excursion` are legal-range-only on both channels now,
+matching what was already true of the pipeline, not a new restriction
+being imposed on it. `INVARIANTS.md`'s I7 text (this entry, above). No
+`src/` file touched -- the RGB boundary conversion is confirmed correct
+as built, not a defect; this ADR accepts its documented behaviour rather
+than changing it. Full twelve-configuration matrix run to confirm: 28 of
+28 tests pass in every configuration (up from 27 of 28 at `wu-44e-red`),
+zero warnings, zero sanitizer traps -- see `WORK-UNITS.md`'s own `WU-45`
+entry.
+
+**Not decided here:** whether a future, larger unit should pursue the
+`Frag`-widening fix described above -- flagged, not scoped, not started.

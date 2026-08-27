@@ -55,11 +55,22 @@ valuable debugging property: the single-threaded build is a permanent oracle,
 and any multi-threaded run must match it byte for byte. Never introduce
 floating point into accumulation.
 
-**I7 — Identity map round-trips bit-exactly.**
-Input v210 equals output v210, byte for byte, illegal excursions included. This
-is the foundation test. If it passes, the transport, the offsets, the
-accumulators and the normalisation are all honest, and every artefact seen
-afterwards is genuinely the warp.
+**I7 — Identity map round-trips bit-exactly for in-gamut content
+(ADR-086; narrows this invariant's original unconditional text).**
+Input v210 equals output v210, byte for byte, illegal excursions included,
+whenever every sample's implied RGB (under the RGB boundary conversion,
+ADR-085) falls inside Sample's own representable range -- true for all
+achromatic content (Cb = Cr at I3's achromatic centre) and for the
+overwhelming majority of real broadcast signal, illegal excursions
+included. Content that pushes implied RGB outside that range clips at the
+RGB boundary conversion (`video/chroma.hpp`), on both the forward and
+return conversion, moving both luma and chroma -- Y is a linear
+combination of R, G and B, so a clip on any one of the three moves the
+recovered Y too. A real, accepted consequence of RGB-native internal
+representation (ADR-085), not a defect. Within that range, this is still
+the foundation test: if it passes, the transport, the offsets, the
+accumulators and the normalisation are all honest, and every artefact
+seen afterwards is genuinely the warp.
 
 **I8 — Nothing is culled; back faces always splat.**
 Back-facing surfaces are rendered, not dropped, and carry the back source
