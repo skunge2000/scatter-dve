@@ -3803,6 +3803,16 @@ unit" resumes, once every `WU-44` sub-unit below lands (or is confirmed,
 like `test_zoneplate.cpp`/possibly `test_pipeline_bytes.cpp` above, to be
 blocked on a decision outside `WU-44`'s own scope).
 
+**Status update, Session 67: `WU-44` as a whole (`WU-44a` through `WU-44e`)
+is now complete.** `WU-44c`'s own three sub-units (`c1`–`c3`), `WU-44d`
+and `WU-44e` all built in the sessions after this entry was first
+written — see each sub-unit's own entry below for what shipped and how it
+was verified. `test_zoneplate.cpp`'s own I7 non-achromatic breakage
+remains outside every `WU-44` sub-unit's own scope, Steve's own call
+(`video::Raster444`-vs-`video::RasterRGB`); the suite stays at 27/28 until
+that is resolved, so "green after every unit" (ADR-085 §5) does not
+resume with `WU-44`'s own completion — see `HANDOFF.md`.
+
 ### WU-44a — `tests/test_chroma.cpp`: RGB boundary conversion test coverage `red`
 **Built this session.** Real scope, re-derived directly rather than taken
 from the WU-44 stub's own "v210/chroma" label: `grep -rn
@@ -4766,20 +4776,112 @@ test.**
 Depends on WU-39–WU-42 (the whole production chain these integration
 tests exercise end to end).
 
-### WU-44e — `tests/test_lighting.cpp`, `test_coarse_shading.cpp`, `test_morph.cpp`: found empty this session `todo` (verify, likely no-op)
-**Scoped this session, not started — and this session's own real grep
-found no work here at all**, unlike the other four sub-units above:
-`grep -rn 'ResolvedCell\|CompositedCell\|SourceRaster\|Frag\|AccumCell\|
-YCbCr\|\.\(R\|G\|B\)\b\|\.\(Y\|Cb\|Cr\)\b'` against all three files
-returned zero hits, and none includes a `core/` header beyond what a
-zero-hit result would predict. `WU-44`'s own original "lighting/coarse-
-shading" cluster naming came from ADR-085's own "21 of 35" estimate, not
-from a real check at the time — this session's real check does not
-confirm it. Whoever picks this up should still re-verify directly (this
-project's own standing discipline — a scoping stub, even one written this
-carefully, is a plan, not a fact, C-027) rather than skip the unit purely
-on this note's say-so, but should expect to find nothing and be able to
-close it out immediately if that holds.
+### WU-44e — `tests/test_lighting.cpp`, `test_coarse_shading.cpp`, `test_morph.cpp`: confirmed empty this session, no fixture change needed `red` (WU-44 now complete)
+
+**Built this session.** Re-grepped directly before trusting the prior
+session's stub (C-027 — a scoping stub is a plan, not a fact, and this
+holds exactly as much for a stub predicting emptiness as one predicting
+work): `grep -rnE 'ResolvedCell|CompositedCell|\bSourceRaster\b|\bFrag\b|
+\bAccumCell\b|YCbCr|\.(R|G|B)\b|\.(Y|Cb|Cr)\b'` against all three files —
+zero hits (exit code 1, no match), matching the stub exactly. `#include`
+check confirms none of the three reaches a `core/` header that could
+carry `Frag`/`AccumCell`/colour fields: `test_lighting.cpp` includes only
+`core/lighting.hpp`; `test_coarse_shading.cpp` includes `core/coarse_shading.hpp`
+and `core/lighting.hpp`; `test_morph.cpp` includes `core/lattice.hpp` and
+`core/shapes/shapes.hpp` — none of `core/binner.hpp`, `resolve.hpp`,
+`splat.hpp`, `pipeline.hpp` or `types.hpp`. `git log --oneline --` for all
+three shows no commit since `WU-34a` (`test_coarse_shading.cpp`), `WU-27`
+(`test_lighting.cpp`) or `WU-13` (`test_morph.cpp`) — all three predate
+`WU-38`/ADR-085 entirely, so there is no ADR-085-era drift to find, unlike
+`WU-44d`'s own `test_field_pipeline.cpp` count drift.
+
+**All three files also read in full this session, not left at the
+grep-plus-includes check alone, per this unit's own explicit brief (a
+zero-hit grep is evidence, not proof).** `test_lighting.cpp` (410 lines)
+exercises `core/lighting.hpp`'s `shade()` — a pure `(LightingScene, P,
+N) -> double` intensity evaluator — and `defaultSpecularCurve()`; every
+fixture compares scalar `double` intensities (`relClose()`), never a
+colour channel. `test_coarse_shading.cpp` (314 lines) exercises
+`CoarseShadingGrid`, also scalar `double` intensity throughout
+(`mirrorRawI()`/`grid.sample()` both return `double`), built over
+`Lattice`/`LightingScene`, not `Frag`/`AccumCell`/`SourceRaster`.
+`test_morph.cpp` (235 lines) exercises `morphLattice()` and
+`Lattice::jacobian()` — pure geometry, `Vec3.x`/`.y`/`.z` control-vertex
+positions and their derivatives, never a colour field (the `.x`/`.y`/`.z`
+member accesses are a different struct, `Vec3`, not `Frag`/`AccumCell`,
+and do not match the grep's `.R`/`.G`/`.B` or `.Y`/`.Cb`/`.Cr` patterns).
+None of the three has any code path that could go stale under ADR-085's
+RGB rename — confirmed by reading, not inferred from the zero-hit grep
+alone. The stub's own "likely empty" prediction held, checked directly
+rather than trusted on its own say-so, per this project's own standing
+discipline.
+
+**Confirmed empty — no fixture change needed, the same "confirmed already
+correct" shape `WU-44c1`/`c2`/`c3` used, not `WU-44d`'s own investigative
+shape:** there was no known failing check here for `WU-44`'s own top-level
+entry to flag, and none was found. No `src/` or `tests/` file touched by
+this unit.
+
+**Result: `WU-44` (`WU-44a` through `WU-44e`) is now complete.** All five
+sub-units built and verified against their own build/test matrix. `test_zoneplate`
+(22 of 42537) remains the suite's own sole red test, outside every `WU-44`
+sub-unit's own scope (Steve's own call — `video::Raster444`-vs-
+`video::RasterRGB`, I7 non-achromatic breakage, see `HANDOFF.md`). "Green
+after every unit" (ADR-085 §5) does not resume with `WU-44`'s own
+completion — that resumption is a whole-project property, not a
+whole-phase one, and `test_zoneplate` still stands between the suite and
+it.
+
+## Build/test matrix — full twelve configurations (run to confirm, not assumed)
+
+Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git` into
+the cloud sandbox, confirmed at `HEAD = wu-44d-red = 8b9d1c0` before any
+build; `git status --short` in the sandbox read empty throughout this
+unit — no file was ever edited there, since no fixture work was found.
+GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 4 and tile 5
+(eight), plus GCC + ASan alone and GCC + UBSan alone, each at both tile
+sizes (four more) — twelve total, not two combined
+`-fsanitize=address,undefined` builds.
+
+| Configuration | Build | `ctest` | `test_lighting` | `test_coarse_shading` | `test_morph` | `test_zoneplate` |
+|---|---|---|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC, Debug, tile 4 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC, Release, tile 5 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC, Debug, tile 5 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| Clang, Release, tile 4 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| Clang, Debug, tile 4 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| Clang, Release, tile 5 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| Clang, Debug, tile 5 | clean, no warnings | 27/28 pass | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC + ASan only, tile 4 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC + ASan only, tile 5 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC + UBSan only, tile 4 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+| GCC + UBSan only, tile 5 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 239 checks | PASS, 305 checks | PASS, 150189 checks | FAIL, 22/42537 |
+
+Twelve rows, zero real warnings (the same harmless configure-time
+`CMAKE_C_COMPILER` `CMake Warning` every prior `WU-44` sub-unit's own
+matrix already reports, not a compiler diagnostic), zero sanitizer traps
+— grepped every `ctest --output-on-failure` log for
+`AddressSanitizer`/`UndefinedBehaviorSanitizer`/`runtime error:` (zero
+hits across all twelve) — and confirmed via `nm -D` (dynamic symbol
+table) plus `ldd` that the ASan/UBSan binaries genuinely carry sanitizer
+instrumentation (16 and 8 case-insensitive `asan`/`ubsan` dynamic-symbol
+hits respectively on `test_morph`, `ldd` confirming
+`libasan.so.8`/`libubsan.so.1` actually linked), not inferred from a
+clean `ctest` result alone. `test_lighting` (239 checks),
+`test_coarse_shading` (305 checks) and `test_morph` (150189 checks) are
+all genuinely tile-invariant, confirmed directly (identical counts at
+tile 4 and tile 5 in every case). `test_zoneplate` (22 of 42537) fails
+identically to `wu-44d-red`'s own baseline in every configuration — this
+unit touched neither `test_zoneplate.cpp` nor anything it depends on.
+**27 of 28 tests pass in every configuration, identical to `wu-44d-red`'s
+own baseline — no change to the suite's pass/fail state, since this unit
+found no work to do.**
+
+Depends on nothing new — `test_lighting.cpp`, `test_coarse_shading.cpp`
+and `test_morph.cpp` never touch `core/binner.hpp`/`resolve.hpp`/
+`splat.hpp`/`pipeline.hpp`/`types.hpp` at all, so `WU-39`–`WU-42`'s own
+production changes were never in this unit's own blast radius.
 
 ---
 
