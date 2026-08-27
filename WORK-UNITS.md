@@ -4060,8 +4060,8 @@ k-buffer pair, WU-28a/b), `WU-44c2` (`test_layered_composite.cpp` alone,
 the single densest file), `WU-44c3` (`test_pageturn.cpp` +
 `test_shapes.cpp`, geometry-heavy with only incidental colour touches).
 Per this project's own one-cluster-per-session discipline, `WU-44c1`
-(Session 63) and `WU-44c2` (Session 64) are now both built (see their own
-entries); `WU-44c3` remains scoped below, not started.
+(Session 63), `WU-44c2` (Session 64) and `WU-44c3` (Session 65) are now all
+built (see their own entries) — `WU-44c` as a whole is complete.
 
 Depends on WU-39 (rename), WU-42 (`core/resolve.hpp`/`.cpp` PASS 2 reshape —
 the module every sub-unit's own fixtures check against).
@@ -4374,36 +4374,188 @@ stays fully green; the suite as a whole stays red (`test_zoneplate`,
 `wu-44c2-red`, not `-green`, for the same whole-phase reason
 `WU-44b`/`WU-44c1` closed red. `WU-44c3`, `WU-44d`, `WU-44e` remain.
 
-### WU-44c3 — `tests/test_pageturn.cpp`, `tests/test_shapes.cpp`: page-turn/shape pipeline colour touches `todo`
-**Scoped this session (re-grep above), not started.** `test_pageturn.cpp`
-(432 lines, 17 hits: `AccumCell`=9, `CompositedCell`=2, `.R/.G/.B`=6) and
-`test_shapes.cpp` (480 lines, 8 hits: `Background`=1, `.R/.G/.B`=7) are
-both mostly lattice/Jacobian geometry checks (WU-11/WU-12a's own accept
-criteria), with only incidental colour-domain content — read in full this
-session while scoping the split, above. Neither file hand-derives an
-independent colour-mirror formula the way `test_binner.cpp` (WU-44b) or
-`test_layered_composite.cpp` (WU-44c2) do: `test_pageturn.cpp`'s own
-colour check is an exact accumulation-sum identity (I6, componentwise
-`AccumCell` addition, no divide/blend involved) plus a `composite()`
-cross-check on accumulated *weight* magnitude, not a hand-computed colour
-value; `test_shapes.cpp`'s own `Background{fromCode10(64), fromCode10(512),
-fromCode10(512)}` (`runFlatSourceThroughLattice()`) is a locally-scoped,
-self-referential background constant — every check that reads it
-(`isBackground`, `inHull`) compares the destination raster against that
-same value it was itself constructed from, so the test's own pass/fail
-does not depend on what the triple actually is, only that it is
-distinguishable from the source colours used. Worth flagging plainly,
-not fixed here: that exact triple (`64, 512, 512`) is the pre-`WU-41`
-YCbCr-domain "legal black" value `core/resolve.hpp`'s own comment on
-`kDefaultBackground` and `CORRECTIONS.md` C-032 both describe — reused here
-as an arbitrary distinguishable constant, not asserted anywhere to *be*
-legal black, so it is not the numerical bug C-032 found in production code,
-but it is a confusing thing for a future reader to trip over (it looks
-like uncorrected legal-black math at a glance). Whether to rename/replace
-it for clarity is this sub-unit's own call, not decided here — a cosmetic
-question, not a correctness one, the same class of leftover `WU-44b`'s own
-entry chose to leave alone in `test_scan_order_invariance.cpp` rather than
-touch cosmetically. Depends on WU-42, WU-11/ADR-027, WU-12a/ADR-028.
+### WU-44c3 — `tests/test_pageturn.cpp`, `tests/test_shapes.cpp`: page-turn/shape pipeline colour touches `red` (both files confirmed already correct, no fixture change needed)
+**Built this session (Session 65).** `src/core/resolve.hpp` and
+`src/core/resolve.cpp` re-read in full before touching either test file;
+`git log --oneline -- tests/test_pageturn.cpp tests/test_shapes.cpp
+src/core/resolve.hpp src/core/resolve.cpp` confirmed the last commit
+touching any of the four is still `WU-42` (`1297c19`) — nothing has moved
+since `WU-44c2`'s own account. Re-grepped directly rather than trusting the
+stub (C-027): `grep -n '\bAccumCell\b\|\bResolvedCell\b\|\bCompositedCell\b\|
+\bBackground\b\|\.\(R\|G\|B\)\b' tests/test_pageturn.cpp tests/test_shapes.cpp`
+— exact match to the stub's own counts: `test_pageturn.cpp` 17 combined hits
+(`AccumCell`=9, `CompositedCell`=2, `.R/.G/.B`=6), `test_shapes.cpp` 8
+combined hits (`Background`=1, `.R/.G/.B`=7). Nothing to correct this
+session — unlike `WU-44c`'s own split entry finding small per-pattern
+bucketing drift against the original `WU-44` stub, this re-grep matched the
+`WU-44c3` stub's own count exactly, pattern for pattern.
+
+**No further lettered split needed — confirmed against real content, not
+the stub's own guess.** `test_pageturn.cpp` (432 lines) and
+`test_shapes.cpp` (480 lines) both read in full this session. Both are
+genuinely lattice/Jacobian geometry files by real content, not just by the
+stub's line-count guess: `test_pageturn.cpp`'s five accept-criterion tests
+are four pure-geometry checks (control-vertex flat/curl placement, spine
+fixture, zero-progress flatness, Jacobian-vs-central-difference) plus one
+pipeline-scenario test; `test_shapes.cpp`'s eight tests are five pure
+cylinder/sphere geometry checks plus three flat-source-through-lattice
+pipeline runs. Combined 25 colour-relevant hits across 912 raw lines is the
+lightest colour-fixture density of any `WU-44c` sub-unit (`WU-44c1`: 79
+combined across two files; `WU-44c2`: 86 in one file) — real justification
+for keeping both files in one unit, not an artefact of the stub's own
+grouping guess.
+
+**Every colour-relevant fixture hand-checked individually — and neither
+file turns out to need the `WU-34b`/ADR-084 "mirror the math independently"
+discipline at all, confirmed by tracing what each one actually asserts, not
+assumed from the low hit count alone:**
+
+- `test_pageturn.cpp`'s `test_pipeline_pageturn_transparent_accumulates_
+  over_page_behind()` (the file's only colour-bearing test): its core
+  identity (`combined[i].R == pageOnly[i].R + flapOnly[i].R`, same for
+  `.G`/`.B`/`.w`) is an exact componentwise `AccumCell` addition check
+  (I6, integer addition associative) — a structural invariant that never
+  computes an expected *value* from any formula duplicating `resolve.cpp`'s
+  own arithmetic, so there is no independent mirror that could have gone
+  stale under the `Y/Cb/Cr` → `R/G/B` rename in the first place; the
+  addition is colour-space-agnostic by construction, whatever the three
+  fields are called. The trailing `composite()` calls
+  (`pageAloneComposited`/`combinedComposited`) call production `composite()`
+  directly and check only that the difference exceeds a rounding margin
+  (visibility, not a specific colour value) — again nothing here is a
+  fixture that could be stale, since no expected colour is ever hand-derived.
+- `test_shapes.cpp`'s three `runFlatSourceThroughLattice()` pipeline tests
+  (`inHull()`/`near()`) check that `runFrame()`'s real output lies within a
+  generous rounding-margin hull between the test's own source colour and
+  its own background colour, both supplied directly as test parameters —
+  never a hand-computed expected colour either. Confirmed the channel
+  correspondence itself is right, not merely assumed: `dest.Y[i]` is
+  compared against `params.background.R`, `dest.Cb[i]` against `.G`,
+  `dest.Cr[i]` against `.B` — `video::Raster444`'s own `.Y/.Cb/.Cr` field
+  names (the standing `Raster444`-vs-`RasterRGB` naming question,
+  untouched, not this unit's job) line up channel-for-channel with
+  `Background`'s real `.R/.G/.B` fields because `runFrame()` operates
+  directly in RGB end to end (core/resolve.hpp's own file header) — the
+  test's own channel pairing is correct, not a stale carryover that
+  happens to still compile.
+
+**No staleness found in either file — this unit's own real job, like
+`WU-44c1`'s and `WU-44c2`'s, turned out to be confirmation, not repair.**
+No `Y`/`Cb`/`Cr`-named *field* or stale pre-rename colour constant found in
+either file beyond the two cosmetic leftovers below (neither a numerical
+bug). No `tests/` or `src/` file content changed this session — only
+`WORK-UNITS.md` (this entry, plus the `WU-44c` split amendment above) and
+`HANDOFF.md`.
+
+**Two cosmetic-naming leftovers found, both decided rather than left
+unaddressed by omission (this sub-unit's own call, not a correctness
+question):**
+
+1. `test_shapes.cpp`'s `runFlatSourceThroughLattice()` sets
+   `params.background = Background{fromCode10(64), fromCode10(512),
+   fromCode10(512)}` — the exact pre-`WU-41` YCbCr-domain "legal black"
+   triple (`core/resolve.hpp`'s own comment on `kDefaultBackground`,
+   `CORRECTIONS.md` C-032) reused here as an arbitrary distinguishable
+   background constant. Confirmed directly this session, tracing every
+   reader: `isBackground` and `inHull()` both compare the destination
+   raster back against this exact same triple, componentwise
+   (`.R`-to-`.R`, `.G`-to-`.G`, `.B`-to-`.B`, per the channel-correspondence
+   trace above), so the test's own pass/fail depends only on the triple
+   being distinguishable from each test's own source colour (`900/150/850`,
+   `700/300/600`, `200/700/400` across the three pipeline tests — all
+   distinguishable from `64/512/512` on at least one channel) — not on what
+   the triple actually represents. Not the C-032 numerical bug reproduced
+   (that was a *value* wrongly reaching production `kDefaultBackground`;
+   this is a self-referential test constant, never read by any production
+   code path). **Decision: leave it as-is, not renamed.** Matches this
+   project's own established precedent for this exact class of leftover —
+   `WU-44b` left `test_scan_order_invariance.cpp`'s stale naming untouched,
+   `WU-44c1` left `test_kbuffer_storage.cpp`'s `y`/`cb`/`cr` parameter names
+   on `makeExactFrag()` untouched — both for the same reason:
+   `SESSION-PROTOCOL.md`'s own anti-drift rule 2 counsels against touching
+   things beyond a unit's own real job, and a rename here is pure diff
+   noise against a file whose own fixtures are otherwise confirmed correct,
+   for a confusion that this entry's own paper trail (and C-032's) already
+   resolves for a future reader who greps `CORRECTIONS.md`.
+2. **New finding this session, not previously flagged anywhere:**
+   `test_pageturn.cpp`'s own visibility check names its three delta
+   variables `dY`, `dCb`, `dCr` (`:419-421`) while actually differencing
+   `CompositedCell::R/G/B` — the same class of cosmetic YCbCr-era leftover
+   as (1) above, on locally-scoped variable names rather than a struct
+   field or test parameter. **Decision: leave it as-is, not renamed,** for
+   the identical precedent-driven reason given above — logged here so it is
+   not left unaddressed by omission, matching this entry's own standing
+   instruction to decide and note cosmetic naming questions rather than
+   pass over them silently.
+
+**Build/test: full twelve-configuration matrix**, matching every prior
+`WU-44c` sub-unit's own practice even though this unit changes no test or
+source file — run to confirm, not assume, the "no fixture change needed"
+finding above holds empirically. Fresh `git clone` of `wu-44c2-red`
+(`b9948d9`), confirmed identical to the real repository (`git status
+--short` empty, `HEAD == origin/main == b9948d9`) before any config was
+built; `git status --short` inside the sandbox clone stayed empty
+throughout, since no source or test file was ever touched there. GCC
+13.3.0 and Clang 18.1.3, Release and Debug, tile 4 and tile 5 (eight), plus
+GCC+ASan alone and GCC+UBSan alone, each at both tile sizes (four more).
+
+| Configuration | Build | `ctest` | `test_pageturn` | `test_shapes` |
+|---|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| GCC, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| Clang, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| Clang, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 126512 checks | PASS, 83385 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 126512 checks | PASS, 83385 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 126512 checks | PASS, 83385 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 126512 checks | PASS, 83385 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 126512 checks | PASS, 83385 checks |
+
+Both files' own total check counts (126512, 83385) are genuinely
+tile-invariant in every configuration, confirmed directly by running each
+binary standalone (not just reading `ctest`'s pass/fail line) — neither
+file's checks scale with `SCATTER_TILE_LOG2` the way `test_binner`'s
+(C-033) or `test_kbuffer_storage`'s (`WU-44c1`) fragment-count loops do.
+Zero warnings in all twelve (the same harmless, expected `CMake Warning:
+Manually-specified variables were not used by the project:
+CMAKE_C_COMPILER` at configure time in every configuration — this is a
+pure C++ project with no C sources). Zero sanitizer traps — grepped every
+`ctest --output-on-failure` log for `AddressSanitizer`/
+`UndefinedBehaviorSanitizer`/`runtime error:` (zero hits in all twelve),
+and confirmed via `nm` that the ASan/UBSan `test_pageturn`/`test_shapes`
+binaries genuinely carry sanitizer instrumentation (26/29 and 11/14
+case-insensitive `asan`/`ubsan` symbol hits respectively — instrumentation
+real, not a silently-ignored flag).
+
+`test_zoneplate` (22 of 42537, same three failing lines
+`test_zoneplate.cpp:209`/`:212`/`:213`) and `test_pipeline_bytes` (3 of 42,
+same three failing lines `:406`/`:452`/`:552`) fail identically to
+`wu-44c2-red`'s own baseline in every configuration — outside this unit's
+own scope, unaffected since this unit touched neither file. 26 of 28 tests
+pass in every one of the twelve configurations, identical to
+`wu-44c2-red`'s own count — this unit changes no test's pass/fail state,
+only confirms two already-passing tests are passing for the right reasons.
+
+**Files, real:** `WORK-UNITS.md` (this entry, plus the `WU-44c` split
+amendment above). `HANDOFF.md`. No `tests/` or `src/` file touched.
+
+**Depends on** WU-42 (`core/resolve.hpp`/`.cpp`'s RGB reshape), WU-11/
+ADR-027 (`buildCylinderLattice`/`buildSphereLattice`), WU-12a/ADR-028 (page
+turn, transparent mode). **Not this unit's job, confirmed unaffected rather
+than silently left alone:** the `video::Raster444`-vs-`video::RasterRGB`
+naming question `test_shapes.cpp`'s own channel comparisons still carry,
+`test_zoneplate.cpp`/`test_pipeline_bytes.cpp`'s own red checks, and
+`WU-44d`/`WU-44e` (scoped below, not started).
+
+*Status:* `red` — this unit's own two files were already fully green and
+stay fully green; the suite as a whole stays red (`test_zoneplate`,
+`test_pipeline_bytes`), unchanged, so `WU-44c3` closes with tag
+`wu-44c3-red`, not `-green`, for the same whole-phase reason
+`WU-44b`/`WU-44c1`/`WU-44c2` closed red. **`WU-44c` (`WU-44c1`+`WU-44c2`+
+`WU-44c3`) is now complete.** `WU-44d`, `WU-44e` remain.
 
 ### WU-44d — `tests/test_pipeline_bytes.cpp`, `test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`: full-pipeline integration fixtures `todo`
 **Scoped this session, not started.** Real file list: `test_pipeline_
