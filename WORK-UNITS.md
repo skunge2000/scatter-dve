@@ -4059,8 +4059,9 @@ colour math, confirmed by reading both in full this session. Split:
 k-buffer pair, WU-28a/b), `WU-44c2` (`test_layered_composite.cpp` alone,
 the single densest file), `WU-44c3` (`test_pageturn.cpp` +
 `test_shapes.cpp`, geometry-heavy with only incidental colour touches).
-Per this project's own one-cluster-per-session discipline, only `WU-44c1`
-is built this session; `WU-44c2`/`WU-44c3` are scoped below, not started.
+Per this project's own one-cluster-per-session discipline, `WU-44c1`
+(Session 63) and `WU-44c2` (Session 64) are now both built (see their own
+entries); `WU-44c3` remains scoped below, not started.
 
 Depends on WU-39 (rename), WU-42 (`core/resolve.hpp`/`.cpp` PASS 2 reshape —
 the module every sub-unit's own fixtures check against).
@@ -4214,23 +4215,164 @@ stay fully green; the suite as a whole stays red (`test_zoneplate`,
 `wu-44c1-red`, not `-green`, for the same whole-phase reason `WU-44b`
 closed `wu-44b-red`. `WU-44c2`, `WU-44c3`, `WU-44d`, `WU-44e` remain.
 
-### WU-44c2 — `tests/test_layered_composite.cpp`: PASS 2 layered-composite colour fixtures `todo`
-**Scoped this session (re-grep above), not started.** 411 lines, 86
-combined hits (`AccumCell`=24, `CompositedCell`=14, `Background`=7,
-`.R/.G/.B`=41) — the single most colour-fixture-dense file in the whole
-`WU-44` split, confirmed directly rather than assumed from the original
-stub's lower count. Two parts by its own file header: Part A, direct
-hand-built-`AccumCell` unit tests of `compositeLayered()` against locally
-re-derived `expectedDivide()`/`expectedBlend()`/`expectedSum()` (this
-session hand-checked all three against `resolve.cpp`'s real
-`divideRounded()`/`blend()`/`sumCells()` while reading that file in
-full for `WU-44c1` above, and found them to match exactly — a real,
-already-performed check, not left for whoever starts this sub-unit to
-redo from scratch, though the formal build/test verification and close-out
-below is still this sub-unit's own job); Part B, a duplicated-locally
-page-turn-flap-over-page-behind pipeline scenario (per `SESSION-PROTOCOL.md`
-rule 2, not shared with `tests/test_pageturn.cpp`). Depends on WU-42
-(`core/resolve.hpp`/`.cpp`), WU-12b/ADR-029 (`compositeLayered()` itself).
+### WU-44c2 — `tests/test_layered_composite.cpp`: PASS 2 layered-composite colour fixtures `red` (confirmed already correct, no fixture change needed)
+**Built this session (Session 64).** `src/core/resolve.hpp` and
+`src/core/resolve.cpp` re-read in full before touching the test file;
+`git log --oneline -- tests/test_layered_composite.cpp src/core/resolve.hpp
+src/core/resolve.cpp` confirmed the last commit touching any of the three
+is still `WU-42` (`1297c19`) — nothing has moved since `WU-44c1`'s own
+account. Re-grepped directly rather than trusting the stub (C-027):
+`grep -n '\bAccumCell\b\|\bResolvedCell\b\|\bCompositedCell\b\|\bBackground\b\|
+\.\(R\|G\|B\)\b' tests/test_layered_composite.cpp` — 86 combined-line hits
+(matching the stub and `WU-44c`'s own split entry exactly); per-pattern
+`AccumCell`=25 (stub said 24 — a per-pattern/combined-count bucketing
+difference of the same kind `WU-44c`'s own split entry already found and
+flagged for this file's `.R/.G/.B` count, not a sign anything changed),
+`CompositedCell`=14, `Background`=7, `.R/.G/.B`=41 (both exactly matching).
+411 lines, confirmed the single most colour-fixture-dense file in the
+whole `WU-44` split, as already flagged.
+
+**Single file, no further lettered split needed — confirmed against real
+size/content, not the stub's own guess.** At 411 lines and one clearly-
+scoped test file with two parts by its own header (A: four direct
+hand-built-`AccumCell` unit tests of `compositeLayered()`; B: two
+pipeline-scenario tests reusing already-tested splat primitives), this
+does not approach `SESSION-PROTOCOL.md`'s 3-source-file/~400-line cap the
+way a genuinely multi-file cluster would.
+
+**Every fixture hand-checked individually against `resolve.cpp`'s real
+RGB-domain arithmetic this session — going beyond `WU-44c1`'s own first
+pass, which checked only the file's three shared helper re-derivations
+and explicitly did not claim to have checked each test function's own use
+of them.** `expectedDivide()` (`tests/test_layered_composite.cpp:72-76`)
+is a verbatim duplicate of `resolve.cpp`'s file-local `divideRounded()`;
+`expectedBlend()` (`:78-84`) a verbatim duplicate of `blend()`;
+`expectedSum()` (`:86-93`) a verbatim duplicate of `sumCells()` — all
+three re-checked directly against the real `resolve.cpp` text read this
+session, not assumed to still match from `WU-44c1`'s own account.
+
+Part A (four direct unit tests of `compositeLayered()`):
+- `test_compositeLayered_tag_mismatch_sums_then_composites` — tag-mismatch
+  branch; expected built as `composite(expectedSum(lower, upper), bg)`,
+  cross-checking against production `composite()` as an already-
+  independently-tested reference (the same legitimate strategy
+  `WU-44c1`'s own Parts A/B used for `compositeKBuffer()`'s Opaque/Blend
+  modes) — matches `compositeLayered()`'s real tag-mismatch branch
+  (`return composite(sumCells(lower, upper), bg);`) exactly.
+- `test_compositeLayered_opaque_full_alpha_ignores_lower_and_bg` — upper
+  at `w == kWeightUnity` exactly; checked by hand that `blend()` at
+  `alpha == unity` reduces to the colour term alone
+  (`(colour*unity + unity/2)/unity == colour` for any representable
+  `colour`, since the `unity/2` remainder term is strictly less than
+  `unity` and cannot push the quotient up) — matches the test's own
+  claimed independence from `lower`/`bg`.
+- `test_compositeLayered_opaque_zero_alpha_equals_lower_alone` — upper at
+  `w == 0`; traced the real "write" step
+  (`composite(upperZero, asBackground(afterRead))`) through
+  `normaliseCell()`'s `cell.w <= 0` branch to
+  `CompositedCell{bg.R, bg.G, bg.B}` — confirms
+  `actual == afterRead == composite(lower, bg) == expected` exactly, the
+  real code path, not assumed.
+- `test_compositeLayered_opaque_partial_alpha_matches_readreplacewrite_formula`
+  — the file's own genuine independent hand-derivation (A4);
+  `expectedBlend(fromCode10(900), afterRead.R, alpha)` etc. traced against
+  the real "write" step's `normaliseCell(upper)` (exact for a
+  `makeUniformCell`, verified: `(y*w + w/2)/w == y` for any `w > 0` since
+  the remainder is always `< w`) then `blend(resolved.R, bg.R, alpha)` —
+  matches bit for bit.
+
+Part B (two pipeline-scenario tests, real splatted `AccumCell`s via
+`splatTile()`/`sumBanks()`, already-tested primitives per
+`tests/test_pageturn.cpp`'s own precedent):
+- `test_pipeline_pageturn_opaque_flap_hides_page_behind` —
+  `expectedDivide(upper.R, upper.w)` etc. is bit-identical to what
+  production `normaliseCell()` would compute for the same real
+  (non-uniform) cell, since the formula is a verbatim duplicate (I6:
+  integer arithmetic is deterministic, no rounding ambiguity between two
+  identically-shaped integer expressions, unlike the floating-point case
+  C-012 warns about) — traced through to `actual.R == expectedY` exactly,
+  not approximately.
+- `test_pipeline_pageturn_opaque_unaffected_where_flap_absent` — flap
+  `w == 0` case, same real "write step returns the read unchanged" trace
+  as `test_compositeLayered_opaque_zero_alpha_equals_lower_alone` above,
+  against real splatted data this time.
+
+**No staleness found — this unit's own real job, like `WU-44c1`'s, turned
+out to be confirmation, not repair.** Every fixture in the file genuinely
+mirrors `resolve.cpp`'s real RGB-domain math (ADR-085), independently
+re-derived where the file claims to, and legitimately cross-checked
+against an already-tested reference function elsewhere. Not a stale
+survivor of the `WU-41` migration the way `test_binner.cpp` was — no
+`Y`/`Cb`/`Cr`-named field or pre-rename constant found anywhere in the
+file. No `tests/` or `src/` file content changed this session — only
+`WORK-UNITS.md` (this entry, plus the `WU-44c` split amendment above) and
+`HANDOFF.md`.
+
+**Build/test: full twelve-configuration matrix**, matching `WU-44c1`'s own
+practice even though this unit changes no test or source file — run to
+confirm, not assume, the "no fixture change needed" finding above holds
+empirically. Fresh `git clone` of `wu-44c1-red` (`6dd556e`), confirmed
+identical to the real repository (`git status --short` empty,
+`HEAD == origin/main == 6dd556e`) before any config was built;
+`git status --short` inside the sandbox clone stayed empty throughout,
+since no source or test file was ever touched there. GCC 13.3.0 and Clang
+18.1.3, Release and Debug, tile 4 and tile 5 (eight), plus GCC+ASan alone
+and GCC+UBSan alone, each at both tile sizes (four more).
+
+| Configuration | Build | `ctest` | `test_layered_composite` |
+|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| GCC, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| Clang, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| Clang, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 28 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 28 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 28 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 28 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 28 checks |
+
+`test_layered_composite`'s own total check count (28) is genuinely
+tile-invariant in every configuration — confirmed directly, not assumed:
+its checks are all `CHECK`/`CHECK_ONCE` calls over hand-built or
+once-splatted `AccumCell`s, none of them scaling with `SCATTER_TILE_LOG2`
+the way `test_binner`'s (C-033) or `test_kbuffer_storage`'s (`WU-44c1`)
+fragment-count loops do. Zero warnings in all twelve (one harmless
+`CMake Warning: Manually-specified variables were not used by the
+project: CMAKE_C_COMPILER` at configure time in every configuration, not
+a compiler diagnostic — this is a pure C++ project with no C sources, so
+the flag going unconsumed is expected, not a code-quality signal). Zero
+sanitizer traps — grepped every `ctest --output-on-failure` log for
+`AddressSanitizer`/`UndefinedBehaviorSanitizer`/`runtime error:` (zero
+hits in all twelve), and confirmed via `nm` that the ASan/UBSan
+`test_layered_composite` binaries genuinely carry sanitizer
+instrumentation (26 and 11 case-insensitive `asan`/`ubsan` symbol hits
+respectively — instrumentation is real, not a silently-ignored flag).
+
+`test_zoneplate` (22 of 42537) and `test_pipeline_bytes` (3 of 42) fail
+identically to `wu-44c1-red`'s own baseline in every configuration —
+outside this unit's own scope, unaffected since this unit touched neither
+file. 26 of 28 tests pass in every one of the twelve configurations,
+identical to `wu-44c1-red`'s own count — this unit changes no test's
+pass/fail state, only confirms one already-passing test is passing for
+the right reasons.
+
+**Files, real:** `WORK-UNITS.md` (this entry, plus the `WU-44c` split
+amendment above). `HANDOFF.md`. No `tests/` or `src/` file touched.
+
+**Depends on** WU-42 (`core/resolve.hpp`/`.cpp`'s RGB reshape), WU-12b/
+ADR-029 (`compositeLayered()` itself). **Not this unit's job, confirmed
+unaffected rather than silently left alone:** `test_zoneplate.cpp`/
+`test_pipeline_bytes.cpp`'s own red checks, and `WU-44c3` (scoped below,
+not started this session).
+
+*Status:* `red` — this unit's own one file was already fully green and
+stays fully green; the suite as a whole stays red (`test_zoneplate`,
+`test_pipeline_bytes`), unchanged, so `WU-44c2` closes with tag
+`wu-44c2-red`, not `-green`, for the same whole-phase reason
+`WU-44b`/`WU-44c1` closed red. `WU-44c3`, `WU-44d`, `WU-44e` remain.
 
 ### WU-44c3 — `tests/test_pageturn.cpp`, `tests/test_shapes.cpp`: page-turn/shape pipeline colour touches `todo`
 **Scoped this session (re-grep above), not started.** `test_pageturn.cpp`
