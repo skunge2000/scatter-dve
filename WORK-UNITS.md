@@ -4013,23 +4013,255 @@ every unit" resumption is a whole-`WU-44`-phase property, not a per-test
 one, and ADR-085 §5 has not been re-read to say otherwise. `WU-44c` through
 `WU-44e` remain.
 
-### WU-44c — `tests/test_kbuffer_resolve.cpp`, `test_kbuffer_storage.cpp`, `test_layered_composite.cpp`, `test_pageturn.cpp`, `test_shapes.cpp`: PASS 2 resolve/composite colour fixtures `todo`
-**Scoped this session, not started — likely too large for one session as
-scoped, flagged rather than assumed to fit.** Real file list: `test_
-kbuffer_resolve.cpp` (`AccumCell`=19, `ResolvedCell`/`CompositedCell`/
-`Background`=21, `.R/.G/.B`=22 — substantial). `test_kbuffer_storage.cpp`
-(`Frag`=10, `AccumCell`=3, `.R/.G/.B`=14). `test_layered_composite.cpp`
-(`AccumCell`=24, `ResolvedCell`/`CompositedCell`/`Background`=21,
-`.R/.G/.B`=32 — substantial, the largest single file in the whole `WU-44`
-split). `test_pageturn.cpp` (`Frag`=1, `AccumCell`=9, `Background`=2,
-`SourceRaster`=3, `.R/.G/.B`=6). `test_shapes.cpp` (`Background`=1,
-`SourceRaster`=1, `.R/.G/.B`=4, `Raster444`=1). Five files, two of them
-substantial — whoever starts this should re-grep first and split into
-`WU-44c1`/`WU-44c2` (etc.) before writing any fixture, per
-`SESSION-PROTOCOL.md`'s own sizing rule, rather than attempt all five in
-one session. Depends on WU-39 (rename), WU-42 (`core/resolve.hpp`/`.cpp`
-PASS 2 reshape — the module this whole cluster's own fixtures check
-against).
+### WU-44c — split this session (WU-44c1) into lettered sub-units; not a single work unit
+**Re-grepped directly this session, per this project's own standing
+discipline (a scoping stub is a plan, not a fact, C-027) rather than
+trusting the stub's own counts — the exact query the stub itself named for
+whoever picked this up:** `grep -rn '\bAccumCell\b\|\bResolvedCell\b\|
+\bCompositedCell\b\|\bBackground\b\|\.\(R\|G\|B\)\b' tests/test_kbuffer_
+resolve.cpp tests/test_kbuffer_storage.cpp tests/test_layered_composite.cpp
+tests/test_pageturn.cpp tests/test_shapes.cpp` — combined per-file hit
+counts: `test_kbuffer_resolve.cpp`=62, `test_kbuffer_storage.cpp`=17,
+`test_layered_composite.cpp`=86, `test_pageturn.cpp`=17,
+`test_shapes.cpp`=8. Per-pattern breakdown confirms the stub's own
+`AccumCell`/`Frag` counts exactly (`test_kbuffer_resolve.cpp` `AccumCell`=19;
+`test_kbuffer_storage.cpp` `Frag`=10, `AccumCell`=3, `.R/.G/.B`=14;
+`test_layered_composite.cpp` `AccumCell`=24) and its combined
+`ResolvedCell`/`CompositedCell`/`Background`=21 for both
+`test_kbuffer_resolve.cpp` and `test_layered_composite.cpp` — but the
+stub's own `.R/.G/.B` counts read a little low against a fresh count this
+session (`test_kbuffer_resolve.cpp`: 25 here vs. the stub's 22;
+`test_layered_composite.cpp`: 41 here vs. the stub's 32) and
+`test_pageturn.cpp`'s own `Background`=0 here where the stub said 2 (this
+file's own two hits are `CompositedCell`, not `Background` — a
+type-name/pattern-bucketing difference between whoever ran the stub's own
+grep and this session's, not a sign the file changed; `git log -- tests/`
+shows no commit has touched any of these five files since `WU-42`).
+Nothing has moved since `WU-42` landed — `src/core/resolve.hpp`/`.cpp` read
+in full this session and confirmed identical in substance to the account
+`WU-42`'s own entry and `WU-44b`'s entry already give.
+
+**Split by real size and colour-fixture density, not pre-guessed:**
+`test_kbuffer_resolve.cpp` (333 lines) and `test_layered_composite.cpp`
+(411 lines) are the two the stub already flagged substantial, and this
+session's own combined-hit counts (62, 86) confirm both are real
+colour-fixture weight, not just line count — `test_layered_composite.cpp`
+is still the single most colour-fixture-dense file in the whole `WU-44`
+split. `test_kbuffer_storage.cpp` (255 lines, 17 hits) is PASS 1's own
+k-buffer storage/accumulation test (WU-28a — no PASS 2 resolve/composite
+math in it at all, by its own file header), naturally paired with
+`test_kbuffer_resolve.cpp`'s PASS 2 k-buffer resolve (WU-28b) rather than
+left alone. `test_pageturn.cpp` (432 lines) and `test_shapes.cpp` (480
+lines) are both long in raw line count but colour-fixture-light (17 and 8
+hits) — most of both files is lattice/Jacobian geometry checking, not
+colour math, confirmed by reading both in full this session. Split:
+`WU-44c1` (`test_kbuffer_storage.cpp` + `test_kbuffer_resolve.cpp`, the
+k-buffer pair, WU-28a/b), `WU-44c2` (`test_layered_composite.cpp` alone,
+the single densest file), `WU-44c3` (`test_pageturn.cpp` +
+`test_shapes.cpp`, geometry-heavy with only incidental colour touches).
+Per this project's own one-cluster-per-session discipline, only `WU-44c1`
+is built this session; `WU-44c2`/`WU-44c3` are scoped below, not started.
+
+Depends on WU-39 (rename), WU-42 (`core/resolve.hpp`/`.cpp` PASS 2 reshape —
+the module every sub-unit's own fixtures check against).
+
+### WU-44c1 — `tests/test_kbuffer_storage.cpp`, `test_kbuffer_resolve.cpp`: PASS 1/2 k-buffer colour fixtures `red` (both files confirmed already correct, no fixture change needed)
+**Built this session.** `src/core/resolve.hpp` and `src/core/resolve.cpp`
+(`normaliseCell()`, `composite()`, `compositeLayered()`,
+`compositeKBuffer()` and their file-local `divideRounded()`/`blend()`/
+`sumCells()`/`asBackground()`/`nearerThan()` helpers) read in full before
+touching either test file, per this unit's own brief — nothing in either
+production file has moved since `WU-42`.
+
+**`test_kbuffer_storage.cpp` (WU-28a, PASS 1 k-buffer storage/accumulation
+only — its own file header says so explicitly, and this session confirmed
+it: zero `ResolvedCell`/`CompositedCell`/`Background` hits, no `#include
+"core/resolve.hpp"` at all).** Its own three accept-criterion tests check
+k-buffer storage against a different, already-tested production path
+(plain `sumBanks()`) or against itself (order-independence,
+run-to-run self-consistency) — never against a hand-derived colour
+formula of its own, so `WU-34b`/ADR-084's "mirror the math independently"
+question does not apply here: there is no independent mirror to check for
+staleness, only a structural equivalence to an already-correct reference.
+Confirmed correct by inspection: `test_single_tag_matches_plain_sumBanks()`
+compares a single-tag k-buffer cell's `.R/.G/.B/.w` against `sumBanks()`'s
+own plain `AccumCell` for the identical fragments, which must agree bit-for-
+bit since both paths run the same `accumulateCorner()` arithmetic (I6);
+`test_same_tag_tied_z_order_independent()` and
+`test_eviction_self_consistent_not_oracle_checked()` check order-
+independence and run-to-run self-consistency, not a specific colour value,
+exactly as ADR-059's own accepted caveat requires. The `y`/`cb`/`cr`
+parameter names on `makeExactFrag()` (assigned straight into `Frag::R/G/B`)
+are a cosmetic naming leftover, not a numerical error — the same class of
+leftover `WU-44b`'s own entry found in `test_scan_order_invariance.cpp` and
+deliberately left untouched; left untouched here for the same reason
+(`SESSION-PROTOCOL.md` rule 2/8 forbid renaming or refactoring across
+module boundaries beyond a unit's own real job).
+
+**`test_kbuffer_resolve.cpp` (WU-28b, PASS 2 k-buffer resolve — the file
+this cluster's own name is really about).** Three parts, each hand-checked
+against `resolve.cpp`'s own real arithmetic (read above) before trusting
+any of them:
+
+- Part A (Opaque mode): checks nearest-`firstSeenZ`-wins and tie-breaking
+  by smallest tag, cross-checked against `composite()` of the winning cell
+  alone — a legitimate independent reference (not `compositeKBuffer()`'s
+  own arithmetic), since `composite()` is itself already independently
+  tested elsewhere (`test_layered_composite.cpp`, `WU-10`'s own original
+  tests) — this is the file's own documented strategy (its file header
+  says so explicitly), not a coincidental pass.
+- Part B (Blend mode): `test_blend_two_slots_matches_compositeLayered()`
+  and `test_blend_three_slots_matches_hand_ordered_chain()` cross-check
+  against `compositeLayered()`/chained `composite()` calls, the same
+  documented "independent already-tested reference" strategy as Part A.
+  `test_blend_known_ratio()` is the one case that hand-derives the
+  expected blend arithmetic directly (`front*half + back*(unity-half) +
+  unity/2, all /unity`) — checked by hand against `resolve.cpp`'s own
+  `blend()` this session and found to match exactly, not merely assumed to
+  because it compiles.
+- Part C (`test_kbuffer_pipeline_threads_1_matches_threads_8`): a real
+  `runFrame()` end-to-end run, `kBufferMode == Blend`, checking
+  `--threads 1` byte-identical to `--threads {2,3,8}` (I6) — this part
+  still constructs its source raster as `w.y`/`w.cb`/`w.cr` feeding
+  `SourceRaster::r/g/b`, and still reads the destination through
+  `video::Raster444`'s own `.Y`/`.Cb`/`.Cr` field names. This is the
+  standing `video::Raster444`-vs-`video::RasterRGB` naming question
+  `HANDOFF.md` already carries forward as Steve's own call, not re-opened
+  here — and it does not affect this part's own correctness, since it
+  never derives an expected *colour* value at all, only bit-identity
+  across thread counts, which is naming-agnostic.
+
+**No staleness found in either file — this unit's own real job turned out
+to be confirmation, not repair.** Both files' fixtures were already
+genuinely re-derived for RGB (or, for `test_kbuffer_storage.cpp`,
+never needed independent colour derivation in the first place), not
+coincidental survivors of the `WU-41` migration the way `test_binner.cpp`'s
+stale mirror was. No `tests/` or `src/` file content changed this session
+— only `WORK-UNITS.md` (this entry, plus the `WU-44c` split above) and
+`HANDOFF.md`.
+
+**Build/test: full twelve-configuration matrix**, matching `WU-44a`/`WU-44b`'s
+own practice even though this unit changes no test or source file — run to
+confirm, not assume, the "no fixture change needed" finding above holds
+empirically, not only on paper. Fresh `git clone` of `wu-44b-red`
+(`b679969`), confirmed identical to the real repository (`git status
+--short` empty, `HEAD == origin/main == b679969`) before any config was
+built; `git status --short` inside the sandbox clone stayed empty
+throughout, since no source or test file was touched. GCC 13.3.0 and Clang
+18.1.3, Release and Debug, tile 4 and tile 5 (eight), plus GCC+ASan alone
+and GCC+UBSan alone, each at both tile sizes (four more).
+
+| Configuration | Build | `ctest` | `test_kbuffer_storage` | `test_kbuffer_resolve` |
+|---|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 314 checks | PASS, 186944 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 314 checks | PASS, 186944 checks |
+| GCC, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 1082 checks | PASS, 186944 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 1082 checks | PASS, 186944 checks |
+| Clang, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 314 checks | PASS, 186944 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 314 checks | PASS, 186944 checks |
+| Clang, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 1082 checks | PASS, 186944 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 1082 checks | PASS, 186944 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 314 checks | PASS, 186944 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 1082 checks | PASS, 186944 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 314 checks | PASS, 186944 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 1082 checks | PASS, 186944 checks |
+
+**New finding this session, not previously logged anywhere:**
+`test_kbuffer_storage`'s own total check count depends on
+`SCATTER_TILE_LOG2` (314 at tile 4, 1082 at tile 5 — both tile-4/tile-5
+splits identical in every one of the twelve configurations above), the
+same tile-dependence `CORRECTIONS.md` C-033 already documented for
+`test_binner`. `test_kbuffer_resolve`'s own total (186944) is, by contrast,
+genuinely tile-invariant in every configuration — its own checks are
+either hand-built `KSlot` arrays with no tile geometry involved at all
+(Parts A/B) or a fixed 161x129-pixel `runFrame()` output compared
+channel-by-channel across a fixed set of thread counts (Part C), neither of
+which scales with `SCATTER_TILE_LOG2`. Not a correction to any existing
+claim (nobody had asserted either count before this unit), just a fresh,
+directly-checked baseline for whoever next needs one of these two counts.
+Zero warnings, zero sanitizer traps in all twelve configurations — grepped
+every `ctest --output-on-failure` log for `AddressSanitizer`/
+`UndefinedBehaviorSanitizer`/`runtime error:` (zero hits in all twelve),
+and confirmed via `nm` that the ASan/UBSan binaries for both test
+executables actually carry sanitizer symbols (26/29 and 7/14 case-
+insensitive `asan`/`ubsan` symbol hits respectively — instrumentation is
+real, not a silently-ignored flag).
+
+`test_zoneplate` (22 of 42537) and `test_pipeline_bytes` (3 of 42) fail
+identically to `wu-44b-red`'s own baseline in every configuration — outside
+this unit's own scope, unaffected since this unit touched neither file.
+26 of 28 tests pass in every one of the twelve configurations, identical to
+`wu-44b-red`'s own count — this unit changes no test's pass/fail state,
+only confirms two already-passing tests are passing for the right reasons.
+
+**Files, real:** `WORK-UNITS.md` (this entry, plus the `WU-44c` split
+above). `HANDOFF.md`. No `tests/` or `src/` file touched.
+
+**Depends on** WU-28a/WU-28b (the k-buffer storage/resolve functions under
+test), WU-42 (`core/resolve.hpp`/`.cpp`'s RGB reshape). **Not this unit's
+job, confirmed unaffected rather than silently left alone:** the `video::
+Raster444`-vs-`video::RasterRGB` naming question `test_kbuffer_resolve.cpp`
+Part C still carries, `test_zoneplate.cpp`/`test_pipeline_bytes.cpp`'s own
+red checks, and `WU-44c2`/`WU-44c3` (scoped below, not started this
+session even though this unit's own re-grep pass read both files in full to
+size the split — that reading is not a substitute for either sub-unit's own
+build/test verification and close-out, which remains that sub-unit's own
+job).
+
+*Status:* `red` — this unit's own two files were already fully green and
+stay fully green; the suite as a whole stays red (`test_zoneplate`,
+`test_pipeline_bytes`), unchanged, so `WU-44c1` closes with tag
+`wu-44c1-red`, not `-green`, for the same whole-phase reason `WU-44b`
+closed `wu-44b-red`. `WU-44c2`, `WU-44c3`, `WU-44d`, `WU-44e` remain.
+
+### WU-44c2 — `tests/test_layered_composite.cpp`: PASS 2 layered-composite colour fixtures `todo`
+**Scoped this session (re-grep above), not started.** 411 lines, 86
+combined hits (`AccumCell`=24, `CompositedCell`=14, `Background`=7,
+`.R/.G/.B`=41) — the single most colour-fixture-dense file in the whole
+`WU-44` split, confirmed directly rather than assumed from the original
+stub's lower count. Two parts by its own file header: Part A, direct
+hand-built-`AccumCell` unit tests of `compositeLayered()` against locally
+re-derived `expectedDivide()`/`expectedBlend()`/`expectedSum()` (this
+session hand-checked all three against `resolve.cpp`'s real
+`divideRounded()`/`blend()`/`sumCells()` while reading that file in
+full for `WU-44c1` above, and found them to match exactly — a real,
+already-performed check, not left for whoever starts this sub-unit to
+redo from scratch, though the formal build/test verification and close-out
+below is still this sub-unit's own job); Part B, a duplicated-locally
+page-turn-flap-over-page-behind pipeline scenario (per `SESSION-PROTOCOL.md`
+rule 2, not shared with `tests/test_pageturn.cpp`). Depends on WU-42
+(`core/resolve.hpp`/`.cpp`), WU-12b/ADR-029 (`compositeLayered()` itself).
+
+### WU-44c3 — `tests/test_pageturn.cpp`, `tests/test_shapes.cpp`: page-turn/shape pipeline colour touches `todo`
+**Scoped this session (re-grep above), not started.** `test_pageturn.cpp`
+(432 lines, 17 hits: `AccumCell`=9, `CompositedCell`=2, `.R/.G/.B`=6) and
+`test_shapes.cpp` (480 lines, 8 hits: `Background`=1, `.R/.G/.B`=7) are
+both mostly lattice/Jacobian geometry checks (WU-11/WU-12a's own accept
+criteria), with only incidental colour-domain content — read in full this
+session while scoping the split, above. Neither file hand-derives an
+independent colour-mirror formula the way `test_binner.cpp` (WU-44b) or
+`test_layered_composite.cpp` (WU-44c2) do: `test_pageturn.cpp`'s own
+colour check is an exact accumulation-sum identity (I6, componentwise
+`AccumCell` addition, no divide/blend involved) plus a `composite()`
+cross-check on accumulated *weight* magnitude, not a hand-computed colour
+value; `test_shapes.cpp`'s own `Background{fromCode10(64), fromCode10(512),
+fromCode10(512)}` (`runFlatSourceThroughLattice()`) is a locally-scoped,
+self-referential background constant — every check that reads it
+(`isBackground`, `inHull`) compares the destination raster against that
+same value it was itself constructed from, so the test's own pass/fail
+does not depend on what the triple actually is, only that it is
+distinguishable from the source colours used. Worth flagging plainly,
+not fixed here: that exact triple (`64, 512, 512`) is the pre-`WU-41`
+YCbCr-domain "legal black" value `core/resolve.hpp`'s own comment on
+`kDefaultBackground` and `CORRECTIONS.md` C-032 both describe — reused here
+as an arbitrary distinguishable constant, not asserted anywhere to *be*
+legal black, so it is not the numerical bug C-032 found in production code,
+but it is a confusing thing for a future reader to trip over (it looks
+like uncorrected legal-black math at a glance). Whether to rename/replace
+it for clarity is this sub-unit's own call, not decided here — a cosmetic
+question, not a correctness one, the same class of leftover `WU-44b`'s own
+entry chose to leave alone in `test_scan_order_invariance.cpp` rather than
+touch cosmetically. Depends on WU-42, WU-11/ADR-027, WU-12a/ADR-028.
 
 ### WU-44d — `tests/test_pipeline_bytes.cpp`, `test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`: full-pipeline integration fixtures `todo`
 **Scoped this session, not started.** Real file list: `test_pipeline_
