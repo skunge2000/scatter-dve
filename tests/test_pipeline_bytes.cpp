@@ -219,13 +219,37 @@ namespace {
 
 // Hand-composed reference matching what runFrameBytesDeinterlaced() must do
 // internally: unpackImage -> upsampleImage -> deinterlacer.push() ->
-// runFrame() -> downsampleImage -> packImage. Written independently of
-// core/pipeline.cpp's own body, not a copy of it — the same "independently
-// composed reference, not the unit's own internals" discipline this file's
-// own runFrameBytes()-vs-runFrameFile() check (above) already uses.
-// `deinterlacer` is the caller's own instance, exactly as
-// runFrameBytesDeinterlaced()'s own contract requires — a caller drives its
-// history by feeding it the same sequence of calls this helper is fed.
+// [RGB boundary conversion, input side] -> runFrame() -> [RGB boundary
+// conversion, output side] -> downsampleImage -> packImage. Written
+// independently of core/pipeline.cpp's own body, not a copy of it — the
+// same "independently composed reference, not the unit's own internals"
+// discipline this file's own runFrameBytes()-vs-runFrameFile() check
+// (above) already uses. `deinterlacer` is the caller's own instance,
+// exactly as runFrameBytesDeinterlaced()'s own contract requires — a
+// caller drives its history by feeding it the same sequence of calls this
+// helper is fed.
+//
+// WU-44d fixture fix: this reference predates WU-40/WU-41 (ADR-085) and
+// was never updated when core/pipeline.cpp's own runFrameBytesDeinterlaced()
+// gained the RGB boundary round trip (chroma::ycbcrToRgbImage() immediately
+// before runFrame(), chroma::rgbToYcbcrImage() immediately after) — this
+// helper used to feed progressive's own Y/Cb/Cr planes into SourceRaster
+// and warped's own Y/Cb/Cr planes straight to chroma downsample, both
+// unconverted. testpat::makeZonePlate()'s flat chroma (Cb=Cr=kChromaZero)
+// means the achromatic-identity part of that round trip is silent (R=G=B=Y
+// exactly, tests/test_chroma.cpp's own testAchromaticIdentity), but
+// PipelineParams::background (kDefaultBackground, R=G=B=kBlack in RGB) is
+// only achromatic-equivalent to kChromaZero-centred YCbCr black *through*
+// that same conversion — skipping it here composited the uncovered/
+// partially-covered destination cells the 0.7x/0.9x affine scales below
+// leave against the wrong "black" (kBlack relabelled directly onto
+// Y/Cb/Cr, rather than converted from achromatic RGB black), producing a
+// real, checked numeric mismatch against core/pipeline.cpp's own output —
+// not a hand-wave, and not the same root cause as tests/test_zoneplate.cpp's
+// I7 non-achromatic breakage (that is about the clamp on non-achromatic
+// *source* content; every source and background value reaching this
+// function is achromatic). See WORK-UNITS.md's own WU-44d entry for the
+// full derivation.
 bool referenceRunFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
                                          const Lattice& lattice,
                                          const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
@@ -247,22 +271,44 @@ bool referenceRunFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
     video::Raster444 progressive(srcWidth, srcHeight);
     if (!deinterlacer.push(weave, progressive)) return false;
 
+    // RGB boundary conversion, input side (WU-40/WU-41, ADR-085) — matches
+    // core/pipeline.cpp's own runFrameBytesDeinterlaced() exactly: applied
+    // to `progressive`, downstream of deinterlace, immediately before
+    // SourceRaster is built.
+    video::RasterRGB rgb(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(progressive.Y.data(), progressive.Cb.data(), progressive.Cr.data(),
+                             progressive.planeY().strideSamples, srcWidth, srcHeight,
+                             rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                             rgb.planeR().strideSamples);
+
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.r = progressive.Y.data();
-    src.g = progressive.Cb.data();
-    src.b = progressive.Cr.data();
+    src.r = rgb.R.data();
+    src.g = rgb.G.data();
+    src.b = rgb.B.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
 
+    // RGB boundary conversion, output side (WU-40/WU-41, ADR-085) — `warped`
+    // is genuine RGB mislabelled onto Raster444's Y/Cb/Cr fields (same
+    // standing video::Raster444-vs-video::RasterRGB naming question
+    // HANDOFF.md already carries forward); this converts it to genuine
+    // YCbCr before chroma downsample, matching core/pipeline.cpp exactly.
+    video::Raster444 ycbcr(params.destWidth, params.destHeight);
+    chroma::rgbToYcbcrImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                             warped.planeY().strideSamples,
+                             params.destWidth, params.destHeight,
+                             ycbcr.Y.data(), ycbcr.Cb.data(), ycbcr.Cr.data(),
+                             ycbcr.planeY().strideSamples);
+
     video::Raster422 out(params.destWidth, params.destHeight);
-    std::copy(warped.Y.begin(), warped.Y.end(), out.Y.begin());
-    chroma::downsampleImage(warped.Cb.data(), warped.planeCb().strideSamples,
+    std::copy(ycbcr.Y.begin(), ycbcr.Y.end(), out.Y.begin());
+    chroma::downsampleImage(ycbcr.Cb.data(), ycbcr.planeCb().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cb.data(), out.planeCb().strideSamples);
-    chroma::downsampleImage(warped.Cr.data(), warped.planeCr().strideSamples,
+    chroma::downsampleImage(ycbcr.Cr.data(), ycbcr.planeCr().strideSamples,
                              params.destWidth, params.destHeight,
                              out.Cr.data(), out.planeCr().strideSamples);
 
@@ -275,14 +321,25 @@ bool referenceRunFrameBytesDeinterlaced(video::Deinterlacer& deinterlacer,
 
 // Same as referenceRunFrameBytesDeinterlaced() above, except the output side
 // explicitly re-interlaces via video::extractField() (both parities) +
-// video::interleaveFields() over runFrame()'s own warped output, instead of
-// sending `warped` straight to chroma downsample. ADR-080's own proof (the
+// video::interleaveFields(), instead of sending the RGB-boundary-converted
+// YCbCr result straight to chroma downsample. ADR-080's own proof (the
 // row-index arithmetic in video/interlace.cpp's extractField()/
 // interleaveFields() reproduces its input exactly when both parities are
 // applied to the same source frame) predicts this produces byte-identical
 // dstBytes to the no-op path core/pipeline.cpp actually ships — checked
 // directly by test_deinterlaced_reinterlace_noop_matches_explicit_reinterlace()
 // below, not merely assumed from the ADR's own algebra.
+//
+// WU-44d fixture fix: same gap as referenceRunFrameBytesDeinterlaced()
+// above — this reference never called chroma::ycbcrToRgbImage()/
+// rgbToYcbcrImage() at all, so it re-interlaced `warped` (genuine RGB,
+// mislabelled onto Raster444's Y/Cb/Cr fields) rather than genuine YCbCr.
+// The explicit re-interlace pass below is moved to operate on `ycbcr` (the
+// real YCbCr raster, immediately after the RGB->YCbCr conversion) — the
+// same point architecture.md section 3's own signal path names for
+// "[re-interlace]" (PASS 2 -> [re-interlace] -> chroma decimate), and the
+// same point core/pipeline.cpp's own file comment identifies as where the
+// no-op is actually skipped. See WORK-UNITS.md's own WU-44d entry.
 bool referenceWithExplicitReinterlace(video::Deinterlacer& deinterlacer,
                                        const Lattice& lattice,
                                        const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
@@ -304,15 +361,34 @@ bool referenceWithExplicitReinterlace(video::Deinterlacer& deinterlacer,
     video::Raster444 progressive(srcWidth, srcHeight);
     if (!deinterlacer.push(weave, progressive)) return false;
 
+    // RGB boundary conversion, input side (WU-40/WU-41, ADR-085) — matches
+    // core/pipeline.cpp's own runFrameBytesDeinterlaced() exactly.
+    video::RasterRGB rgb(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(progressive.Y.data(), progressive.Cb.data(), progressive.Cr.data(),
+                             progressive.planeY().strideSamples, srcWidth, srcHeight,
+                             rgb.R.data(), rgb.G.data(), rgb.B.data(),
+                             rgb.planeR().strideSamples);
+
     SourceRaster src;
     src.width = srcWidth;
     src.height = srcHeight;
-    src.r = progressive.Y.data();
-    src.g = progressive.Cb.data();
-    src.b = progressive.Cr.data();
+    src.r = rgb.R.data();
+    src.g = rgb.G.data();
+    src.b = rgb.B.data();
 
     video::Raster444 warped(params.destWidth, params.destHeight);
     runFrame(lattice, src, params, warped);
+
+    // RGB boundary conversion, output side (WU-40/WU-41, ADR-085) — `warped`
+    // is genuine RGB mislabelled onto Raster444's Y/Cb/Cr fields; this
+    // converts it to genuine YCbCr, the representation the explicit
+    // re-interlace pass below operates on.
+    video::Raster444 ycbcr(params.destWidth, params.destHeight);
+    chroma::rgbToYcbcrImage(warped.Y.data(), warped.Cb.data(), warped.Cr.data(),
+                             warped.planeY().strideSamples,
+                             params.destWidth, params.destHeight,
+                             ycbcr.Y.data(), ycbcr.Cb.data(), ycbcr.Cr.data(),
+                             ycbcr.planeY().strideSamples);
 
     video::Raster444 topField(
         params.destWidth,
@@ -320,8 +396,8 @@ bool referenceWithExplicitReinterlace(video::Deinterlacer& deinterlacer,
     video::Raster444 bottomField(
         params.destWidth,
         video::fieldRowCount(params.destHeight, video::FieldParity::Bottom));
-    video::extractField(warped, video::FieldParity::Top, topField);
-    video::extractField(warped, video::FieldParity::Bottom, bottomField);
+    video::extractField(ycbcr, video::FieldParity::Top, topField);
+    video::extractField(ycbcr, video::FieldParity::Bottom, bottomField);
     video::Raster444 recombined(params.destWidth, params.destHeight);
     video::interleaveFields(topField, bottomField, recombined);
 

@@ -4557,21 +4557,214 @@ stay fully green; the suite as a whole stays red (`test_zoneplate`,
 `WU-44b`/`WU-44c1`/`WU-44c2` closed red. **`WU-44c` (`WU-44c1`+`WU-44c2`+
 `WU-44c3`) is now complete.** `WU-44d`, `WU-44e` remain.
 
-### WU-44d — `tests/test_pipeline_bytes.cpp`, `test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`: full-pipeline integration fixtures `todo`
-**Scoped this session, not started.** Real file list: `test_pipeline_
-bytes.cpp` (`SourceRaster`=2, `Raster444`=9, `Raster422`=4 — currently
-red, see `WU-44`'s own entry above for why its own three failing checks
-may be the same I7/non-achromatic root cause as `test_zoneplate.cpp`
-rather than a fixable stale fixture; check before assuming). `test_
-threading.cpp` (`Background`=1, `SourceRaster`=1, `Raster444`=5).
-`test_persistent_pool.cpp` (`SourceRaster`=1, `Raster444`=13). `test_
-field_pipeline.cpp` (`AccumCell`=2, `Background`=1, `SourceRaster`=6,
-`YCbCr`=6, `Raster444`=15). All four include `core/pipeline.hpp` and/or
-`core/resolve.hpp`/`core/binner.hpp`/`core/splat.hpp` directly (unlike the
-wire-domain files already cleared under `WU-44`'s own entry), confirming
-real PASS1/PASS2/pipeline-boundary involvement rather than a false-
-positive grep hit. Depends on WU-39–WU-42 (the whole production chain
-these integration tests exercise end to end).
+### WU-44d — `tests/test_pipeline_bytes.cpp`, `test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`: full-pipeline integration fixtures `red` (test_pipeline_bytes now green — genuine stale fixture found and fixed, unrelated to I7; the other three confirmed already correct)
+
+**Built this session.** Re-grepped directly before trusting the stub's own
+counts (C-027 — a scoping stub is a plan, not a fact), using the stub's
+own named query plus `YCbCr` (the stub's own `test_field_pipeline.cpp`
+count depended on a `YCbCr` hit that turned out not to exist any more —
+see below): `test_pipeline_bytes.cpp`=15 (`SourceRaster`=2, `Raster444`=9,
+`Raster422`=4 — matches the stub exactly), `test_threading.cpp`=7
+(`Background`=1, `SourceRaster`=1, `Raster444`=5 — matches exactly),
+`test_persistent_pool.cpp`=15 (`SourceRaster`=1, `Raster444`=14 — the
+stub's own `Raster444`=13 undercounted by one: line 106 has two
+`Raster444` occurrences on one line, `-oE` counts both, a bucketing
+difference, not a sign the file moved). `test_field_pipeline.cpp` real,
+this session: 27 (`AccumCell`=2, `CompositedCell`=1, `SourceRaster`=6,
+`Raster444`=15, `.R`=1, `.G`=1, `.B`=1) — genuinely different from the
+stub's own 30 (`AccumCell`=2, `Background`=1, `SourceRaster`=6,
+`YCbCr`=6, `Raster444`=15): the stub's own `Background`=1 and `YCbCr`=6
+do not exist anywhere in the file any more (`grep -n 'YCbCr\|Background'
+tests/test_field_pipeline.cpp` returns nothing), and the stub never
+counted `CompositedCell`=1 or the three `.R`/`.G`/`.B` hits, which do.
+`git log --oneline -- tests/test_field_pipeline.cpp` shows `WU-42`
+(`1297c19`) is the most recent commit touching this file, alongside
+`WU-41` and `WU-23a2b` — so this is real drift from the stub having been
+written before `WU-42`'s own rename touched this file's own
+`resolveParityIndependently()` helper (its `out.R`/`out.G`/`out.B` field
+reads, confirmed by direct read this session, already match current
+ADR-085 naming), not a sign anything is wrong with the file itself. A
+larger drift than any prior `WU-44c` sub-unit found against its own
+stub, logged here per this project's own standing discipline (C-032/
+C-033's own general lesson: a "such-and-such count" claim is worth a
+direct check, not a carried-forward trust), not escalated to
+`CORRECTIONS.md` — nothing shipped or misled a decision on this count,
+it only mis-scoped a stub.
+
+All four confirmed to `#include "core/pipeline.hpp"` and/or
+`core/resolve.hpp`/`core/binner.hpp`/`core/splat.hpp` directly (real
+PASS1/PASS2/pipeline-boundary involvement, not a false-positive grep
+hit), matching the stub's own claim. `src/core/resolve.hpp` (659 lines),
+`src/core/resolve.cpp` (187 lines) and `src/core/pipeline.cpp` (963
+lines) all read in full this session — `pipeline.cpp` specifically not
+read by any prior `WU-44c` sub-unit, and the orchestration file behind
+`runFrame()`/threading/pool behaviour `test_threading.cpp` and
+`test_persistent_pool.cpp` actually exercise. Nothing has moved in any
+of the three since `WU-42` (`1297c19`), confirmed directly.
+
+**Split judgment: no further split needed, confirmed against real
+content rather than the stub's own four-file grouping guess.** Combined
+64 hits across the four files (real re-grep total) is less dense than
+`test_layered_composite.cpp` alone (86, `WU-44c2`, one file) — but
+density was not this unit's real risk. What the real content shows:
+`test_threading.cpp` and `test_persistent_pool.cpp` never derive an
+independent expected *colour* value anywhere — both check bit-identity
+of `runFrame()`'s own output across thread counts / pool configurations
+against a `threads == 1` reference produced by the *same* call, so there
+is no independent mirror that could ever go stale under the ADR-085
+rename (the same structural-impossibility-of-staleness class `WU-44c1`'s
+own Part C found for `test_kbuffer_storage.cpp`). `test_field_pipeline.cpp`
+similarly never hand-derives a colour: its identity round-trip is exact
+bit-for-bit source-vs-dest (representation-agnostic), and its own
+`resolveParityIndependently()` cross-check calls production's own
+`composite()`/`splatTile()`/`sumBanks()` directly, the same "independent
+recomputation through already-tested public primitives" shape
+`test_coverage_capture.cpp` and `WU-44c1`'s own Part A/B already use.
+Only `test_pipeline_bytes.cpp` carries real risk (its own two
+hand-written reference functions, see below) — and that risk is exactly
+what `WU-44`'s own top-level entry already flagged this unit to
+investigate. Three of the four files turned out to be structurally
+incapable of staleness, confirmed by tracing each one's own check
+strategy, not assumed from a low hit count; one file needed the real
+investigative work this unit's own brief asked for. Retrospectively, the
+four-file grouping was justified — not by density, but by three of the
+four being cheap-to-confirm and one being the genuinely hard case — and
+splitting it further would not have saved real session work.
+
+**`test_threading.cpp`, `test_persistent_pool.cpp`, `test_field_pipeline.cpp`:
+confirmed already correct, no fixture change needed, no staleness
+possible by construction (see above) — read in full and traced this
+session, not assumed from the density argument alone.** None of the
+three is red; this session's own full matrix (below) confirms none of
+the three regressed and none needed a code change.
+
+**`test_pipeline_bytes.cpp` — this unit's own real job, investigation not
+confirmation, per `WU-44`'s own top-level entry's explicit instruction:
+"`WU-44d` should check this directly before assuming its own fixture
+work can turn this file green."** Its own three failing checks
+(`:406`, `:452`, `:552`, all `CHECK_ONCE(dstUnderTest == dstReference)`/
+`dstExplicit` inside `test_deinterlaced_matches_reference_and_first_push_
+is_a_noop()`, `test_deinterlaced_reinterlace_noop_matches_explicit_
+reinterlace()` and `test_deinterlaced_sd_geometry_sanity()`) all compare
+production `runFrameBytesDeinterlaced()` (`core/pipeline.cpp`) against
+this file's own two hand-written reference functions
+(`referenceRunFrameBytesDeinterlaced()`, `referenceWithExplicitReinterlace()`),
+never against a hand-derived colour value.
+
+**Traced, not assumed either way, per this unit's own brief:** `core/
+pipeline.cpp`'s own `runFrameBytesDeinterlaced()` (read in full this
+session, lines 787-892) calls `chroma::ycbcrToRgbImage()` immediately
+before `runFrame()` and `chroma::rgbToYcbcrImage()` immediately after
+(WU-40/WU-41, ADR-085's own RGB boundary conversion, confirmed against
+this file's own header comment, lines 17-89, which documents exactly
+this shape and the standing `video::Raster444`-vs-`video::RasterRGB`
+mislabelling it depends on). This file's own two reference functions —
+written before WU-40 existed and never updated — call neither: they
+feed `progressive.Y/Cb/Cr` straight into `SourceRaster::r/g/b` and
+`warped.Y/Cb/Cr` straight to chroma downsample, with no RGB conversion
+at either boundary. **This is a genuine, ordinary stale fixture, not the
+same root cause as `test_zoneplate.cpp`'s I7 non-achromatic breakage,**
+confirmed by tracing the actual divergence rather than assumed from the
+"non-achromatic content" surface similarity `WU-44`'s own entry flagged:
+`testpat::makeZonePlate()`'s own flat chroma (`Cb=Cr=kChromaZero`) means
+every value reaching this pipeline — source *and*
+`PipelineParams::background` (`kDefaultBackground`, `R=G=B=kBlack`) — is
+achromatic, so the RGB boundary conversion's clamp (the actual cause of
+I7's own breakage, `chroma.hpp`'s own comment, `resolve.hpp`'s own
+`runFrameFile()` doc) never engages here at all; I7/`test_zoneplate.cpp`
+is about non-achromatic *source* content, which this test never has.
+The real divergence is structural: skipping the conversion means the
+reference's own "G"/"B" channels (aliased `Cb`/`Cr`) get composited
+against `kBlack` (the RGB black value) at every uncovered/partially-
+covered destination cell the 0.7x/0.9x affine test lattices leave (all
+four of this file's `runFrameBytesDeinterlaced()`-exercising tests use a
+non-identity, non-full-coverage lattice) — instead of against
+achromatic-RGB-black converted back to genuine `kChromaZero`-centred
+YCbCr, which is what production's own real conversion produces. Two
+numerically different codes (`kBlack` vs `kChromaZero`, confirmed
+distinct in `core/types.hpp`/`INVARIANTS.md` I3), not a rounding-noise
+difference — real enough to fail a byte-exact `CHECK_ONCE`.
+
+**Fixed:** `referenceRunFrameBytesDeinterlaced()` and
+`referenceWithExplicitReinterlace()` (`tests/test_pipeline_bytes.cpp`)
+both gained the same two `chroma::ycbcrToRgbImage()`/`rgbToYcbcrImage()`
+calls production's own `runFrameBytesDeinterlaced()` makes, at the same
+relative position (input side: immediately after `deinterlacer.push()`,
+before `SourceRaster` is built; output side: immediately after
+`runFrame()`, before chroma downsample) — hand-matched line for line
+against `core/pipeline.cpp`'s own real body, not copied blind.
+`referenceWithExplicitReinterlace()`'s own explicit
+`extractField()`/`interleaveFields()` pass is moved to operate on the
+post-conversion genuine-YCbCr raster (`ycbcr`) rather than the
+pre-conversion mislabelled-RGB one (`warped`) — the point
+`docs/architecture.md` section 3's own signal path names for
+"[re-interlace]" (`PASS 2 -> [re-interlace] -> chroma decimate`), and the
+point `core/pipeline.cpp`'s own file comment identifies as where the
+no-op is actually skipped in the shipped path. No `src/` file touched —
+the bug was entirely in this test file's own two reference functions;
+production's `core/pipeline.cpp` was already correct, confirmed by
+tracing it, not assumed. 96 insertions, 20 deletions, one file — well
+inside `SESSION-PROTOCOL.md`'s own sizing rule.
+
+**Result: `test_pipeline_bytes` is now fully green, 42 of 42 checks, in
+every one of this session's own twelve configurations** (was 39 of 42,
+3 failing at `:406`/`:452`/`:552`, matching `WU-44`'s own entry and
+every prior `HANDOFF.md` baseline exactly before this fix). Checks 1 and
+2 in this file (`test_runframebytes_matches_runframefile_for_a_real_warp()`,
+`test_runframebytes_identity_round_trips_exactly()`) never touched the
+broken reference functions and were unaffected throughout, exactly as
+their own untouched pass/fail state already implied.
+
+## Build/test matrix — full twelve configurations (run to confirm, not assumed)
+
+Fresh `git clone` of `https://github.com/skunge2000/scatter-dve.git` into
+the cloud sandbox, confirmed at `HEAD = wu-44c3-red = 9c3a1ba` before any
+build; only `tests/test_pipeline_bytes.cpp` was ever edited there. GCC
+13.3.0 and Clang 18.1.3, Release and Debug, tile 4 and tile 5 (eight),
+plus GCC + ASan alone and GCC + UBSan alone, each at both tile sizes
+(four more) — twelve total, not two combined
+`-fsanitize=address,undefined` builds.
+
+| Configuration | Build | `ctest` | `test_pipeline_bytes` | `test_threading` | `test_persistent_pool` | `test_field_pipeline` |
+|---|---|---|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC, Release, tile 5 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| Clang, Release, tile 4 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| Clang, Release, tile 5 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 27/28 pass | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 27/28 pass, no sanitizer trap | PASS, 42 checks | PASS, 1497677 checks | PASS, 2562778 checks | PASS, 27654 checks |
+
+Twelve rows, zero real warnings (the same harmless configure-time
+`CMAKE_C_COMPILER` `CMake Warning` every prior `WU-44` sub-unit's own
+matrix already reports, not a compiler diagnostic — this is a pure C++
+project), zero sanitizer traps — grepped every `ctest
+--output-on-failure` log for `AddressSanitizer`/`UndefinedBehaviorSanitizer`/
+`runtime error:` (zero hits across all twelve), and confirmed via `nm -D`
+(dynamic symbol table — a dynamically-linked PIE executable's own
+sanitizer interceptors live there, not in `nm`'s default static-symbol
+view, a wrinkle this session found and worked around, unlike prior
+sub-units' plain `nm`) that the ASan/UBSan binaries genuinely carry
+sanitizer instrumentation (28 and 14 case-insensitive `asan`/`ubsan`
+dynamic-symbol hits respectively, plus `ldd` confirming
+`libasan.so.8`/`libubsan.so.1` are actually linked), not inferred from a
+clean `ctest` result alone. All four of this unit's own files are
+genuinely tile-invariant, confirmed directly (identical check counts at
+tile 4 and tile 5 in every case above). `test_zoneplate` (22 of 42537)
+fails identically to `wu-44c3-red`'s own baseline in every configuration
+— this unit touched neither `test_zoneplate.cpp` nor any file it
+depends on. **27 of 28 tests pass in every configuration — one more
+than `wu-44c3-red`'s own 26/28, `test_pipeline_bytes` now counted among
+the passing 27, `test_zoneplate` the suite's own sole remaining red
+test.**
+
+Depends on WU-39–WU-42 (the whole production chain these integration
+tests exercise end to end).
 
 ### WU-44e — `tests/test_lighting.cpp`, `test_coarse_shading.cpp`, `test_morph.cpp`: found empty this session `todo` (verify, likely no-op)
 **Scoped this session, not started — and this session's own real grep
