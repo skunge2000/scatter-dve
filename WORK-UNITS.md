@@ -3733,13 +3733,16 @@ confirmed directly this session, not assumed, by re-grepping the real
 `tests/` tree against the real, already-landed `WU-39`–`WU-42` code rather
 than trusting the stub. Split below into `WU-44a`–`WU-44e`, this project's
 own established convention for an oversized unit (see `WU-23a2a`/
-`WU-23a2b`, `WU-28a`–`d`). **`WU-44a` is built this session (see its own
-entry); `WU-44b`–`WU-44e` are scoped from a real repository-wide check but
-not started — per this session's own instruction, only one cluster is
-implemented per session.** "Green after every unit" (ADR-085 §5) still
-resumes only once every `WU-44` sub-unit lands, not at `WU-44a` alone —
-`test_binner`, `test_zoneplate` and `test_pipeline_bytes` are all still
-red after this session, unchanged in substance (see `WU-44a`'s own entry).
+`WU-23a2b`, `WU-28a`–`d`). **`WU-44a` (Session 61) and `WU-44b` (Session 62)
+are both built (see their own entries); `WU-44c`–`WU-44e` are scoped from a
+real repository-wide check but not started — per each of those sessions'
+own instruction, only one cluster is implemented per session.** "Green
+after every unit" (ADR-085 §5) still resumes only once every `WU-44`
+sub-unit lands, not at `WU-44b` alone — `test_binner` turned fully green
+this session (`WU-44b`, see its own entry), but `test_zoneplate` and
+`test_pipeline_bytes` are both still red, unchanged in substance, and both
+outside any `WU-44` sub-unit's own scope (Steve's own call — see
+`HANDOFF.md`).
 
 **Re-derivation method used to scope every sub-unit below, real not
 assumed:** `grep -rln 'ResolvedCell\|CompositedCell\|\bSourceRaster\b\|
@@ -3878,26 +3881,137 @@ none of which this unit's own scope could affect). Tag `wu-44a-red`, not
 green, and none of the three red tests' own failures are in this unit's
 own scope to fix.
 
-### WU-44b — `tests/test_binner.cpp`, `test_splat.cpp`, `test_scan_order_invariance.cpp`: PASS 1 fragment/splat colour fixtures `todo`
-**Scoped this session, not started.** Real file list, re-derived directly
-(see `WU-44`'s own entry above for method): `test_binner.cpp` (`Frag`=29,
-`SourceRaster`=5, `.R/.G/.B`=7, `Raster444`=6 hits) — **owns the shading-
-mirror fixture at `test_binner.cpp:794`/`:795`, the same two checks that
-make `test_binner` currently red** (`CORRECTIONS.md` C-033, `WORK-UNITS.md`
-WU-43's own entry: "shading-mirror fixture staleness — WU-44's own job").
-`test_splat.cpp` (`Frag`=17, `AccumCell`=20, `.R/.G/.B`=17). `test_scan_
-order_invariance.cpp` (`AccumCell`=10, `SourceRaster`=4, `.R/.G/.B`=3).
-`test_ewa.cpp`, `test_jacobian.cpp` checked and confirmed to need no work
-(zero signal — pure geometry, never touches a colour field; see `WU-44`'s
-own entry). This is the one sub-unit that can plausibly turn a currently-
-red test (`test_binner`) fully green — check this directly before
-assuming it, the same discipline `WU-44a` applied to its own scope, per
-this unit's own re-scoped acceptance criteria once someone starts it.
-Depends on WU-39 (`Frag`/`AccumCell` rename), WU-40 (`applyShading()`'s
-RGB round trip). Whoever starts this should re-grep first (this session's
-own list may already be stale by then) and split further if `test_binner`
-alone plus its own dependent fixtures do not fit `SESSION-PROTOCOL.md`'s
-sizing rule.
+### WU-44b — `tests/test_binner.cpp`, `test_splat.cpp`, `test_scan_order_invariance.cpp`: PASS 1 fragment/splat colour fixtures `red` (test_binner itself now green)
+**Built this session (Session 62).** Re-grepped before writing anything,
+per this unit's own prior-session instruction that the file list "may
+already be stale by then" — it was not: `grep -rn '\bFrag\b\|\bAccumCell\b\|
+\bSourceRaster\b\|\.\(R\|G\|B\)\b' tests/test_binner.cpp tests/test_splat.cpp
+tests/test_scan_order_invariance.cpp`, cross-checked against a fresh clone
+of `wu-44a-red`, reproduced the exact same counts Session 61 recorded
+(`test_binner.cpp`: `Frag`=29, `SourceRaster`=5, `.R/.G/.B`=7, `Raster444`=6;
+`test_splat.cpp`: `Frag`=17, `AccumCell`=20, `.R/.G/.B`=17;
+`test_scan_order_invariance.cpp`: `AccumCell`=10, `SourceRaster`=4,
+`.R/.G/.B`=3) — file list confirmed current, not stale. `src/core/binner.
+cpp`/`.hpp` and `src/core/splat.cpp`/`.hpp` read in full and confirmed
+unchanged since `WU-39`–`WU-42` landed (nothing has moved).
+
+**The real job, confirmed by inspection before any fixture was touched:**
+`test_binner.cpp`'s own two red checks (`test_binner.cpp:794`/`:795`,
+`CORRECTIONS.md` C-033, `WU-43`'s own entry: "shading-mirror fixture
+staleness — WU-44's own job") live inside
+`test_shading_multiplies_rgb_intensity_ahead_of_frag_construction()`. That
+test's own independent mirror of `applyShading()` (`mirrorToRgbBt601`/
+`mirrorFromRgbBt601`) was a full BT.601 YCbCr round trip predating `WU-41`'s
+RGB-native migration — at the time it was written, `SourceRaster`'s r/g/b
+fields really did hold Y/Cb/Cr content and `applyShading()` really did do a
+YCbCr→RGB→multiply→YCbCr round trip (`WU-34b`/ADR-084). `WU-41` changed
+both sides — `SourceRaster` now holds genuine RGB, and `core/binner.cpp`'s
+own `applyShading()` is now a bare `Colour{c.r*intensity, c.g*intensity,
+c.b*intensity}` per-channel scale, confirmed by reading that function
+directly (see its own comment: "a bare per-channel scale, no coefficient
+choice, no round trip, nothing left to convert") — but the test's own
+mirror was never updated to match, so it was feeding the raw uniform
+fixture values (`R=20000, G=40000, B=25000`) through a YCbCr-domain
+formula that no longer describes what the raw values *are* or what
+`applyShading()` *does* to them. Hand-verified numerically before writing
+any fix (not assumed): the stale mirror's own `mirrorToRgbBt601(20000,
+40000-32768, 25000-32768)` computes `(9109.264, 23058.617, 32815.104)` —
+nothing close to the raw `(20000, 40000, 25000)` the production function
+actually scales directly. (Why only 2 of the 3 per-channel checks were
+failing, not 3 of 3, was not investigated further — the fixture's whole
+premise was wrong, so the exact split of accidental near-agreement on one
+channel was not this unit's business to explain, only to fix.)
+
+**Fix: replaced the stale YCbCr round-trip mirror with a direct RGB-domain
+one, independently written (never calling `core/binner.cpp`'s own private
+`applyShading()`), matching `WU-34b`/ADR-084's "mirror the math
+independently" precedent and `WU-44a`'s own application of it last
+session:** `mirrorApplyShadingRgb(RGB c, double intensity) -> RGB{c.r*
+intensity, c.g*intensity, c.b*intensity}` — the same bare per-channel scale
+`applyShading()`'s own comment describes, written fresh rather than copied
+from that file. The fixture's three source planes (`yPlane`/`cbPlane`/
+`crPlane`, holding literal RGB values under stale names) renamed to
+`rPlane`/`gPlane`/`bPlane`; the two now-dead YCbCr-domain intermediates
+(`mirrorToRgbBt601`/`mirrorFromRgbBt601`, and this test's own
+`expectedYSample`/`expectedCbSample`/`expectedCrSample`) removed entirely
+rather than left dangling. `kChromaZero` (the wire-domain chroma-zero
+constant, still legitimately used elsewhere at the v210/chroma boundary —
+confirmed by repo-wide grep before assuming it should be touched anywhere
+else) is no longer referenced anywhere in `test_binner.cpp`: this fixture's
+data was never really chroma to begin with, once `WU-41` landed.
+`test_splat.cpp` and `test_scan_order_invariance.cpp` checked directly and
+confirmed to carry no equivalent staleness (`grep -n 'YCbCr\|BT601\|BT.601\|
+mirrorTo\|mirrorFrom\|Cb\b\|Cr\b\|chroma'` against both: zero hits in
+`test_splat.cpp`; `test_scan_order_invariance.cpp`'s own `SignatureRaster`
+still names two filler planes `cb`/`cr` and seeds them with `kChromaZero`,
+but only as an arbitrary constant filler for a scan-order bit-identity
+check that never derives an expected *value* from them — a naming
+leftover, not a numerical error, and left untouched rather than renamed
+purely for cosmetic consistency, per this project's own scope discipline).
+
+**Files, real:** `tests/test_binner.cpp` (44 insertions, 43 deletions, one
+file — well inside `SESSION-PROTOCOL.md`'s sizing rule). `WORK-UNITS.md`
+(this entry, plus the `WU-44` amendment above). `HANDOFF.md`. No `src/`
+file touched — `applyShading()`'s own real formula was correct; only the
+test's independent mirror of it was stale.
+
+**Build/test: full twelve-configuration matrix** (GCC 13.3.0 / Clang
+18.1.3, Release/Debug, tile 4/tile 5 — eight — plus GCC+ASan alone and
+GCC+UBSan alone, each at both tile sizes — four more, matching `WU-44a`'s
+own confirmed twelve-row breakdown). Fresh `git clone` of
+`wu-44a-red`, confirmed identical to the real repository before any edit;
+`git diff --stat` after applying this session's own change showed exactly
+`tests/test_binner.cpp`, nothing else. Clean in all twelve: zero warnings,
+zero sanitizer traps (checked directly against every test binary's own
+`ctest --output-on-failure` log for `AddressSanitizer`/
+`UndefinedBehaviorSanitizer`/`runtime error:`, and independently confirmed
+the ASan/UBSan binaries actually carried sanitizer instrumentation via
+`nm | grep asan`/`ubsan` rather than assuming the compiler flag took
+effect). `test_binner` itself: **PASS in all twelve, 0 of 10963 checks
+failed at tile 4, 0 of 39139 at tile 5** — both totals match `C-033`'s own
+tile-dependent baseline exactly, confirming this fix changed only the
+correctness of the six shading checks, not the fixture's own check count
+or shape. `test_zoneplate` (22 of 42537) and `test_pipeline_bytes` (3 of
+42) unchanged in every configuration, identical lines and counts to
+`wu-44a-red`'s own baseline — this unit's own change cannot have affected
+either (it touches no file either test depends on).
+
+| Configuration | Build | `ctest` | `test_binner` |
+|---|---|---|---|
+| GCC, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 10963 checks |
+| GCC, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 10963 checks |
+| GCC, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 39139 checks |
+| GCC, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 39139 checks |
+| Clang, Release, tile 4 | clean, no warnings | 26/28 pass | PASS, 10963 checks |
+| Clang, Debug, tile 4 | clean, no warnings | 26/28 pass | PASS, 10963 checks |
+| Clang, Release, tile 5 | clean, no warnings | 26/28 pass | PASS, 39139 checks |
+| Clang, Debug, tile 5 | clean, no warnings | 26/28 pass | PASS, 39139 checks |
+| GCC + ASan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 10963 checks |
+| GCC + ASan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 39139 checks |
+| GCC + UBSan only, tile 4 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 10963 checks |
+| GCC + UBSan only, tile 5 | clean, no warnings | 26/28 pass, no sanitizer trap | PASS, 39139 checks |
+
+26 of 28 tests pass now, up from 25 of 28 at `wu-44a-red` — `test_binner`
+is the one that moved. `test_zoneplate` and `test_pipeline_bytes` are the
+two still-failing tests in every row above, both outside this unit's own
+scope (see "Flag for Steve" below).
+
+**Depends on** WU-39 (`Frag`/`AccumCell` rename), WU-40 (`applyShading()`'s
+RGB round trip). **Not this unit's job, confirmed unaffected rather than
+silently left alone:** `test_zoneplate.cpp`'s own three red checks (I7
+non-achromatic breakage) and `test_pipeline_bytes.cpp`'s own three red
+checks (possibly the same root cause, `WU-44d`'s own job to check) —
+neither file is in this unit's own scope, neither was touched, and this
+session did not investigate whether they share a root cause (that
+investigation is explicitly `WU-44d`'s own job per `WU-44`'s entry above,
+not re-opened here).
+
+*Status:* `red` — `test_binner` itself is fully green, but the suite as a
+whole stays red (`test_zoneplate`, `test_pipeline_bytes`), so `WU-44b`
+closes with tag `wu-44b-red`, not `wu-44b-green`: ADR-085 §5's "green after
+every unit" resumption is a whole-`WU-44`-phase property, not a per-test
+one, and ADR-085 §5 has not been re-read to say otherwise. `WU-44c` through
+`WU-44e` remain.
 
 ### WU-44c — `tests/test_kbuffer_resolve.cpp`, `test_kbuffer_storage.cpp`, `test_layered_composite.cpp`, `test_pageturn.cpp`, `test_shapes.cpp`: PASS 2 resolve/composite colour fixtures `todo`
 **Scoped this session, not started — likely too large for one session as

@@ -669,28 +669,28 @@ static void test_field_rows_reject_naive_half_height_extraction_bug() {
 
 namespace {
 
-// Independent reimplementation of applyShading()'s own BT601 RGB round trip
-// (core/binner.cpp) -- not calling into that file's own private helper, the
-// same discipline tests/test_coarse_shading.cpp already uses for its own
-// production-formula mirrors. Kr/Kg/Kb are the ordinary ITU-R BT.601 luma
-// coefficients (DECISIONS.md ADR-084's own default).
+// RGB triple used by this fixture's own independent shading mirror below.
 struct RGB {
     double r, g, b;
 };
 
-RGB mirrorToRgbBt601(double y, double cbDelta, double crDelta) {
-    constexpr double kKr = 0.299, kKg = 0.587, kKb = 0.114;
-    const double r = y + 2.0 * (1.0 - kKr) * crDelta;
-    const double b = y + 2.0 * (1.0 - kKb) * cbDelta;
-    const double g = (y - kKr * r - kKb * b) / kKg;
-    return RGB{r, g, b};
-}
-
-void mirrorFromRgbBt601(const RGB& c, double& y, double& cb, double& cr) {
-    constexpr double kKr = 0.299, kKg = 0.587, kKb = 0.114;
-    y = kKr * c.r + kKg * c.g + kKb * c.b;
-    cb = (c.b - y) / (2.0 * (1.0 - kKb)) + double(kChromaZero);
-    cr = (c.r - y) / (2.0 * (1.0 - kKr)) + double(kChromaZero);
+// Independent reimplementation of applyShading()'s own real formula
+// (core/binner.cpp) -- not calling into that file's own private helper, the
+// same discipline tests/test_coarse_shading.cpp already uses for its own
+// production-formula mirrors. This replaces a stale pre-ADR-085 BT.601
+// YCbCr round-trip mirror (`mirrorToRgbBt601`/`mirrorFromRgbBt601`) that
+// this test carried from before WU-41's RGB-native migration: WU-41 made
+// `SourceRaster`'s own r/g/b fields genuine RGB, not Y/Cb/Cr, and
+// applyShading() itself became a bare per-channel scale with no conversion
+// and no coefficient choice left in it at all (see core/binner.cpp's own
+// comment above applyShading() for the full reasoning) -- so the mirror
+// here is the same bare per-channel scale, independently written rather
+// than calling applyShading() itself, matching WU-34b/ADR-084's own
+// "mirror the math independently" precedent and WU-44a's application of it
+// this phase (CORRECTIONS.md C-033, WORK-UNITS.md's own WU-43/WU-44/WU-44b
+// entries all flagged this fixture's own staleness as WU-44b's job).
+RGB mirrorApplyShadingRgb(const RGB& c, double intensity) noexcept {
+    return RGB{c.r * intensity, c.g * intensity, c.b * intensity};
 }
 
 // Same fixture scene tests/test_coarse_shading.cpp's own
@@ -735,16 +735,19 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
     const double expectedI = grid.sample(64.0, 64.0);  // any (u, v): constant grid
 
     // A uniform, non-degenerate source colour -- avoids bilinear
-    // interpolation entirely and isolates the shading math itself.
-    std::vector<Sample> yPlane(std::size_t(W) * std::size_t(H), Sample(20000));
-    std::vector<Sample> cbPlane(std::size_t(W) * std::size_t(H), Sample(40000));
-    std::vector<Sample> crPlane(std::size_t(W) * std::size_t(H), Sample(25000));
+    // interpolation entirely and isolates the shading math itself. WU-41:
+    // SourceRaster's own r/g/b fields are genuine RGB, not Y/Cb/Cr, so
+    // these three planes are literal R/G/B values with no chroma-zero
+    // offset to account for.
+    std::vector<Sample> rPlane(std::size_t(W) * std::size_t(H), Sample(20000));
+    std::vector<Sample> gPlane(std::size_t(W) * std::size_t(H), Sample(40000));
+    std::vector<Sample> bPlane(std::size_t(W) * std::size_t(H), Sample(25000));
     SourceRaster src;
     src.width = W;
     src.height = H;
-    src.r = yPlane.data();
-    src.g = cbPlane.data();
-    src.b = crPlane.data();
+    src.r = rPlane.data();
+    src.g = gPlane.data();
+    src.b = bPlane.data();
 
     SupersampleConfig ss;
 
@@ -755,17 +758,15 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
     generateFragments(lat, src, /*maxK=*/1000.0, ss, /*tag=*/0, shadedBins,
                        &grid);
 
-    // Independent expected value: convert the known uniform source colour to
-    // RGB, scale by expectedI, convert back -- a separate reimplementation
-    // of applyShading()'s own math, not a call into it.
-    const RGB rgb = mirrorToRgbBt601(20000.0, 40000.0 - double(kChromaZero),
-                                      25000.0 - double(kChromaZero));
-    const RGB scaled{rgb.r * expectedI, rgb.g * expectedI, rgb.b * expectedI};
-    double expectedY = 0.0, expectedCb = 0.0, expectedCr = 0.0;
-    mirrorFromRgbBt601(scaled, expectedY, expectedCb, expectedCr);
-    const Sample expectedYSample = clampRoundToSample(expectedY);
-    const Sample expectedCbSample = clampRoundToSample(expectedCb);
-    const Sample expectedCrSample = clampRoundToSample(expectedCr);
+    // Independent expected value: scale the known source RGB colour by
+    // expectedI directly -- a separate reimplementation of applyShading()'s
+    // own math (a bare per-channel multiply, WU-41/ADR-085), not a call
+    // into it.
+    const RGB rgb{20000.0, 40000.0, 25000.0};
+    const RGB scaled = mirrorApplyShadingRgb(rgb, expectedI);
+    const Sample expectedRSample = clampRoundToSample(scaled.r);
+    const Sample expectedGSample = clampRoundToSample(scaled.g);
+    const Sample expectedBSample = clampRoundToSample(scaled.b);
 
     // Both TileBins were built from the identical lattice/raster -- only
     // colour should differ between them, fragment for fragment, in the same
@@ -788,11 +789,11 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
                 CHECK_ONCE(unshaded[i].G == Sample(40000));
                 CHECK_ONCE(unshaded[i].B == Sample(25000));
 
-                // Shaded path: matches the independent RGB-round-trip
-                // mirror above, within +/-1 code of independent rounding.
-                CHECK_ONCE(std::fabs(double(shaded[i].R) - double(expectedYSample)) <= 1.0);
-                CHECK_ONCE(std::fabs(double(shaded[i].G) - double(expectedCbSample)) <= 1.0);
-                CHECK_ONCE(std::fabs(double(shaded[i].B) - double(expectedCrSample)) <= 1.0);
+                // Shaded path: matches the independent RGB shading mirror
+                // above, within +/-1 code of independent rounding.
+                CHECK_ONCE(std::fabs(double(shaded[i].R) - double(expectedRSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].G) - double(expectedGSample)) <= 1.0);
+                CHECK_ONCE(std::fabs(double(shaded[i].B) - double(expectedBSample)) <= 1.0);
 
                 // Position, weight, depth and tag are untouched by shading --
                 // only colour differs between the two calls.
@@ -812,8 +813,8 @@ static void test_shading_multiplies_rgb_intensity_ahead_of_frag_construction() {
     // to rounding, so a near-1.0 intensity could pass even with the
     // multiply silently skipped).
     CHECK(std::fabs(expectedI - 1.0) > 0.05);
-    CHECK(expectedYSample != Sample(20000) || expectedCbSample != Sample(40000) ||
-          expectedCrSample != Sample(25000));
+    CHECK(expectedRSample != Sample(20000) || expectedGSample != Sample(40000) ||
+          expectedBSample != Sample(25000));
 }
 
 static void test_shading_grid_defaults_to_null_and_preserves_existing_output() {
