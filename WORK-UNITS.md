@@ -1910,7 +1910,16 @@ DeckLink-linked, so no compiler in this project's own cloud sandbox can
 check it; Steve's own real-terminal build is its first compile of any
 kind).
 
-### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `built, unverified`
+### WU-23b1 — Weston 3-field de-interlace: filter core, `video::Deinterlacer` `green` (`wu-23b1-green`)
+Status line corrected doc-only, Session 68, while investigating an
+unrelated question (WU-28d) surfaced a `git tag -l` sweep of every
+`todo`/`unverified`/`unbuilt` label against the real repository --
+`wu-23b1-green` confirmed present directly, an ancestor of `HEAD`,
+committed 2026-08-23, not assumed from this line's own stale text (it
+never got updated after the real close). Not touching any of this
+unit's own source files, the same kind of correction Session 35 made
+for WU-28a's own stale status line and Session 37 made for WU-28b's,
+and the same one this session's own WU-21i entry already records.
 Built this session (`DECISIONS.md` ADR-079). Scoped in the immediately
 preceding session (`DECISIONS.md` ADR-078) after confirming the real
 source (`libavfilter/vf_w3fdif.c`, BBC R&D's Weston 3-field algorithm —
@@ -1993,7 +2002,12 @@ run (GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and 2^5,
 plus GCC 13 ASan/UBSan at both tile sizes, this project's own standard
 portable-unit matrix) before `wu-23b1-green`. See `HANDOFF.md`.
 
-### WU-23b2a — Weston 3-field de-interlace: `runFrameBytesDeinterlaced()` orchestration entry point `built, cloud-sandbox green`
+### WU-23b2a — Weston 3-field de-interlace: `runFrameBytesDeinterlaced()` orchestration entry point `green` (`wu-23b2a-green`)
+Status line corrected doc-only, Session 68 -- same sweep, same method,
+as WU-23b1's own correction directly above: `wu-23b2a-green` confirmed
+present directly via `git tag`, an ancestor of `HEAD`, committed
+2026-08-23, real-terminal build/tag done and never reflected back into
+this line's own text.
 Scoped this session (`DECISIONS.md` ADR-080), splitting WU-23b2 per
 `SESSION-PROTOCOL.md`'s 3-source-file cap — the full wiring touches four
 source files, one over the cap, and splits along the seam ADR-080's own
@@ -2085,7 +2099,14 @@ edits are not delivered until pushed" discipline) — needs Steve's own
 real-terminal `cmake --build`/`ctest` run and manual tag before
 `wu-23b2a-green`. See `HANDOFF.md`.
 
-### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `written, entirely unbuilt`
+### WU-23b2b — Weston 3-field de-interlace: `CaptureConsumer` wiring `green` (`wu-23b2b-green`)
+Status line corrected doc-only, Session 68 -- same sweep, same method,
+as WU-23b1/WU-23b2a's own corrections above: `wu-23b2b-green`
+confirmed present directly via `git tag`, an ancestor of `HEAD`,
+committed 2026-08-24 -- Steve's own real-terminal build (this unit's
+own first compile of any DeckLink-linked code, per the body below)
+succeeded and was tagged, never reflected back into this line's own
+text.
 Scoped this session (`DECISIONS.md` ADR-080) alongside WU-23b2a, above —
 genuinely depends on WU-23b2a's own actual `runFrameBytesDeinterlaced()`
 signature, now built and cloud-sandbox green. Written this same session,
@@ -2168,7 +2189,16 @@ WU-23b2a. See `HANDOFF.md` for the exact build/test/commit/tag/push
 sequence.
 
 ### WU-24 — Adaptive supersampling `todo`
-### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo`
+### WU-25 — 1080p25, then 1080p50; tile-size tuning `todo` (paused --
+Steve's own scope decision, Session 68: held until the full SD
+recreation is complete, consistent with the project's own already-
+standing stay-in-SD-domain verification standard used elsewhere
+(`DECISIONS.md`, WU-23b2a/WU-23b2b's own `Accept:` lines --
+"576i25/625i50, not 1080i"). Not renumbered, not dropped, not
+reasoned through further -- a priority call, not a technical one; the
+project's own target hardware (Quantel DPM-8001 Mirage) was never
+1080p to begin with, so this unit only becomes relevant once the SD
+recreation itself is done. Revisit then.)
 
 ---
 
@@ -2575,9 +2605,22 @@ WU-21i's own by-eye accept criteria for letter-key controls already are),
 since no automated test can observe an SDI monitor. Fixed for real once
 WU-28c lands.
 
-*Status:* named this session so the second half of the gap (feature built
-but never switched on for real content) is not lost either. No code
-written. See `HANDOFF.md`.
+*Status:* **superseded by `WU-35a` before ever being built, run,
+committed or tagged**, Session 68 (`DECISIONS.md` ADR-087,
+`WORK-UNITS.md` `WU-35a` below). This unit's own target was always
+the shipped, pre-research binary `Opaque`/`Blend` `compositeKBuffer()`
+(WU-28a/WU-28b) -- correct for `Opaque` (`T = 0` matches `E1`'s real
+attested behaviour) but a known placeholder for `Blend` (ADR-072: no
+transparency coefficient, no `Manual`/`Auto`/`Ext. Key` distinction).
+Once ADR-087 licensed proceeding on ADR-072's own `[P]`-tier
+transparency-coefficient rule, building this placeholder first would
+have meant touching `tests/test_decklink_live_sphere.cpp`'s own control
+scheme twice for no benefit -- once for a toggle known to be a
+stand-in, again shortly after to replace it. `tests/test_decklink_live_sphere.cpp`
+is now `WU-35a`'s own file, not this entry's -- see below. Nothing
+from this entry was ever run for real, so nothing here needed a
+correction. Not a defect in WU-28c's own API, which this unit's own
+`Accept:` line above still describes accurately as far as it goes.
 
 ### WU-29 — Environment map `todo`
 **Premise check, WU-36 (this sweep, `docs/wu-audit-2026-08.md`):** F2/ADR-069
@@ -2837,14 +2880,16 @@ Not scoped past this note — in particular, whether this supersedes
 `WU-28b`'s `compositeKBuffer()` outright or sits alongside it as a second,
 opt-in resolve mode is this unit's own first design question, not decided
 here. **Do not implement any part of this unit as a side effect of scoping
-it** — `ADR-074`'s M1/M2 choice is not yet settled (blocked on
-`docs/sources/WU-SM-02.md` Task A1, UK 2,158,671 in full) and building
-ahead of that would risk exactly the "silently make `Trail` and `Opaque`
-work together" mistake `docs/sources/WU-SM-02.md` fixture 31 exists to
-catch. Depends on WU-26 (depth gradient), WU-28a/WU-28b (the k-buffer
-storage this either extends or sits beside), and (soft dependency, for
-validation) WU-33 (front/back source pair — fixture 21/23 need real
-front/back content to exercise arbitration against, not just tags).
+it** — building ahead of ADR-074's own still-unsettled M1/M2 choice would
+risk exactly the "silently make `Trail` and `Opaque` work together"
+mistake `docs/sources/WU-SM-02.md` fixture 31 exists to catch. Task A1
+(UK 2,158,671 in full) is **actioned, not open** — see "Task A1 finding,
+Session 68" below; it licenses a `[P]` choice, it does not confirm one, so
+this instruction stands. Depends on WU-26 (depth gradient), WU-28a/WU-28b
+(the k-buffer storage this either extends or sits beside), and (soft
+dependency, for validation) WU-33 (front/back source pair — fixture 21/23
+need real front/back content to exercise arbitration against, not just
+tags).
 
 **Scope amendment, WU-36 (this sweep, `docs/wu-audit-2026-08.md`):** the
 continuation prompt that opened this sweep suggested a specific Phase 7
@@ -2865,6 +2910,116 @@ swappable-interface requirement does not mention. Whoever scopes WU-35
 should explicitly decide whether `compositeLayered()` moves behind the
 future interface too, or is documented as a permanently separate,
 page-turn-specific mechanism outside ADR-074's scope — not resolved here.
+
+**Task A1 finding, Session 68 (`DECISIONS.md` ADR-087) — actioned, not
+lifted.** Prompted by Steve's own question about whether WU-28d diverges
+from or fills in real Mirage behaviour, which surfaced this unit's own
+Task A1 blocker as something worth actually doing rather than continuing
+to cite as outstanding. GB2158671A (UK 2,158,671, Quantel Ltd, granted
+1987) read in full this session -- real, public, confirmed via Google
+Patents, not merely cited second-hand. Result: silent on multi-sheet
+arbitration. Its only multi-surface mechanism is the single-shape
+inside/outside "area sign" switch already promoted as `ADR-073`
+(front/back source select by facing sign, not sheet blending); no claim
+or passage describes a transparency coefficient or depth-compare
+mechanism between independently-overlapping surfaces. Task A1's own
+pre-registered accept criterion (`docs/sources/WU-SM-02.md` §7) treats
+silence as a real result -- "it makes M2-by-inheritance less likely and
+licenses a `[P]` choice" -- so this **licenses**, but does not **confirm**,
+proceeding on a `[P]`-tier M2 choice. `ADR-074`'s M1-vs-M2 question is
+still genuinely open; Strand B (rendered evidence, `WU-SM-02.md` §7) and
+Strand C2 (operator testimony) remain the more decisive unactioned paths,
+and the swappable-interface requirement (D2) is exactly what makes
+proceeding on a `[P]` choice now safely reversible if either later
+overturns it. **Not implemented here or as a side effect of this
+note** -- Steve's own explicit instruction this session was to record the
+finding and re-scope the blocker first, before any resolve code; the
+"do not implement as a side effect" instruction above still stands,
+now for a narrower reason (an unconfirmed `[P]` choice, not an unactioned
+task). Whoever picks up WU-35 for real should treat this as: the M1/M2
+choice may be made now, explicitly flagged `[P]` and reversible behind
+D2, rather than blocked pending further reading -- but should still weigh
+Strand B/C2 first if time allows, since either is more decisive than what
+Task A1 alone can offer.
+
+**Split, Session 68 (`DECISIONS.md` ADR-087) — `WU-35a` carved out.**
+`Manual Transp` specifically -- one global, operator-set `T` value, no
+`Auto Transp`/`Ext. Key`, no general swappable M1/M2/hybrid interface --
+is narrow enough to scope and build on its own now that ADR-087 licenses
+it, and is real, wire-it-into-the-demo work in exactly the shape
+`WU-28d` (above, now superseded) already had queued up. Carrying the
+whole rest of this unit's own scope along for that would be the same
+"build past what's actually ready" mistake `WU-44`'s own split avoided.
+**This entry (`WU-35`) keeps everything else** — `Auto Transp`, `Ext. Key`,
+the general swappable M1/M2/hybrid interface (D2) as a real, built
+interface rather than `WU-35a`'s own single hard-coded `[P]` choice
+behind it, the Jacobian-derived sheet tolerance (`ADR-072` §4.1), and
+full reconciliation with `WU-28b`'s own shipped `compositeKBuffer()` —
+still `todo`, still not scoped past everything already written above.
+Depends on `WU-35a` landing first in the practical sense that it is the
+part of this unit's own scope most likely to reveal whether extending
+`compositeKBuffer()` in place or replacing it outright is the right call
+(this entry's own still-open first design question, unchanged) — not a
+formal blocking dependency.
+
+
+### WU-35a — `Manual Transp`: one global transparency coefficient `T`,
+wired into the live sphere demo `todo`
+Carved out of `WU-35` this session (`DECISIONS.md` ADR-087, `WORK-UNITS.md`
+`WU-35`'s own split note above) — narrow enough to scope and build on its
+own: one operator-set `T` for the whole picture (S1 p.11's `Manual Transp`,
+`ADR-072`), not `Auto Transp` (shape-derived) or `Ext. Key` (per-pixel,
+external), and not the general swappable M1/M2/hybrid arbitration
+interface `WU-35`'s own rump scope still owns. Explicitly `[P]`-tier:
+`ADR-074`'s M1-vs-M2 question is not confirmed, only licensed for a
+provisional choice by `ADR-087`'s own Task A1 finding (GB2158671A read in
+full, silent on multi-sheet arbitration). Supersedes `WU-28d` (above),
+whose own job — wiring self-fold occlusion into the live sphere demo —
+this unit now does instead, with a real `T` in place of `WU-28d`'s own
+binary `Opaque`/`Blend` toggle.
+
+**Design direction, not yet scoped in full — whoever picks this up should
+re-read the real, current code before committing to a file list, the same
+discipline every unit in this project uses:** extend the already-shipped,
+depth-sorted, tag-keyed k-buffer resolve (`WU-28a`/`WU-28b`,
+`core/resolve.hpp`/`.cpp` — confirm the real current location of
+`compositeKBuffer()` directly, do not assume it is still where WU-28b
+left it) with `ADR-072`'s between-sheet blend formula — nearer sheet
+`(1 − T)`, farther sheet `T` — applied where that function currently
+composites farthest-to-nearest with plain `composite()` alone; same-sheet
+accumulation (`WU-28a`'s own tag-keyed membership test) is untouched,
+this unit only changes what happens *between* sheets. `T` itself: a new
+`PipelineParams` field (or equivalent), defaulting to `0` (`Opaque`,
+matching `E1`'s attested v1-sphere behaviour and giving `WU-28d`'s own
+already-scoped `Accept:` criterion for free at `T = 0`), adjustable live
+via two new letter keys in `tests/test_decklink_live_sphere.cpp` — the
+same increment/decrement scheme `WU-21i` already established
+(`X`/`x`/`Y`/`y`/`Z`/`z`), not a new input model. Whether this extends
+`compositeKBuffer()` in place or sits beside it as a second resolve path
+is `WU-35`'s own still-open first design question — this unit should
+answer it in practice, for the `Manual Transp` case specifically, and
+report back rather than deciding it a second time in the abstract.
+
+**Flag prominently, in code comments and in this unit's own close-out:**
+this is a `[P]`-tier design choice, not a confirmed historical mechanism —
+`ADR-087` licenses proceeding, it does not confirm the formula or the
+sheet-membership test are what Mirage actually built. Behind whatever
+interface emerges, this should be easy to revise without a second
+migration, matching `ADR-074`'s own binding requirement in spirit even
+though this unit does not build the full swappable interface itself.
+
+**Accept:** `T = 0` reproduces `WU-28d`'s own already-scoped criterion
+exactly (self-fold back half fully occluded — Steve's own by-eye
+real-hardware call, no automated test can observe an SDI monitor,
+`WU-28d`'s own reasoning carries over unchanged). Beyond that, genuinely
+new and worth checking directly against `docs/sources/WU-SM-02.md`
+fixture 30 (`Transparency sweep`) even though this project has no
+automated harness for a live SDI output: at `T = 0.5` the result should
+visibly match an unarbitrated accumulate-then-normalise (the same
+starting point `WU-28a`/`WU-28b` shipped before any tag-based
+arbitration existed, useful as a sanity cross-check); at `T = 1` the near
+hemisphere should fully vanish behind the far one, the mirror image of
+`T = 0`. Not scoped past this note.
 
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —

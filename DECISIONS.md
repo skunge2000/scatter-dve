@@ -8903,3 +8903,96 @@ entry.
 
 **Not decided here:** whether a future, larger unit should pursue the
 `Frag`-widening fix described above -- flagged, not scoped, not started.
+
+---
+
+**ADR-087 — `docs/sources/WU-SM-02.md` §7 Task A1 actioned: UK 2,158,671
+read in full; silent on multi-sheet arbitration, which by that task's own
+pre-registered accept criterion licenses a `[P]`-tier M2 choice for
+ADR-074 rather than leaving it blocked. Does not implement anything;
+WU-35 remains unscoped past this note.**
+
+Session 68, prompted by Steve's own question of whether WU-28d diverges
+from real Mirage behaviour or fills in documented-but-unbuilt behaviour
+(`Manual Transp`), which surfaced ADR-074's own still-open M1/M2 question
+and its stated blocker, Task A1, "not yet actioned." Actioned here,
+directly, before any resolve code was written -- Steve's own explicit
+instruction this session.
+
+**What was read.** GB2158671A, Quantel Ltd, "Improvements in or relating
+to video signal processing systems," filed 26 March 1985 (priority 19
+April 1984), granted 10 June 1987 as GB2158671B -- confirmed as a real,
+public, granted patent via Google Patents, not merely cited second-hand.
+Read via `WebFetch` (an AI-summarised pass over the full text, prompted
+twice: once for a general summary, once specifically for every passage
+touching multi-surface overlap, transparency/blend coefficients, and the
+independent claims verbatim) -- **this is not the same rigour as a
+human's own direct read of the primary claims and drawings, and is
+flagged as such; worth a second, closer pass before this finding is
+treated as fully load-bearing for anything beyond licensing a `[P]`
+choice, which is what Task A1's own accept criterion only ever required.**
+Task A1 also names "US app 713,028" alongside the UK patent; not
+independently confirmed as the same family member -- GB2158671A's own
+family listing includes US5150213A as its US counterpart, almost
+certainly the granted form of that application, but the serial number
+itself was not cross-checked against USPTO records this session.
+
+**What it says.** The patent's only multi-surface mechanism is the
+single-shape inside/outside "area sign" switch already promoted as
+ADR-073 (front/back source select by facing sign) -- when a rotating
+hollow shape's surface normal flips, the sign of the calculated area
+flips with it, and a gate (57/58 in the patent's own figure) switches
+between two pre-prepared video sources accordingly. Quoted directly:
+"If the signal from the computer 11, representing the sign of the area
+derived by the calculator 42, changes sign, this indicates that the
+image changes from outside to the inside of a surface." The independent
+claims (1, 5, 6) describe only address-map shape manipulation and
+operator control of image movement -- no claim, and no passage anywhere
+in the specification located by either pass, describes blending,
+a transparency coefficient, or a depth-compare/depth-plane mechanism for
+content from *different* shapes or effects overlapping the same
+destination sample. The only other coefficient in the patent, a
+multiplier `K` correcting for density/brightness redistribution under
+geometric warping, is unrelated -- resampling compensation, not
+inter-surface blending.
+
+**Why this is a real result, not a non-result.** Task A1's own
+pre-registered accept criterion (`docs/sources/WU-SM-02.md` §7) reads:
+"A statement either way on run-time hidden surface, or a positive finding
+that it is silent. Silence is a result: it makes M2-by-inheritance less
+likely and licenses a `[P]` choice." That is exactly what was found:
+GB2158671A -- the FVP (real-time projection) patent, the one source
+document §7 itself calls "top priority, above S6" because it is where
+run-time hidden-surface handling would most likely have been disclosed
+if it exists anywhere in Quantel's own patent estate -- says nothing
+about arbitrating between independently-overlapping surfaces. Per the
+task's own terms, this does not confirm M2 (depth-plane-and-compare) is
+what Mirage built; it makes inheriting a *general* multi-surface
+hidden-surface mechanism from this particular patent's own design less
+likely, which is the specific thing `[P]`-tier license was conditioned
+on.
+
+**Does not touch `docs/sources/WU-SM-02.md` itself** -- immutable per
+`docs/sources/README.md`'s own rule; this finding is recorded here, in
+this repository's own decision log, with its own provenance line back to
+§7 Task A1, exactly as that rule requires for a correction or an action
+taken against a source document's own open question.
+
+**Does not settle ADR-074.** M1 vs. M2 (vs. a hybrid) is still not
+confirmed -- Task A1's own silence result narrows the *reason* to believe
+M2 (inheritance from this patent) without confirming M2 by any other
+route, and does not touch Strand B (rendered evidence) or Strand C/C2
+(operator testimony), both still open and still the more decisive
+remaining paths per `WU-SM-02.md` §7's own ranking. ADR-074's binding
+requirement -- arbitration behind one swappable interface (D2), so
+whichever mechanism is eventually confirmed can be substituted without
+touching the splat -- stands exactly as written and is what makes
+proceeding on a `[P]` choice now safely reversible.
+
+**What this changes for WU-35 (below): the blocker is actioned, not
+lifted.** WU-35's own text is updated to record this directly rather than
+continuing to cite Task A1 as "not yet actioned." Still not implemented
+here or anywhere else this session -- Steve's own explicit instruction
+was to record the finding and re-scope the blocker first, before any
+resolve code. See `WORK-UNITS.md`'s own `WU-35` entry for the updated
+scope.

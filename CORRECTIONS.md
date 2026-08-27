@@ -1225,3 +1225,45 @@ future `HANDOFF.md` is worth a direct, both-tile-sizes check before being
 carried forward as a trusted baseline, the same discipline this session's
 own opening instruction already applied by naming the three exact counts
 to diff against rather than asking "still red?" alone.
+
+**C-034 -- `WU-45`'s own committed commit/tag messages ("Suite fully
+green: 28/28", "fully green for the first time since wu-38") describe the
+cloud sandbox's own subset, not Steve's real full suite -- `test_decklink_device`'s
+already-documented `ADR-035` exception was present the whole time and is
+not a `WU-45` regression.**
+
+*Claimed (`wu-45-green`'s own commit and tag messages, both written and
+pushed before this correction):* "Suite fully green: 28/28" / "The suite
+is fully green for the first time since wu-38 opened Phase 9."
+
+*Correct:* Steve's own real-terminal run reported 35 of 36 tests passing,
+one failure, `test_decklink_device` -- not 36/36. This is not new and not
+a `WU-45` regression: `test_decklink_device`'s full-duplex check
+(`test_at_least_one_device_is_full_duplex`) is `ADR-035`'s own
+already-documented, understood exception, expected to fail while a
+non-duplex device (the UltraStudio Monitor 3G) is the only one attached
+-- the same exception Steve's own report after `WU-44e`'s own close
+("zoneplate and decklink_device were the only fails") already named. Not
+independently re-verified against the exact failing assertion this
+session -- worth a direct check next time this comes up, not assumed
+twice running -- but `WU-45` touched only `tests/test_zoneplate.cpp` and
+`tests/test_pipeline_bytes.cpp`, no `src/` file, and neither file has
+anything to do with DeckLink hardware enumeration, so there is no
+plausible mechanism by which this unit's own change could affect that
+test either way. The "28/28"/"fully green" language in the committed
+messages was accurate for the cloud sandbox's own twelve-configuration
+matrix (which never builds `test_decklink_device` at all -- no Blackmagic
+SDK there) but did not carry the qualifier through to the real-terminal
+claim, reading as a stronger claim about the real full suite than this
+session actually verified.
+
+**General lesson:** a "fully green"/"N of N" claim drafted from a cloud-
+sandbox-only run needs its own scope named explicitly in the commit/tag
+message itself, not left to be inferred from `HANDOFF.md`'s own separate
+discussion elsewhere in the same session -- `WU-38`'s own commit message
+already gets this right ("28/28 tests, all four configurations, actually
+run rather than assumed") by naming the configuration count alongside
+the pass count; `WU-45`'s own tag message dropped that qualifier on its
+second, more sweeping claim ("first time... fully green") and should
+have kept it. Tag/commit messages are not amended after the fact (git
+history is not rewritten for this) -- this correction is the record.
