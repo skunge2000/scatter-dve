@@ -3144,7 +3144,7 @@ the standing ADR-035 duplex-check exception this project's own tag
 convention already treats as non-blocking for a `-green` tag. No other
 file touched, so no other test's own status changes.
 
-### WU-35a2 — wire `manualTransp` into the live sphere demo (letter-key control) `todo` (drafted this session — UI wiring done in `tests/test_decklink_live_sphere.cpp`; a live-pipeline wiring gap found and flagged, see below — not yet buildable/testable, not `green`)
+### WU-35a2 — wire `manualTransp` into the live sphere demo (letter-key control) `green` (`wu-35a4-green`, folded in with `WU-35a3`/`WU-35a4`; commit `00aa6a6`)
 Live-demo half of `WU-35a`'s own split, this session — depends on
 `WU-35a1` (above, `green`) landing first for its own `PipelineParams::
 manualTransp` field to control. Deliberately kept separate from `WU-35a1`
@@ -3242,18 +3242,18 @@ session's own standing instruction to name a gap rather than fix it as a
 side effect. See `CORRECTIONS.md` for the correction this supersedes and
 `HANDOFF.md` for the full account.
 
-*Status:* **not `green`, not built or run — cannot be, no Blackmagic
-SDK/Cocoa toolchain in the cloud sandbox this was drafted in, the same
-gap every DeckLink-touching unit in this project has named.** Written to
-the real repository via the device bridge, re-staged and diffed to
-confirm the write landed exactly as intended (byte-for-byte match against
-the sandbox-drafted version). Steve's own real-hardware build/run/by-eye
-accept is the only way to confirm the rest-position half of `Accept:`
-above; the sweep half needs the `CaptureConsumer` follow-up first — see
-"A real gap found" above. This unit does **not** get its own tag from
-this session (cannot confirm green); see `HANDOFF.md`'s own close-out
-commands for the manual and `close.sh` paths, left for Steve's own
-real-terminal run to decide between.
+*Status:* **`green` — confirmed directly, not assumed.** Steve's own
+real-hardware run on the real SDI monitor confirms both halves of this
+unit's own `Accept:` line above: at rest (`T = 0`) the folding sphere's
+back half is fully occluded, and sweeping `T` up increasingly shows the
+far hemisphere through — the sweep half `CORRECTIONS.md` C-035/C-036
+found blocked, unblocked by `WU-35a3`'s own live-update path and
+`WU-35a4`'s own `core/pipeline.cpp` wiring. Committed for real in
+`00aa6a6`, folded in with `WU-35a3` and `WU-35a4` once all three could be
+confirmed together (`CORRECTIONS.md` C-038/C-039) and tagged
+`wu-35a4-green` on that commit — this unit does not get a separate tag of
+its own, per this project's own convention of one tag per session's own
+close-out commit, not one per work unit folded into it.
 
 **Addendum (`WU-35a3`, below):** the `CaptureConsumer` follow-up this
 entry named as missing has now been built — `CaptureConsumer::
@@ -3265,7 +3265,7 @@ setManualTransp(manualTransp)` right alongside it. This entry's own text
 above is left as written (the historical account of what this session
 found and did not build); see `WU-35a3` for what closed the gap.
 
-### WU-35a3 — `CaptureConsumer` live-update path for `manualTransp`, mirroring `setLattice()` (WU-21f) `todo` (built this session; not built/tested/tagged — cannot be, no Blackmagic SDK/Cocoa toolchain in the cloud sandbox this was drafted in)
+### WU-35a3 — `CaptureConsumer` live-update path for `manualTransp`, mirroring `setLattice()` (WU-21f) `green` (`wu-35a4-green`, folded in with `WU-35a2`/`WU-35a4`; commit `00aa6a6`)
 Follow-up named by `WU-35a2`'s own entry above and `CORRECTIONS.md` C-035:
 `io/decklink_capture_consumer.hpp`'s `CaptureConsumer` stored its
 constructor's `PipelineParams` argument as `const PipelineParams
@@ -3326,14 +3326,15 @@ control ... should visibly show the far hemisphere increasingly show
 through") should now be observable for the first time, in addition to the
 rest-position half already reachable since `WU-35a2`.
 
-*Status:* **not `green`, not built or run — cannot be, no Blackmagic
-SDK/Cocoa toolchain in the cloud sandbox this was drafted in, the same
-gap every DeckLink-touching unit in this project has named.** Reasoned
+*Status:* **`green` — confirmed directly, not assumed.** Reasoned
 through directly against the real, current files (both read in full
 before editing), applied via a scripted read-modify-write (exact string
 anchors, each checked to match exactly once before being replaced), and
 verified by re-staging and diffing every changed file afterward, brace/
-paren balance-checked too (all three files: counts equal).
+paren balance-checked too (all three files: counts equal). Committed for
+real in `00aa6a6`, folded in with `WU-35a2`/`WU-35a4` and tagged
+`wu-35a4-green` on that commit — see the paragraph below for the
+real-hardware confirmation itself.
 
 **Correction (`CORRECTIONS.md` C-036, same session, after Steve's own
 real-hardware report):** the paragraph above originally claimed the sweep
@@ -3359,6 +3360,12 @@ Not this session's own call to tag or accept — Steve's own real-hardware
 build/run confirms `WU-35a3`'s own mechanical correctness (no crash, `T`/
 `t` accepted as keys, everything `WU-35a2` already asked him to check
 still holds); the sweep becoming visible needs `WU-35a4` first.
+
+**Confirmed, real hardware, once `WU-35a4` landed:** Steve's own run shows
+the sweep now visible exactly as `WU-35a2`'s own `Accept:` line describes
+— the far hemisphere increasingly shows through as `T` sweeps up from its
+`T = 0` rest position. See `CORRECTIONS.md` C-039 and this entry's own
+`*Status:*` line above.
 
 ### WU-35a4 — wire `generateFragmentsTagByFacing()` into `core/pipeline.cpp`'s real PASS-1 call sites, gated by `kBufferMode != Off` and `frontTag != backTag` `green` (sandbox-verified Session 72; real-terminal build/tag/push and by-eye confirmation still Steve's own to run)
 See `DECISIONS.md` ADR-089 for the full design conversation. Closes the

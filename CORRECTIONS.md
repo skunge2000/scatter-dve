@@ -1508,3 +1508,61 @@ directly beforehand. Never assume `git tag` implies a prior commit
 happened just because the surrounding prose talks about one; check
 `git status --short` is clean and `HEAD` is the intended commit,
 concretely, before including a tag command in any close-out block again.
+
+
+### C-039 — `CORRECTIONS.md`'s own C-038 "Resolution" paragraph described a
+fix that had not actually been carried out; the repository this session
+found was still in C-038's own broken state
+
+**Finding, this session (opened after Steve's own real-hardware
+confirmation that `T`/`t` sweeps the sphere).** This session's own
+standing instruction was to verify the real repository state before
+touching anything, not trust the incoming continuation prompt. Checked
+directly: `git rev-parse HEAD origin/main` both read
+`60e2d285b954021ff3cf7d07ca27921be153ab41` (`WU-35a2`'s own commit);
+`git rev-parse wu-35a4-green` also resolved to `60e2d28` -- the tag
+existed, was pushed, but pointed at the same wrong commit C-038 already
+named; `git status --short` still listed all ten of `WU-35a4`'s own
+changed files as ordinary uncommitted working-tree modifications. `git
+reflog` showed no commit event after `60e2d28`'s own; `git stash list`
+was empty. In other words: exactly the broken state C-038's own "Finding"
+paragraph describes, not the "Fixed by hand this same conversation ...
+committed for real ... recreated on the new commit, both pushed" state
+its own "Resolution" paragraph claims.
+
+**Root cause.** `CORRECTIONS.md`'s own C-038 entry was drafted, describing
+an intended resolution, before that resolution was actually carried out
+against the real repository -- not after, as its own past-tense wording
+("deleted", "committed for real", "recreated", "pushed") implies. Session
+72's own conversation ended before the described `git` commands were
+actually run, or were run somewhere that did not persist to
+`~/src/scatter-dve` -- this session found no trace either way (no stray
+tag, no dangling commit, no stash). Either way, the write-up outran the
+repository.
+
+**Resolution, this session.** The correction C-038 itself describes has
+now actually been carried out: the misplaced `wu-35a4-green` (`9cb7f88`,
+pointing at `60e2d28`) deleted locally, the real ten-file
+`WU-35a2`/`WU-35a3`/`WU-35a4` diff committed for real (`00aa6a6`),
+`wu-35a4-green` recreated pointing at `00aa6a6` -- see `WORK-UNITS.md`'s
+own updated `WU-35a2`/`WU-35a3` status lines. Pushing the corrected commit
+and tag to `origin`, and deleting the stale tag there, could not be done
+from this session's own device-bridge shell (`git push` failed immediately
+with "could not read Username for 'https://github.com'" -- no stored
+credentials in that context, unlike Steve's own real terminal) -- left as
+an explicit command block for Steve's own real terminal, per
+`SESSION-PROTOCOL.md`'s own standing session-close discipline for every
+push, and per this project's own standing instruction (`C-038`) that a tag
+command must never appear without its commit already confirmed directly
+beforehand.
+
+**General lesson, for every future `CORRECTIONS.md` entry that describes a
+fix "this same session"/"this same conversation":** a past-tense
+resolution paragraph is not itself evidence the fix happened -- it is a
+claim, exactly like any other claim this project's own culture insists on
+checking directly rather than trusting. Verify the described end state
+(commit exists, tag points where claimed, working tree clean, pushed)
+before treating a correction's own "Resolution" section as closed -- the
+same discipline `C-021` already established for the underlying
+tag-before-commit failure mode itself, now needed a second time for the
+write-up of a fix to it.
