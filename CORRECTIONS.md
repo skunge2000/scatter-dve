@@ -1267,3 +1267,50 @@ the pass count; `WU-45`'s own tag message dropped that qualifier on its
 second, more sweeping claim ("first time... fully green") and should
 have kept it. Tag/commit messages are not amended after the fact (git
 history is not rewritten for this) -- this correction is the record.
+
+**C-035 -- `WORK-UNITS.md`'s own `WU-35a2` note ("Files: `tests/test_decklink_live_sphere.cpp`
+only ... `WU-35a1`'s own `PipelineParams::manualTransp` field being
+additive") implied one file was sufficient to make the control actually
+live. Checked directly against `io/decklink_capture_consumer.hpp` this
+session: it is not.**
+
+*Claimed (`WORK-UNITS.md`'s own `WU-35a2` entry, written Session 69):*
+"Files: `tests/test_decklink_live_sphere.cpp` only, expected -- no other
+file should need touching, `WU-35a1`'s own `PipelineParams::manualTransp`
+field being additive." True as far as it goes -- the field itself is
+additive and needs no change elsewhere to exist -- but read as (and this
+session's own continuation prompt did read it as) "one file is therefore
+sufficient to wire a live operator control for it," which does not
+follow and turned out to be wrong.
+
+*Correct:* `manualTransp` being additive on `PipelineParams` says nothing
+about whether a caller that already holds a constructed `CaptureConsumer`
+can change it afterward. Checked directly this session:
+`io/decklink_capture_consumer.hpp`'s `CaptureConsumer` stores its
+constructor's `PipelineParams` argument as `const PipelineParams
+m_params`, read by the consumer thread on every processed frame, for the
+object's whole lifetime -- copied in once, no update path. `setLattice()`
+(`WU-21f`) gives the *lattice* a live-update path for exactly this
+reason; nothing equivalent exists for `params`, and nothing about
+`manualTransp`'s own additive field declaration implies one does. A test
+file that only adds letter keys updating a local variable (this session's
+own `WU-35a2` work, `tests/test_decklink_live_sphere.cpp`) can seed the
+consumer's *initial* value correctly but cannot make the control live --
+that needs a small, separate addition to
+`io/decklink_capture_consumer.hpp`/`.cpp` (a `manualTransp` counterpart to
+`setLattice()`), out of `WU-35a2`'s own one-file scope and not built this
+session. See `WORK-UNITS.md`'s own `WU-35a2` entry (updated this session)
+and `HANDOFF.md` for the full account.
+
+**General lesson:** "field X is additive" and "a live caller-facing
+control for field X needs only the caller-facing file" are different
+claims -- the first says a struct member can be added with no other file
+changing to keep compiling; the second additionally requires whatever
+object reads that struct member to expose a way to change it after
+construction, which this project has so far only ever built
+per-field (`setLattice()` for the lattice specifically), not generically
+for every `PipelineParams` field. Scoping a live-control unit against a
+struct's own field declaration alone, without also reading the class that
+actually consumes an instance of that struct across its own lifetime, is
+the specific mistake this correction is about -- check the consumer, not
+just the struct, before writing a `Files:` line for a live-control unit.

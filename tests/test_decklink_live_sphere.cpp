@@ -88,6 +88,28 @@
 // invariant below genuinely does widen to a third term, framesStreamStart
 // (CORRECTIONS.md C-029 corrects an earlier, wrong claim in this same
 // comment that it would not).
+//
+// WU-35a2 (DECISIONS.md ADR-088, WORK-UNITS.md WU-35a2), [P]-tier per
+// ADR-087/ADR-088 (inherited, not decided here): two new letter keys,
+// T/t, adjust PipelineParams::manualTransp (core/resolve.hpp, WU-35a1/
+// wu-35a1-green) live via the same increment/decrement scheme WU-21i
+// established for X/x/Y/y/Z/z -- see kTranspStep and the Key::TInc/TDec
+// arms below. params.kBufferMode is also set to Blend here for the first
+// time in this file (WU-28d's/WU-35a's own long-scoped intent, unblocked
+// by WU-28c, wu-28c-green): without it, compositeKBuffer()'s own Blend
+// fold never runs and manualTransp has no effect at all (Opaque mode
+// ignores it outright, core/resolve.hpp). **Read before assuming this
+// makes the sweep visible on a real SDI monitor:** CaptureConsumer's own
+// m_params (io/decklink_capture_consumer.hpp) is copied in once at
+// construction and held const, with no live-update path the way
+// setLattice() (WU-21f) gives the lattice -- so pressing T/t updates this
+// file's own local manualTransp variable (and, via it, what gets printed)
+// but not yet the consumer thread's own copy of PipelineParams. Making
+// the sweep actually reach the output needs a small, separate addition to
+// io/decklink_capture_consumer.hpp/.cpp (a manualTransp counterpart to
+// setLattice()) -- out of this unit's own one-file scope (WORK-UNITS.md's
+// own WU-35a2 `Files:` line) and not implemented here. See this session's
+// own HANDOFF.md for the full account.
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -151,6 +173,18 @@ constexpr double kMinRadius = 20.0;
 constexpr double kRotationStep = 0.05;   // radians per cursor keypress, ~2.9 degrees
 constexpr double kPositionStep = 10.0;   // output pixels per X/x/Y/y keypress
 constexpr double kRadiusStep   = 10.0;   // output pixels per Z/z keypress
+
+// WU-35a2: manualTransp (core/resolve.hpp PipelineParams::manualTransp,
+// WU-35a1/DECISIONS.md ADR-088) is Weight -- 1.15 fixed point, range
+// [0, kWeightUnity] per resolve.hpp's own documented contract -- not an
+// output-pixel quantity like the three steps above, so its own step is
+// expressed directly in that fixed-point unit rather than converted
+// from/to double. kWeightUnity / 16 divides the whole range into 16
+// keypresses each direction and lands exactly on fixture 30's own three
+// checkpoints (docs/sources/WU-SM-02.md fixture 30): T=0 at rest,
+// T=0.5 (kWeightUnity/2) at exactly 8 T presses, T=1 (kWeightUnity) at
+// exactly 16 -- no rounding drift at any of the three.
+constexpr int kTranspStep = int(scatter::kWeightUnity) / 16;  // 2048
 
 ComPtr<IDeckLinkInput> firstFormatDetectionCapableInput(const std::vector<DeviceInfo>& devices) {
     for (const auto& d : devices) {
@@ -229,7 +263,7 @@ scatter::Lattice rotateLattice(const scatter::Lattice& base, double yaw, double 
     return out;
 }
 
-enum class Key { Up, Down, Left, Right, XInc, XDec, YInc, YDec, ZInc, ZDec, Quit, Unknown };
+enum class Key { Up, Down, Left, Right, XInc, XDec, YInc, YDec, ZInc, ZDec, TInc, TDec, Quit, Unknown };
 
 // Blocks for exactly one logical keypress (which may be several raw bytes,
 // for an escape-sequence arrow key) and returns what it means. See this
@@ -250,6 +284,8 @@ Key readKey() {
     if (c == 'y') return Key::YDec;
     if (c == 'Z') return Key::ZInc;
     if (c == 'z') return Key::ZDec;
+    if (c == 'T') return Key::TInc;
+    if (c == 't') return Key::TDec;
     if (c != 27) return Key::Unknown;  // not ESC -- not a sequence this UI understands
 
     if (std::getchar() != '[') return Key::Unknown;
@@ -277,7 +313,8 @@ Key readKey() {
 // dispatch-source-driven) that forcing them through one shared function
 // would need its own abstraction, not remove one, and would put the
 // flag-off path's own untouched-since-WU-21i status at risk for no benefit.
-bool applyKey(Key key, double& yaw, double& pitch, double& centerX, double& centerY, double& radius) {
+bool applyKey(Key key, double& yaw, double& pitch, double& centerX, double& centerY, double& radius,
+              scatter::Weight& manualTransp) {
     switch (key) {
         case Key::Left:    yaw -= kRotationStep; return true;
         case Key::Right:   yaw += kRotationStep; return true;
@@ -289,6 +326,19 @@ bool applyKey(Key key, double& yaw, double& pitch, double& centerX, double& cent
         case Key::YDec:    centerY -= kPositionStep; return true;
         case Key::ZInc:    radius += kRadiusStep; return true;
         case Key::ZDec:    radius = std::max(kMinRadius, radius - kRadiusStep); return true;
+        // WU-35a2 (DECISIONS.md ADR-088, WORK-UNITS.md WU-35a2): clamped to
+        // [0, kWeightUnity] both directions -- resolve.hpp's own documented
+        // contract for manualTransp ("a value outside that range is a
+        // caller error"), not a new range decision made here. Both
+        // operands promote to int regardless of Weight's uint16_t storage
+        // (ordinary C++ integer promotion), so a T-below-kTranspStep
+        // decrement clamps at 0 instead of wrapping.
+        case Key::TInc:
+            manualTransp = scatter::Weight(std::min(int(scatter::kWeightUnity), int(manualTransp) + kTranspStep));
+            return true;
+        case Key::TDec:
+            manualTransp = scatter::Weight(std::max(0, int(manualTransp) - kTranspStep));
+            return true;
         case Key::Quit:    return false;
         case Key::Unknown: return false;
     }
@@ -325,6 +375,8 @@ Key mapCoverageWindowKey(char asciiChar, scatter::diag::SpecialKey special) {
         case 'y': return Key::YDec;
         case 'Z': return Key::ZInc;
         case 'z': return Key::ZDec;
+        case 'T': return Key::TInc;
+        case 't': return Key::TDec;
         default:  return Key::Unknown;
     }
 }
@@ -394,6 +446,8 @@ private:
         if (c == 'y') return Key::YDec;
         if (c == 'Z') return Key::ZInc;
         if (c == 'z') return Key::ZDec;
+        if (c == 'T') return Key::TInc;
+        if (c == 't') return Key::TDec;
         return Key::Unknown;
     }
 
@@ -415,6 +469,7 @@ struct CoverageInputContext {
     double* centerX = nullptr;
     double* centerY = nullptr;
     double* radius = nullptr;
+    scatter::Weight* manualTransp = nullptr;  // WU-35a2
 };
 
 // WU-22c: dispatch_source_set_event_handler_f's own callback -- the
@@ -439,7 +494,8 @@ void handleCoverageStdinReadable(void* rawContext) {
                     ctx->window->requestQuit();
                     return;
                 }
-                if (applyKey(outcome.key, *ctx->yaw, *ctx->pitch, *ctx->centerX, *ctx->centerY, *ctx->radius)) {
+                if (applyKey(outcome.key, *ctx->yaw, *ctx->pitch, *ctx->centerX, *ctx->centerY, *ctx->radius,
+                             *ctx->manualTransp)) {
                     ctx->consumer->setLattice(rotateLattice(
                         makeSphereLattice(*ctx->radius, *ctx->centerX, *ctx->centerY), *ctx->yaw, *ctx->pitch,
                         *ctx->centerX, *ctx->centerY, *ctx->radius));
@@ -517,6 +573,33 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
     double centerX = kInitialCenterX;
     double centerY = kInitialCenterY;
     double yaw = 0.0, pitch = 0.0;
+
+    // WU-35a2 (DECISIONS.md ADR-088, WORK-UNITS.md WU-35a2): the operator-
+    // facing counterpart to PipelineParams::manualTransp (core/resolve.hpp,
+    // WU-35a1/wu-35a1-green) -- same [0, kWeightUnity] range and type as
+    // the field itself, updated live by the T/t keys below via applyKey().
+    // See this file's own header comment (top of file) for why this does
+    // NOT yet reach the live composited/SDI output: CaptureConsumer's own
+    // m_params is copied in once at construction and held const, unlike
+    // the lattice (setLattice(), WU-21f) -- pressing T/t updates this
+    // variable (and what gets printed) only, until io/decklink_capture_
+    // consumer.hpp/.cpp gets its own small follow-up, out of this unit's
+    // one-file scope.
+    scatter::Weight manualTransp = 0;
+
+    // WU-35a2: Blend, not WU-28d's own never-built Opaque/Blend toggle --
+    // this unit's whole point is making manualTransp (Blend-mode-only per
+    // core/resolve.hpp's own compositeKBuffer() doc comment; Opaque
+    // ignores it outright) operator-visible, so Blend is the only mode
+    // that makes wiring the T/t keys meaningful. Fixed for this
+    // CaptureConsumer's whole lifetime, same as destWidth/destHeight above
+    // -- kBufferMode itself is not one of this unit's own two new live
+    // controls. params.manualTransp seeds the consumer's own initial value
+    // from manualTransp above (both 0 here) -- see that variable's own
+    // comment for why later T/t presses do not reach this params copy
+    // again after construction.
+    params.kBufferMode = scatter::KBufferResolveMode::Blend;
+    params.manualTransp = manualTransp;
 
     // WU-22c: whether stdin is a real terminal is queried here, up front --
     // moved earlier than WU-21i's own original placement (previously just
@@ -604,6 +687,7 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                 inputContext.centerX = &centerX;
                 inputContext.centerY = &centerY;
                 inputContext.radius = &radius;
+                inputContext.manualTransp = &manualTransp;
 
                 dispatch_source_t stdinSource = dispatch_source_create(
                     DISPATCH_SOURCE_TYPE_READ, uintptr_t(STDIN_FILENO), 0, dispatch_get_main_queue());
@@ -631,10 +715,10 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                 // channels drive the same state, on the same (main)
                 // thread, so no new synchronisation is needed here.
                 coverageWindow->setKeyHandler(
-                    [&consumer, &yaw, &pitch, &centerX, &centerY, &radius](char asciiChar,
-                                                                            scatter::diag::SpecialKey special) {
+                    [&consumer, &yaw, &pitch, &centerX, &centerY, &radius, &manualTransp](
+                        char asciiChar, scatter::diag::SpecialKey special) {
                         const Key key = mapCoverageWindowKey(asciiChar, special);
-                        if (applyKey(key, yaw, pitch, centerX, centerY, radius)) {
+                        if (applyKey(key, yaw, pitch, centerX, centerY, radius, manualTransp)) {
                             consumer.setLattice(rotateLattice(makeSphereLattice(radius, centerX, centerY), yaw,
                                                                 pitch, centerX, centerY, radius));
                         }
@@ -643,8 +727,10 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                 std::fprintf(stderr,
                              "test_decklink_live_sphere: cursor keys rotate (left/right = yaw, up/down = "
                              "pitch); X/x = position right/left, Y/y = position down/up, Z/z = bigger/"
-                             "smaller; Q quits. All of this works from either the terminal or the "
-                             "coverage window -- click into whichever one you want focused.\n");
+                             "smaller, T/t = more/less transparent (WU-35a2: local/printed only, not "
+                             "yet wired to the live output -- see this file's own header comment). Q "
+                             "quits. All of this works from either the terminal or the coverage window "
+                             "-- click into whichever one you want focused.\n");
 
                 coverageWindow->run();  // blocks until Q (either channel) or window close
 
@@ -655,7 +741,9 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                 std::fprintf(stderr,
                              "test_decklink_live_sphere: cursor keys rotate (left/right = yaw, up/down = "
                              "pitch); X/x = position right/left, Y/y = position down/up, Z/z = bigger/"
-                             "smaller; Q quits.\n");
+                             "smaller, T/t = more/less transparent (WU-35a2: local/printed only, not yet "
+                             "wired to the live output -- see this file's own header comment). Q "
+                             "quits.\n");
 
                 for (;;) {
                     const Key key = readKey();
@@ -671,6 +759,17 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                         case Key::YDec:    centerY -= kPositionStep; break;
                         case Key::ZInc:    radius += kRadiusStep; break;
                         case Key::ZDec:    radius = std::max(kMinRadius, radius - kRadiusStep); break;
+                        // WU-35a2: same clamp semantics as applyKey() above --
+                        // this loop does not call that function (this file's
+                        // own header comment explains why the flag-off loop's
+                        // switch is kept a separate inline copy).
+                        case Key::TInc:
+                            manualTransp = scatter::Weight(
+                                std::min(int(scatter::kWeightUnity), int(manualTransp) + kTranspStep));
+                            break;
+                        case Key::TDec:
+                            manualTransp = scatter::Weight(std::max(0, int(manualTransp) - kTranspStep));
+                            break;
                         case Key::Quit:    changed = false; break;
                         case Key::Unknown: changed = false; break;
                     }

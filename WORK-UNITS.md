@@ -3144,7 +3144,7 @@ the standing ADR-035 duplex-check exception this project's own tag
 convention already treats as non-blocking for a `-green` tag. No other
 file touched, so no other test's own status changes.
 
-### WU-35a2 — wire `manualTransp` into the live sphere demo (letter-key control) `todo`
+### WU-35a2 — wire `manualTransp` into the live sphere demo (letter-key control) `todo` (drafted this session — UI wiring done in `tests/test_decklink_live_sphere.cpp`; a live-pipeline wiring gap found and flagged, see below — not yet buildable/testable, not `green`)
 Live-demo half of `WU-35a`'s own split, this session — depends on
 `WU-35a1` (above, `green`) landing first for its own `PipelineParams::
 manualTransp` field to control. Deliberately kept separate from `WU-35a1`
@@ -3156,9 +3156,9 @@ this project already respects. `[P]`-tier, same standing as `WU-35a1` and
 `WU-35a` above — this unit does not add to or narrow that flag, only gives
 it an operator control.
 
-**Files:** `tests/test_decklink_live_sphere.cpp` only, expected — no other
-file should need touching, `WU-35a1`'s own `PipelineParams::manualTransp`
-field being additive.
+**Files:** `tests/test_decklink_live_sphere.cpp` only — confirmed
+afterward too: `git status --short` in the real repository reads exactly
+this one file changed, nothing else touched.
 
 **Design direction, not yet scoped in full — re-read the real, current
 file before committing to exact keys, the same discipline every unit in
@@ -3184,6 +3184,76 @@ control's other extreme — `docs/sources/WU-SM-02.md` fixture 30's own
 sweep, `WU-35a1`'s own `Accept:` line already confirms the underlying
 arithmetic produces this numerically; this unit's own job is solely making
 it operator-controllable and visible on a real SDI monitor.
+
+**What this session actually did, checked directly against the real
+code, not assumed from the note above.** Re-confirmed `X`/`x`/`Y`/`y`/`Z`/
+`z` (sphere controls) and `A`/`B`/`C`/`D` (arrow-key escape-sequence
+terminator bytes, `ESC [ A`/`B`/`C`/`D` for Up/Down/Right/Left — not
+themselves bound as standalone letter keys; a bare `A`/`B`/`C`/`D`
+keypress with no preceding `ESC [` is `Key::Unknown` today, same as any
+other unclaimed letter) exactly as this entry's own note already said;
+no letters claimed in between. Picked `T`/`t` — mnemonic (`T` is
+`WU-SM-02.md` §4.0's own name for the coefficient), unclaimed, and
+completely free. `T`/`t` now wired everywhere `X`/`x`/`Y`/`y`/`Z`/`z`
+already were: the `Key` enum, `readKey()`, `applyKey()` (now also taking
+`manualTransp` by reference), `mapCoverageWindowKey()`,
+`IncrementalKeyParser::mapLetter()`, `CoverageInputContext`, both
+stderr help-text lines, and the flag-off loop's own separate inline
+switch (kept a second copy of the same logic, per this file's own header
+comment on why that loop does not call `applyKey()`). Step size
+`kWeightUnity / 16` (2048) — lands exactly on fixture 30's own three
+checkpoints (`T=0`/`0.5`/`1`) at 0/8/16 presses, no rounding drift.
+Range-limit behaviour at both ends: clamp to `[0, kWeightUnity]` — not a
+new design decision, `core/resolve.hpp`'s own doc comment on
+`manualTransp` already states that range is the field's documented
+contract ("a value outside that range is a caller error"), so no new ADR
+was opened for it, per this unit's own standing instruction. Also set
+`params.kBufferMode = scatter::KBufferResolveMode::Blend` — required and
+in scope, not an extra: `compositeKBuffer()`'s own doc comment
+(`core/resolve.hpp`) states `Opaque` mode ignores `manualTransp`
+outright, and this file left `kBufferMode` at its default `Off` before
+this session (never set by `WU-28d`, which was superseded before being
+built) — without this line the coefficient would have no fold to run
+through at all, regardless of the two new keys.
+
+**A real gap found, not fixed here — the headline finding of this
+session.** `io/decklink_capture_consumer.hpp`'s `CaptureConsumer` stores
+its constructor's `PipelineParams` argument as `const PipelineParams
+m_params`, read by the consumer thread on every frame, for the object's
+whole lifetime — copied in once, no update path. `setLattice()` (`WU-21f`)
+gives the *lattice* a live-update path for exactly this reason; nothing
+equivalent exists for `params`. Checked directly against that header, not
+assumed: **there is currently no way, from `tests/test_decklink_live_sphere.cpp`
+alone, to make a live `T`/`t` keypress actually change `manualTransp` in
+the running consumer** — the two new keys update this file's own local
+`manualTransp` variable (and the printed help/status text) but the
+compositing thread never sees it change after `CaptureConsumer` is
+constructed. `params.manualTransp` above only seeds the *initial* value
+(0, matching the default either way). This means the sweep half of this
+unit's own `Accept:` line above — "sweeping the control ... should
+visibly show the far hemisphere increasingly show through" — **cannot be
+satisfied within this unit's own one-file scope as written**; only the
+rest-position half (`T=0`, back half occluded, now reachable at all for
+the first time via `kBufferMode = Blend` above) can. Fixing this needs a
+small, separate addition to `io/decklink_capture_consumer.hpp`/`.cpp` — a
+`manualTransp` counterpart to `setLattice()` — which is out of this
+unit's own `Files:` line and was deliberately not built here, per this
+session's own standing instruction to name a gap rather than fix it as a
+side effect. See `CORRECTIONS.md` for the correction this supersedes and
+`HANDOFF.md` for the full account.
+
+*Status:* **not `green`, not built or run — cannot be, no Blackmagic
+SDK/Cocoa toolchain in the cloud sandbox this was drafted in, the same
+gap every DeckLink-touching unit in this project has named.** Written to
+the real repository via the device bridge, re-staged and diffed to
+confirm the write landed exactly as intended (byte-for-byte match against
+the sandbox-drafted version). Steve's own real-hardware build/run/by-eye
+accept is the only way to confirm the rest-position half of `Accept:`
+above; the sweep half needs the `CaptureConsumer` follow-up first — see
+"A real gap found" above. This unit does **not** get its own tag from
+this session (cannot confirm green); see `HANDOFF.md`'s own close-out
+commands for the manual and `close.sh` paths, left for Steve's own
+real-terminal run to decide between.
 
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —
