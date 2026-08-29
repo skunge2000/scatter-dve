@@ -196,18 +196,32 @@
 // byte for byte.
 //
 // runFrameField()'s own third PASS-1 call site (resolveOneParity() below)
-// is deliberately NOT given the same branch: that function's own documented
-// precondition (core/resolve.hpp) already requires params.kBufferMode ==
-// Off at every call through it, so the gate above would always be false
-// there by construction, and no generateFragmentsFieldRowsTagByFacing()
-// sibling exists in core/binner.hpp/.cpp to call even if it were reachable
-// -- WU-28c never built one, and building one is outside this unit's own
-// file footprint (core/pipeline.cpp, core/resolve.hpp only). See
-// CORRECTIONS.md C-037: an earlier draft of this unit's own scoping note
-// (WORK-UNITS.md WU-35a4) assumed all three call sites would get "the same
-// decision applied consistently" -- checked directly against the real code,
-// the third one structurally cannot, for both reasons above. Field mode's
-// own k-buffer support, if ever wanted, is a separate future unit's job.
+// did NOT get the same branch at the time (CORRECTIONS.md C-037): that
+// function's own documented precondition (core/resolve.hpp) then required
+// params.kBufferMode == Off at every call through it, so the gate above
+// would always have been false there by construction, and no
+// generateFragmentsFieldRowsTagByFacing() sibling existed in
+// core/binner.hpp/.cpp to call even if it had been reachable.
+//
+// WU-46/WU-47 (DECISIONS.md ADR-090) close both gaps. WU-46 adds the
+// missing sibling, generateFragmentsFieldRowsTagByFacing() (core/
+// binner.hpp/.cpp) -- WU-28c's own facing-based tag policy combined with
+// generateFragmentsFieldRows()'s own field-parity row visitation, a pure
+// composition of two already-`green` mechanisms sharing one
+// anonymous-namespace template, no new per-sample logic. WU-47 wires it in:
+// resolveOneParity() below now takes the exact same gate as the two call
+// sites above (kBufferMode != Off && frontTag != backTag), and
+// runFrameField()'s own precondition (core/resolve.hpp) is narrowed to
+// params.weightOut == nullptr alone -- checked directly first, not
+// assumed: each of resolveOneParity()'s two per-field-parity calls already
+// runs a complete, independent PASS-1/PASS-2 cycle over the full
+// destination raster, so a k-buffer resolve fits entirely inside one such
+// call, with no cross-parity interaction for compositeKBuffer() to ever
+// need arbitrating. weightOut's own precondition is a different, harder
+// question (ADR-077 left it undecided what one caller-supplied buffer,
+// written once per call, would mean across the two per-frame calls field
+// mode makes) that ADR-090 does not resolve and this unit does not either
+// -- still required nullptr, unrelaxed.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -707,36 +721,67 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
     // temporary full destWidth x destHeight raster -- exactly runFrame()'s
     // own threads<=1 oracle-loop body above, with
     // generateFragmentsFieldRows() standing in for generateFragments() as
-    // PASS 1's own entry point. WU-35a4 (DECISIONS.md ADR-089): unlike
-    // runFrame()'s own two PASS-1 call sites, this one does NOT gain a
-    // frontTag/backTag branch -- this function's own documented precondition
-    // (core/resolve.hpp) already requires params.kBufferMode == Off at every
-    // call through it, so that gate would always be false here by
-    // construction, and no generateFragmentsFieldRowsTagByFacing() sibling
-    // exists in core/binner.hpp/.cpp to call even if it were reachable (see
-    // this file's own header comment and CORRECTIONS.md C-037). Single-
-    // threaded only, this unit (see
-    // runFrameField()'s own doc comment, core/resolve.hpp, ADR-077):
-    // params.threads/params.pool are not read here, the same incremental
-    // staging WU-16a through WU-19a already used before threading a new
-    // orchestration path. kAccum/tileKCells are passed as nullptr --
-    // resolveOneTile() only dereferences them when params.kBufferMode !=
-    // Off, and this unit's own precondition (core/resolve.hpp) requires
-    // Off, so this is exactly WU-10's own original plain-mode call shape.
+    // PASS 1's own entry point. WU-47 (DECISIONS.md ADR-090): this call
+    // site now gains the same frontTag/backTag branch runFrame()'s own two
+    // PASS-1 call sites already have (WU-35a4/ADR-089) -- kBufferMode !=
+    // Off && frontTag != backTag selects WU-46's
+    // generateFragmentsFieldRowsTagByFacing() (core/binner.hpp/.cpp)
+    // instead of the plain, single-scalar-tag generateFragmentsFieldRows().
+    // Previously (WU-23a2b/ADR-077) this branch could not exist: this
+    // function's own precondition unconditionally required
+    // params.kBufferMode == Off, and no TagByFacing sibling existed for
+    // field-parity row visitation at all (CORRECTIONS.md C-037) -- both
+    // now resolved, see this file's own header comment and
+    // core/resolve.hpp's runFrameField() doc comment. Single-threaded
+    // only, this unit (see runFrameField()'s own doc comment,
+    // core/resolve.hpp, ADR-077): params.threads/params.pool are not read
+    // here, the same incremental staging WU-16a through WU-19a already
+    // used before threading a new orchestration path. kAccum/tileKCells
+    // are now constructed whenever params.kBufferMode != Off -- mirroring
+    // runFrame()'s own threads<=1 branch above exactly (kAccumOpt/
+    // tileKCells/kAccum/tileKCellsPtr, same names, same shape) -- and left
+    // nullptr otherwise, so resolveOneTile()'s existing "only dereferences
+    // these when kBufferMode != Off" contract is unchanged and the
+    // plain-mode path here still pays nothing extra.
     auto resolveOneParity = [&](int rowOffset) {
         TileBins bins(params.destWidth, params.destHeight);
-        generateFragmentsFieldRows(lattice, src, params.maxK, params.supersample,
-                                    params.tag, rowOffset, bins);
+        // WU-47 (DECISIONS.md ADR-090): same gate as runThreaded()'s and
+        // runFrame()'s own PASS-1 call sites above (WU-35a4/ADR-089) --
+        // see this file's own header comment.
+        if (params.kBufferMode != KBufferResolveMode::Off &&
+            params.frontTag != params.backTag) {
+            generateFragmentsFieldRowsTagByFacing(
+                lattice, src, params.maxK, params.supersample, params.frontTag,
+                params.backTag, rowOffset, bins);
+        } else {
+            generateFragmentsFieldRows(lattice, src, params.maxK, params.supersample,
+                                        params.tag, rowOffset, bins);
+        }
 
         video::Raster444 full(params.destWidth, params.destHeight);
         TileAccum accum;
         std::vector<AccumCell> tileCells(tilePixelsN);
         const std::array<const TileBins*, 1> soloSource{&bins};
 
+        // WU-47: k-buffer scratch, constructed only when
+        // params.kBufferMode != Off -- mirrors runFrame()'s own
+        // threads<=1 branch above exactly (see that branch's own comment
+        // for why this keeps the plain path at zero extra cost).
+        std::optional<TileKBufferAccum> kAccumOpt;
+        std::vector<std::array<KSlot, kBufferK>> tileKCells;
+        TileKBufferAccum* kAccum = nullptr;
+        std::vector<std::array<KSlot, kBufferK>>* tileKCellsPtr = nullptr;
+        if (params.kBufferMode != KBufferResolveMode::Off) {
+            kAccumOpt.emplace();
+            tileKCells.resize(tilePixelsN);
+            kAccum = &*kAccumOpt;
+            tileKCellsPtr = &tileKCells;
+        }
+
         for (int ty = 0; ty < tilesY; ++ty) {
             for (int tx = 0; tx < tilesX; ++tx) {
                 resolveOneTile(soloSource, params, full, accum, tileCells,
-                                /*kAccum=*/nullptr, /*tileKCells=*/nullptr, tx, ty);
+                                kAccum, tileKCellsPtr, tx, ty);
             }
         }
         return full;

@@ -3556,7 +3556,7 @@ confirmed directly, not assumed, by diffing HEAD's own counts against the
 working tree's). Not yet built, run, tagged or pushed at Steve's own real
 terminal.
 
-### WU-47 — wire `generateFragmentsFieldRowsTagByFacing()` (`WU-46`) into `core/pipeline.cpp`'s `runFrameField()`, relaxing its `kBufferMode` precondition `todo`
+### WU-47 — wire `generateFragmentsFieldRowsTagByFacing()` (`WU-46`) into `core/pipeline.cpp`'s `runFrameField()`, relaxing its `kBufferMode` precondition `green`
 
 Scoped this session (`DECISIONS.md` ADR-090), not built — split from `WU-46`
 above purely on file-count sizing (`core/resolve.hpp` +
@@ -3583,32 +3583,39 @@ caller-supplied buffer written once per call, ambiguous across two calls
 per output frame) that ADR-090 does not resolve and this unit should not
 either — its own precondition stays `nullptr`, unrelaxed.
 
-**Files (per ADR-090, confirm before starting):** `src/core/resolve.hpp`
-(`runFrameField()`'s own doc comment — narrow the `kBufferMode` half of the
-precondition, leave the `weightOut` half as-is), `src/core/pipeline.cpp`
+**Files:** `src/core/resolve.hpp` (`runFrameField()`'s own doc comment —
+narrowed to the `weightOut` half of the precondition alone, `kBufferMode`
+no longer required `Off`), `src/core/pipeline.cpp`
 (`resolveOneParity()`'s own `generateFragmentsFieldRows()` call gains the
 same gated branch `ADR-089` already added to the other two PASS-1 call
 sites — `kBufferMode != Off && frontTag != backTag` selects `WU-46`'s
 `generateFragmentsFieldRowsTagByFacing()` instead), `tests/test_kbuffer_resolve.cpp`
-or a new field-mode-specific test file (not decided here — check whether
-Part E's own shape extends naturally or field mode's own existing test
-file, `tests/test_field_pipeline.cpp`, is the better home; both already
-exist and this unit's own scoping pass should re-read both before
-choosing, not assume).
+(both candidate homes named below were read in full before choosing:
+extended with a new "Part F" mirroring Part E's own shape — real
+self-folding sphere fixture, `frontTag`/`backTag`/`manualTransp` plumbing,
+all already present there and reused directly — rather than
+`tests/test_field_pipeline.cpp`, whose own two existing tests are a
+different concern (general field-mode correctness via affine warps, no
+k-buffer concepts at all) and are left untouched, unmodified, per this
+unit's own Accept: criterion below).
 
-**Accept, provisional, to be confirmed against the real code when this
-unit is picked up:** synthetic content via the real `runFrameField()` path
-(mirroring `WU-46`'s Part E from `WU-35a4`/ADR-089): `frontTag == backTag`
-(default) reproduces today's exact behaviour byte-for-byte (nothing
-regresses for a caller that does not opt in — field mode's own existing
-green tests, `test_field_pipeline.cpp` in particular, must stay green
-unmodified); opted in (`frontTag != backTag`, `kBufferMode != Off`) on a
-real self-folding lattice warped in field mode produces genuinely
-different output between `manualTransp`'s extremes, the field-mode
-equivalent of `WU-35a4`'s own Part E(c)/(d). No real-hardware/by-eye
-criterion of its own — this unit is core-only (`core/resolve.hpp`,
-`core/pipeline.cpp`), same as `WU-35a1`/`WU-35a4`, not
-`tests/test_decklink_live_sphere.cpp`-linked.
+**Accept, confirmed against the real code:** synthetic content via the
+real `runFrameField()` path (mirroring `WU-46`'s Part E from
+`WU-35a4`/ADR-089, now `tests/test_kbuffer_resolve.cpp`'s own new Part F):
+`frontTag == backTag` (default) reproduces today's exact behaviour
+byte-for-byte (nothing regresses for a caller that does not opt in —
+field mode's own existing green tests, `test_field_pipeline.cpp` in
+particular, stay green unmodified; checked directly,
+`test_kbuffer_pipeline_field_mode_default_tags_are_unaffected_by_manual_transp()`);
+opted in (`frontTag != backTag`, `kBufferMode != Off`) on the real
+self-folding sphere warped in field mode produces genuinely different
+output between `manualTransp`'s extremes, the field-mode equivalent of
+`WU-35a4`'s own Part E(c)/(d)
+(`test_kbuffer_pipeline_field_mode_tag_by_facing_manual_transp_changes_real_output()`,
+`test_kbuffer_pipeline_field_mode_tag_by_facing_differs_from_single_tag_default()`).
+No real-hardware/by-eye criterion of its own — this unit is core-only
+(`core/resolve.hpp`, `core/pipeline.cpp`), same as `WU-35a1`/`WU-35a4`,
+not `tests/test_decklink_live_sphere.cpp`-linked.
 
 **Not `[P]`-tier**, same reasoning as `WU-46` above and `WU-35a4`'s own
 wiring (`DECISIONS.md` ADR-089): this is reachability, not a new
@@ -3616,8 +3623,24 @@ arbitration formula. **Does not reopen `ADR-077`** — narrows one of its
 two preconditions, per `DECISIONS.md` ADR-090's own explicit reasoning for
 why that is safe.
 
-*Status:* **`todo` — scoped this session, not built.** Depends on `WU-46`
-(above, `green`) for the function it calls.
+*Status:* **`green` — built and verified this session, continuing directly
+from `WU-46` (above, `green`).** Fresh build, four configurations (GCC
+13.3.0 Release tile 2^5, Clang 18.1.3 Release tile 2^5, GCC 13.3.0 Debug
+tile 2^4, GCC 13.3.0 Debug+ASan+UBSan tile 2^5), all 28/28 `ctest` targets
+green in every one, zero compiler warnings in any configuration, zero
+sanitizer traps, sanitizer instrumentation confirmed genuinely linked
+(`nm -D`: 28 `asan`/14 `ubsan` hits; `ldd`: `libasan.so.8`/`libubsan.so.1`
+both actually linked). `test_kbuffer_resolve` itself: 498499 checks
+passing (up from a pre-unit baseline of 436190, rebuilt and confirmed at
+this same commit before any change), including all three new Part F
+tests, every one a real, non-vacuous assertion. Built and tested in this
+session's own cloud sandbox (not the device-bridge shell, which has no
+`cmake`/`ninja`); the three changed files then written back to the real
+repository via the device bridge and re-staged/diffed to confirm each
+landed byte-for-byte, and independently rebuilt straight from that
+freshly-written real-repo copy (28/28 green again) as a further check
+beyond the diff alone. Not yet built, run, tagged or pushed at Steve's
+own real terminal.
 
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —

@@ -1,173 +1,174 @@
-# HANDOFF — Session 73
+# HANDOFF — Session 74
 
 ## Where we are
 
 **Verified repo state at session start, not trusted from the incoming
-prompt — and it disagreed with what the prompt claimed, in exactly the way
-`SESSION-PROTOCOL.md`'s own standing instruction exists to catch.** The
-prompt asserted `HEAD == origin/main`, one commit ahead of `60e2d28`,
-tagged `wu-35a4-green`, working tree clean. Checked directly: `HEAD` and
-`origin/main` were **both** `60e2d28` itself (`WU-35a2`'s own commit, not
-one ahead of it); `wu-35a4-green` was a real, pushed, annotated tag, but it
-resolved to that same `60e2d28`, not to a commit containing `WU-35a4`'s own
-work; `git status --short` listed all ten of `WU-35a4`'s own changed files
-as ordinary uncommitted working-tree modifications. This is exactly the
-state `CORRECTIONS.md` C-038 already describes finding — but C-038's own
-"Resolution" paragraph claims that state was fixed "this same
-conversation." It had not been: no trace of the described fix anywhere
-(`git reflog`, `git stash list` both checked, both empty of it). Logged as
-**C-039**: a correction's own past-tense "fixed" is a claim, not evidence,
-and needs the same direct verification any other claim in this project
-gets before being trusted.
+prompt — this time it matched.** `HEAD` and `origin/main` both `1dd5309`,
+tagged `wu-46-green`, working tree clean, `wu-35a4-green` a real annotated
+tag two commits back (`00aa6a6`), no stray `.git/index.lock` at session
+start. No correction needed this time (contrast Session 73's own C-039).
 
-**Fixed for real, this session, before anything else:** the misplaced
-`wu-35a4-green` (`9cb7f88`, pointing at `60e2d28`) deleted locally; the
-real ten-file `WU-35a2`/`WU-35a3`/`WU-35a4` diff committed for real
-(`00aa6a6`); `wu-35a4-green` recreated pointing at `00aa6a6`. Could not be
-pushed from this session's own device-bridge shell — `git push` fails
-immediately with "could not read Username for 'https://github.com'", no
-stored credentials there unlike Steve's own real terminal. Left as an
-explicit command block below, per this project's own standing discipline
-(`C-021`/`C-038`) that a tag must never be handed over without its commit
-already confirmed directly first — here, the commit is not just confirmed,
-it is already made.
+**Job (`WU-47`, built and `green` this session):** wired `WU-46`'s
+`generateFragmentsFieldRowsTagByFacing()` (`core/binner.hpp`/`.cpp`,
+already `green`) into `core/pipeline.cpp`'s `runFrameField()`/
+`resolveOneParity()`, per `DECISIONS.md` ADR-090's own already-settled
+design direction (not reopened, per this project's own anti-drift rule 3):
 
-**Job 0 (doc-only, done first):** Steve's own real-hardware confirmation
-that `T`/`t` sweeps the live sphere demo correctly (this session) satisfies
-`WU-35a2`'s own `Accept:` line in full and `WU-35a3`'s own
-mechanical-correctness confirmation. Both entries' status lines corrected
-from `todo`/not-`green` to `green`, citing `00aa6a6` — see
-`WORK-UNITS.md`. Doc-only commit `ccf6e29`. `WU-35a1` and `WU-35a4`'s own
-entries left untouched, per this session's own standing instruction.
+- `core/resolve.hpp`'s `runFrameField()` doc comment narrowed from "both
+  `kBufferMode` must be `Off` and `weightOut` must be `nullptr`" to
+  `weightOut` alone. `PipelineParams::frontTag`/`backTag`'s own doc
+  comment updated too — it previously said these fields were "not
+  consulted by `runFrameField()`"; checked directly, that sentence would
+  now be false, so it was rewritten to describe the new gate instead of
+  left stale.
+- `core/pipeline.cpp`'s `resolveOneParity()` (inside `runFrameField()`)
+  gained the same gated branch `ADR-089` already put on the other two
+  PASS-1 call sites — `kBufferMode != Off && frontTag != backTag` selects
+  `generateFragmentsFieldRowsTagByFacing()` over the plain
+  `generateFragmentsFieldRows()` — and now constructs its own
+  `TileKBufferAccum`/`KSlot` scratch whenever `kBufferMode != Off`
+  (mirroring `runFrame()`'s own threads<=1 branch, same variable names),
+  instead of always passing `nullptr` to `resolveOneTile()`. This file's
+  own header comment (the paragraph that used to say the third PASS-1 call
+  site was "deliberately NOT given the same branch") was stale after this
+  change and has been rewritten to describe what `WU-46`/`WU-47` actually
+  did, not just what `WU-35a4` left undone.
+- New tests in `tests/test_kbuffer_resolve.cpp`, a new "Part F" section —
+  chosen over `tests/test_field_pipeline.cpp` after reading both files in
+  full: Part F reuses Part C/E's own real self-folding sphere fixture and
+  `frontTag`/`backTag`/`manualTransp` plumbing directly (same file,
+  nothing to duplicate across files against `SESSION-PROTOCOL.md` rule 2),
+  while `test_field_pipeline.cpp`'s own two existing tests are a different
+  concern (general field-mode correctness via affine warps, no k-buffer
+  concepts at all) and are left untouched, unmodified, satisfying this
+  unit's own "nothing regresses" Accept: criterion by construction rather
+  than by a new test. Three new tests, the field-mode counterparts of
+  `WU-35a4`'s own Part E(b)/(c)/(d):
+  `test_kbuffer_pipeline_field_mode_default_tags_are_unaffected_by_manual_transp()`,
+  `test_kbuffer_pipeline_field_mode_tag_by_facing_manual_transp_changes_real_output()`,
+  `test_kbuffer_pipeline_field_mode_tag_by_facing_differs_from_single_tag_default()`.
 
-**Job 1 (`WU-46`, built and `green` this session):**
-`generateFragmentsFieldRowsTagByFacing()` added to `core/binner.hpp`/`.cpp`
-— the sibling function `CORRECTIONS.md` C-037/`DECISIONS.md` ADR-089 both
-named as missing (field mode's own `resolveOneParity()` call site has no
-facing-tag-aware fragment generator to call, even setting aside its own
-`kBufferMode == Off` precondition). `DECISIONS.md` ADR-090 has the full
-design conversation: checked directly against the real code first, this
-turned out to need no new per-sample logic at all — every one of the four
-existing `generateFragments*` entry points is already a thin wrapper
-around one shared, anonymous-namespace template
-(`generateFragmentsRowRangeImpl()`) templated on the tag policy and
-parameterised on the row range independently, so the new function is a
-pure composition of `generateFragmentsRowRangeTagByFacing()`'s own facing
-lambda with `generateFragmentsFieldRows()`'s own row-visitation arguments.
-Two new tests in `tests/test_binner.cpp`: a ground-truth equivalence check
-(mirroring `WU-23a2a`'s own field-rows test) and a real self-fold sphere
-check (mirroring `WU-28c`'s own facing-sign test), reusing both files'
-already-established fixtures rather than inventing new ones.
-
-**`WU-47` (wiring this into `runFrameField()`) scoped, not built —
-`DECISIONS.md` ADR-090, `WORK-UNITS.md`'s own new entry.** Split from
-`WU-46` purely on file-count sizing (`core/resolve.hpp` +
-`core/pipeline.cpp` on top of `core/binner.hpp`/`.cpp` would be four
-source files for one unit, past `SESSION-PROTOCOL.md`'s three-file cap),
-not because the remaining work is a large open design question — ADR-090
-worked through it directly: each of `resolveOneParity()`'s two per-field-
-parity calls already runs a complete, independent PASS-1/PASS-2 cycle
-producing its own full raster, so a k-buffer resolve fits entirely inside
-one such call with no cross-parity interaction to arbitrate, and relaxing
-`runFrameField()`'s own `kBufferMode == Off` precondition is therefore
-mechanical, not a new design choice. `weightOut`'s own precondition is a
-genuinely different, harder question (one caller-supplied buffer, written
-once per call, ambiguous across the two per-frame calls field mode makes)
-that ADR-090 does not resolve and leaves exactly as `ADR-077` put it.
-`ADR-077` is narrowed, not reopened.
+`weightOut`'s own precondition is untouched, still `nullptr` — the
+genuinely harder question ADR-090 explicitly left for a future unit, not
+this one. `ADR-077`/`ADR-090` narrowed, not reopened.
 
 ## Build/test verification (this session, cloud sandbox)
 
-Built and tested independently of anything Session 72 reported, from a
-fresh checkout — not merely trusted from `HANDOFF.md`'s own prior claims.
-Baseline (before any change, `00aa6a6`): 28/28 `ctest` targets green, GCC
-13.3.0 Release tile 2^5 — confirms Session 72's own sandbox report was
-correct, checked directly rather than assumed. After `WU-46`'s three
-changed files, four configurations, all green:
+Built and tested independently of `HANDOFF.md`'s own prior claims, from a
+fresh checkout of `1dd5309` (Session 73's own tagged `wu-46-green`) —
+baseline before any change: 28/28 `ctest` targets green, GCC 13.3.0
+Release tile 2^5, confirming Session 73's own report was correct rather
+than assumed. After this session's three changed files, four
+configurations, all green:
 
 - GCC 13.3.0 Release, tile 2^5 — 28/28 `ctest` targets green.
-- Clang (Ubuntu's default `clang++`) Release, tile 2^5 — 28/28 green.
+- Clang 18.1.3 Release, tile 2^5 — 28/28 green.
 - GCC 13.3.0 Debug, tile 2^4 — 28/28 green.
 - GCC 13.3.0 Debug+ASan+UBSan, tile 2^5 — 28/28 green; `nm -D` confirms
-  genuine instrumentation linkage (25 `asan`/11 `ubsan` hits); `ldd`
+  genuine instrumentation linkage (28 `asan`/14 `ubsan` hits); `ldd`
   confirms `libasan.so.8`/`libubsan.so.1` actually linked.
 
-Zero compiler warnings in any configuration. `test_binner` itself: 39698
-checks passing, including both new tests. All three changed files (
-`src/core/binner.hpp`, `src/core/binner.cpp`, `tests/test_binner.cpp`)
-written back to the real repository via the device bridge, then
-re-staged and diffed to confirm each landed exactly as intended — brace
-counts balanced in every file; raw paren counts checked as a *delta*
-against each file's own `HEAD`-before-edit baseline (133/137 vs. a
-pre-existing 115/119 baseline for `binner.hpp`, etc.) rather than as a
-raw same-file balance, since this codebase's own prose-heavy comments
-already carry a nonzero raw paren imbalance before any edit — confirmed
-directly (`git show HEAD:<file>` vs. working tree), not assumed. The
-build-then-test result above is the authoritative check regardless; the
-paren delta is a secondary sanity check, not a substitute for it.
+Zero compiler warnings in any configuration. `test_kbuffer_resolve`
+itself: 498499 checks passing (up from a pre-unit baseline of 436190,
+rebuilt and confirmed at `1dd5309` before any change), including all
+three new Part F tests — the check-count delta confirms they are real,
+non-vacuous assertions, not silently skipped. `test_field_pipeline` itself
+unmodified and still green (39698-checks-style file-level confirmation
+not re-run for that file specifically; its own ctest pass/fail above is
+the direct check). Brace/paren balance checked as a secondary sanity
+check on all three changed files against their pre-edit `HEAD` baseline —
+all balanced (open == close in both versions) — the build-then-test
+result above is the authoritative check regardless.
+
+All three changed files (`src/core/resolve.hpp`, `src/core/pipeline.cpp`,
+`tests/test_kbuffer_resolve.cpp`) written back to the real repository via
+the device bridge, then re-staged and diffed byte-for-byte against the
+cloud sandbox's own working copy — identical. As a further check beyond
+the diff alone, the real repository's own just-written copy was
+independently re-tarred, re-staged, and rebuilt from scratch in the cloud
+sandbox (GCC Release): 28/28 green again. `WORK-UNITS.md`'s own `WU-47`
+entry updated in place (title tag `todo` → `green`, `Files:`/`Accept:`
+sections de-provisionalized now the test-file choice is made and
+confirmed, new `Status:` paragraph) via a Python read-modify-write script
+run through the device-bridge shell, each replacement asserted unique
+before being applied — no cmake/ninja needed for a doc-only edit, so this
+one did not need the cloud-sandbox round trip the three source/test files
+did.
 
 Not yet built, run, tagged or pushed at Steve's own real terminal.
 
 ## What's next (Steve's own to run)
 
-1. Review the diff — `git log --oneline -5`, `git show 00aa6a6`,
-   `git show ccf6e29`, and this session's own upcoming `WU-46` commit
-   (see below).
-2. Push everything this session committed locally but could not push
-   (no `git` credentials in the device-bridge shell). Three things ride
-   together here: the `C-038` git-history correction (`00aa6a6`, already
-   tagged `wu-35a4-green` locally), the doc-only `WU-35a2`/`WU-35a3`/
-   `C-039` commit (`ccf6e29`), and this session's own `WU-46` commit
-   (tagged `wu-46-green` locally, see below — commit hash not known until
-   after this HANDOFF is written; check `git log --oneline -3` first).
-   The misplaced tag must be deleted on `origin` before the corrected one
-   can be pushed — `git push` refuses to overwrite an existing remote tag
-   under the same name:
+1. Review the diff — `git status --short` should show exactly four
+   modified files (`src/core/resolve.hpp`, `src/core/pipeline.cpp`,
+   `tests/test_kbuffer_resolve.cpp`, `WORK-UNITS.md`), nothing else:
    ```
    cd ~/src/scatter-dve
    git status --short
-   git log --oneline -5 --decorate
-   git push origin --delete wu-35a4-green
+   git diff -- src/core/resolve.hpp src/core/pipeline.cpp tests/test_kbuffer_resolve.cpp WORK-UNITS.md
+   ```
+2. Commit, then let `tools/close.sh` build, test, tag, and push in one
+   step — it refuses on a dirty tree, so the commit must happen first
+   (`C-038`: this block is never handed over with the tag command alone,
+   commit shown explicitly immediately before):
+   ```
+   git add src/core/resolve.hpp src/core/pipeline.cpp tests/test_kbuffer_resolve.cpp WORK-UNITS.md
+   git commit -m "WU-47: wire generateFragmentsFieldRowsTagByFacing() (WU-46) into runFrameField()/resolveOneParity(), relaxing its kBufferMode precondition -- DECISIONS.md ADR-090"
+   ./tools/close.sh 47
+   ```
+   `close.sh` builds (default Release config, whatever `BLACKMAGIC_SDK_DIR`
+   is already cached in `build/` from earlier sessions — this unit is
+   core-only and does not depend on it either way), runs the full `ctest`
+   suite, tags `wu-47-green` only if everything passes, and pushes
+   `HEAD --tags` to `origin` automatically on success. If it reports
+   `WARNING: push failed; commit is local only.` (this session's own
+   device-bridge shell cannot push — no stored credentials there — but
+   `close.sh` runs at your own real terminal, where `git push` has worked
+   in every prior session), push by hand:
+   ```
    git push origin main
    git push origin --tags
    ```
-   The last command pushes both `wu-35a4-green` (recreated on `00aa6a6`
-   this session) and `wu-46-green` (this session's own new tag) in one
-   step — both already exist locally, created directly against verified
-   commits, not blindly re-run.
-3. Build and run the real test suite at a real terminal for the parts
-   this sandbox cannot reach (`test_decklink_live_sphere`,
-   `test_decklink_device`) — this session's own sandbox verification
-   covers `scatter-core` only, same limitation every session has named.
-4. `WU-47` (field-mode k-buffer wiring) is scoped, ready to pick up next
-   — see `WORK-UNITS.md`'s own entry and `DECISIONS.md` ADR-090.
+3. This session's own cloud-sandbox verification covers `scatter-core`
+   only (GCC/Clang, Release/Debug, ASan+UBSan) — the parts that sandbox
+   cannot reach (`test_decklink_live_sphere`, `test_decklink_device`) still
+   need a real build/run at your own terminal, same limitation every
+   session has named; this unit does not touch anything DeckLink-linked,
+   so no new real-hardware confirmation is expected to be needed for it
+   specifically.
+4. A stale `.git/index.lock` (0 bytes) was found and deleted this session
+   (delete permission requested and granted for this folder) — the same
+   recurring device-bridge quirk `SESSION-PROTOCOL.md`'s own opening
+   checklist now names explicitly. If a future session's own `git`
+   commands mysteriously refuse to run, check there first before assuming
+   anything worse.
 
 ## What's broken / flagged, not fixed (out of this session's own scope)
 
 **`docs/wu-audit-2026-08.md` line 113 is still stale — re-checked directly
-this session, not fixed, per the same standing instruction Session 72
-already followed.** It still reads: "The real-content gap (single tag per
-call) was already found and logged as C-020/ADR-062 before this sweep,
-and closed by WU-28c. Nothing new." Still incorrect: `WU-28c` only ever
-*built* the TagByFacing functions; the gap was not actually closed until
-`WU-35a4` (now genuinely committed, `00aa6a6`) wired them into
-`core/pipeline.cpp`. Left unfixed — touching an audit doc is outside this
-session's own scope (`core/binner.hpp`/`.cpp`, `WORK-UNITS.md`,
-`DECISIONS.md`, `CORRECTIONS.md`), same restraint Session 72 already
-applied.
+this session, not fixed, same standing instruction Sessions 72/73 already
+followed.** It still reads: "The real-content gap (single tag per call)
+was already found and logged as C-020/ADR-062 before this sweep, and
+closed by WU-28c. Nothing new." Still incorrect: `WU-28c` only ever built
+the TagByFacing functions; the whole-frame/row-range gap was not actually
+closed until `WU-35a4` wired them into `core/pipeline.cpp`, and field
+mode's own equivalent gap was not closed until this session's own `WU-47`
+(building on `WU-46`). Left unfixed — touching an audit doc is outside
+this session's own scope (`core/resolve.hpp`, `core/pipeline.cpp`,
+`tests/test_kbuffer_resolve.cpp`, `WORK-UNITS.md`), same restraint the
+prior two sessions already applied.
 
 ## Untouched, deliberately
 
 `INVARIANTS.md` (not touched, not read for a change — no invariant this
-session's own work bears on). `ADR-059/062/065/077/085/086/087/088/089`
-(not reopened; `ADR-090` narrows one clause of `ADR-077`'s own precondition,
-explicitly, rather than reopening it). `WU-35a1`/`WU-35a4`'s own
-`WORK-UNITS.md` entries (left exactly as Session 72 wrote them, per this
-session's own standing instruction — this session's own verification found
-nothing wrong in either). `src/core/resolve.hpp`, `src/core/pipeline.cpp`
-(read, not edited — `WU-47`'s own job, not this session's). `WU-35`'s own
-rump scope and `WU-37` (Specular LUTs, still blocked — `docs/sources/WU-SM-01.md`
-line 45 re-checked directly this session, EP 0248626/US 4,899,295 still
-"NOT YET HELD") both considered as this session's own Job 1 candidate and
-not picked, in favour of `WU-46` — see this session's own scoping
-reasoning, `DECISIONS.md` ADR-090.
+session's own work bears on). `ADR-059/062/065/077/085/086/087/088/089/090`
+(not reopened; this session's own work narrows one clause of `ADR-077`'s
+own precondition exactly the way `ADR-090` already said it could,
+mechanically, not a new decision). `CORRECTIONS.md`/`DECISIONS.md` (no new
+entry — nothing wrong was found this session, and the design decision
+`WU-47` implements was already made and recorded, at Session 73, as
+`ADR-090`; nothing to append). `HANDOFF.md`'s own prior sessions'
+entries and `WU-35a1`/`WU-35a4`/`WU-46`'s own `WORK-UNITS.md` entries
+(left exactly as written). `src/core/binner.hpp`/`.cpp` (read, not
+edited — `WU-46`'s own file, already `green`, this unit only calls what
+it built). `docs/wu-audit-2026-08.md` (flagged above, not fixed).

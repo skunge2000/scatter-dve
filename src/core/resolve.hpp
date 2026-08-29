@@ -515,16 +515,19 @@ struct PipelineParams {
     // instead of 0 -- tag itself is simply not consulted at all once the
     // gate is true.
     //
-    // Not consulted by runFrameField() (WU-23a2b, ADR-077): that function's
-    // own documented precondition already requires kBufferMode == Off at
-    // every call through it, so the gate above is always false there by
-    // construction -- see that function's own doc comment. Its own PASS-1
-    // call site (generateFragmentsFieldRows(), core/pipeline.cpp) is
-    // unchanged by this unit and always uses tag alone; extending field
-    // mode to facing-based tags would additionally need a
-    // generateFragmentsFieldRowsTagByFacing() sibling in core/binner.hpp/
-    // .cpp, which does not exist and is not built by this unit (see
-    // CORRECTIONS.md C-037 and DECISIONS.md ADR-089's own scope note).
+    // WU-47 (DECISIONS.md ADR-090): now also consulted by runFrameField()'s
+    // own resolveOneParity() PASS-1 call site (core/pipeline.cpp), gated
+    // exactly the same way as the two call sites described above --
+    // kBufferMode != Off AND frontTag != backTag selects WU-46's
+    // generateFragmentsFieldRowsTagByFacing() (core/binner.hpp/.cpp) in
+    // place of generateFragmentsFieldRows(). Previously (WU-23a2b/ADR-077)
+    // these two fields were never consulted there at all, because that
+    // function's own precondition unconditionally required kBufferMode ==
+    // Off and no TagByFacing sibling existed for field-parity row
+    // visitation (CORRECTIONS.md C-037) -- both now resolved, see
+    // runFrameField()'s own doc comment below and DECISIONS.md ADR-090 for
+    // why relaxing the kBufferMode half of that precondition needed no new
+    // cross-parity design decision.
     std::uint8_t frontTag = 0;
     std::uint8_t backTag = 0;
 
@@ -617,15 +620,30 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
 // not scheduled here, the same incremental staging WU-16a through WU-19a
 // already used for runFrame() itself.
 //
-// Unchecked preconditions, this unit's own deliberately narrow scope
-// (ADR-077): params.kBufferMode must be Off and params.weightOut must be
-// nullptr. Both are runFrame()-level extras whose own semantics assume
-// exactly one PASS-2 resolve per frame; what either would even mean
-// across field mode's own two independently-resolved parities sharing
-// one destination index space is not decided here -- the same "not this
-// unit's job to invent an answer nobody has asked for" restraint
-// ADR-026/ADR-029 already used for the k-buffer's own background question
-// and compositeLayered()'s own two-layer scope, respectively.
+// Unchecked precondition, narrowed by WU-47 (DECISIONS.md ADR-090):
+// params.weightOut must be nullptr. params.kBufferMode is no longer
+// required to be Off (ADR-077's original text grouped the two together,
+// without distinguishing them) -- checked directly against this function's
+// own resolveOneParity() before relaxing anything: each parity's own call
+// already runs a complete, independent PASS-1/PASS-2 cycle producing its
+// own full destWidth x destHeight raster, only later decimated and
+// recombined by extractField()/interleaveFields() above, so a k-buffer
+// resolve (compositeKBuffer(), core/pipeline.cpp's resolveOneTile()) fits
+// entirely inside one such self-contained call -- there is no point at
+// which one parity's own k-buffer slots could be seen by, or need
+// arbitrating against, the other's. resolveOneParity() branches to WU-46's
+// generateFragmentsFieldRowsTagByFacing() (core/binner.hpp/.cpp) in place
+// of generateFragmentsFieldRows() when params.kBufferMode != Off AND
+// params.frontTag != params.backTag, exactly the gate ADR-089 already uses
+// at runFrame()'s own two PASS-1 call sites -- see
+// PipelineParams::frontTag/backTag's own doc comment above and
+// core/pipeline.cpp for the call site itself. weightOut's own precondition
+// is untouched, still nullptr: a single caller-supplied buffer, written
+// once per call, is ambiguous across the two per-frame calls field mode
+// makes, and ADR-090 deliberately does not resolve what that would mean --
+// the same "not this unit's job to invent an answer nobody has asked for"
+// restraint ADR-026/ADR-029 already used for the k-buffer's own background
+// question and compositeLayered()'s own two-layer scope, respectively.
 void runFrameField(const Lattice& lattice, const SourceRaster& src,
                     const PipelineParams& params, video::Raster444& dest);
 

@@ -33,6 +33,12 @@
 // and Part C's own real self-folding sphere deliberately carries a single
 // tag only -- nothing until this unit drove two genuinely different tags
 // through the real runFrame() path against real self-folding geometry.
+//
+// Part F -- WU-47 (DECISIONS.md ADR-090): the field-mode counterpart of
+// Part E, through runFrameField()/resolveOneParity() (core/pipeline.cpp)
+// instead of runFrame() -- WU-46's generateFragmentsFieldRowsTagByFacing()
+// (core/binner.hpp/.cpp) wired in, gated the same way, against the same
+// real self-folding sphere geometry Part C/E already build.
 
 #include "core/resolve.hpp"
 #include "core/shapes/shapes.hpp"
@@ -627,6 +633,135 @@ static void test_kbuffer_pipeline_tag_by_facing_threads_1_matches_threads_8() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Part F -- WU-47 (DECISIONS.md ADR-090): field mode's own k-buffer wiring,
+// core/pipeline.cpp's runFrameField()/resolveOneParity(). WU-46 built
+// generateFragmentsFieldRowsTagByFacing() (core/binner.hpp/.cpp) but left it
+// unwired; this unit wires it into resolveOneParity()'s own PASS-1 call
+// site, gated exactly as Part E's own runFrame() call sites are
+// (kBufferMode != Off && frontTag != backTag), relaxing runFrameField()'s
+// own ADR-077 kBufferMode precondition (weightOut's own precondition is
+// untouched -- not exercised here). Reuses this file's own
+// buildFoldingSphereFrame()/WarpedFrame (Part C's own fixture, above) --
+// the same real self-folding geometry Part E already drives through
+// runFrame(), now through runFrameField() instead.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Mirrors runOnce() above, except through runFrameField() -- field mode's
+// own driver -- instead of runFrame(). runFrameField() does not consult
+// params.threads/params.pool at all (ADR-077, single-threaded only), so
+// unlike runOnce() there is no threads parameter here.
+void runOnceField(const WarpedFrame& w, int destW, int destH,
+                   video::Raster444& dest, Weight manualTransp = 0,
+                   std::uint8_t frontTag = 0, std::uint8_t backTag = 0) {
+    SourceRaster src;
+    src.width = w.srcSize;
+    src.height = w.srcSize;
+    src.r = w.y.data();
+    src.g = w.cb.data();
+    src.b = w.cr.data();
+
+    PipelineParams params;
+    params.destWidth = destW;
+    params.destHeight = destH;
+    params.maxK = 1000.0;
+    params.tag = 5;
+    params.kBufferMode = KBufferResolveMode::Blend;
+    params.manualTransp = manualTransp;
+    params.frontTag = frontTag;
+    params.backTag = backTag;
+
+    runFrameField(w.lattice, src, params, dest);
+}
+
+}  // namespace
+
+// Byte-identical-at-default half of WU-47's own Accept: criterion: with
+// frontTag == backTag (the shared default), the self-fold still carries a
+// single tag everywhere through runFrameField() too, so manualTransp's two
+// extremes must produce byte-identical real output -- the field-mode
+// counterpart of test_kbuffer_pipeline_default_tags_are_unaffected_by_manual_transp()
+// above (Part E).
+static void test_kbuffer_pipeline_field_mode_default_tags_are_unaffected_by_manual_transp() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 atZero(destW, destH);
+    runOnceField(w, destW, destH, atZero, /*manualTransp=*/Weight(0));
+
+    video::Raster444 atMax(destW, destH);
+    runOnceField(w, destW, destH, atMax, /*manualTransp=*/Weight(kWeightUnity));
+
+    for (std::size_t i = 0; i < atZero.Y.size(); ++i) {
+        CHECK_ONCE(atZero.Y[i] == atMax.Y[i]);
+        CHECK_ONCE(atZero.Cb[i] == atMax.Cb[i]);
+        CHECK_ONCE(atZero.Cr[i] == atMax.Cr[i]);
+    }
+}
+
+// Genuinely-different-once-opted-in half of WU-47's own Accept: criterion,
+// through the real runFrameField() path against the same real self-folding
+// sphere geometry -- the field-mode counterpart of
+// test_kbuffer_pipeline_tag_by_facing_manual_transp_changes_real_output()
+// above (Part E(c)).
+static void test_kbuffer_pipeline_field_mode_tag_by_facing_manual_transp_changes_real_output() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 atZero(destW, destH);
+    runOnceField(w, destW, destH, atZero, /*manualTransp=*/Weight(0),
+                 /*frontTag=*/1, /*backTag=*/2);
+
+    video::Raster444 atMax(destW, destH);
+    runOnceField(w, destW, destH, atMax, /*manualTransp=*/Weight(kWeightUnity),
+                 /*frontTag=*/1, /*backTag=*/2);
+
+    bool sawDifference = false;
+    for (std::size_t i = 0; i < atZero.Y.size(); ++i) {
+        if (atZero.Y[i] != atMax.Y[i] || atZero.Cb[i] != atMax.Cb[i] ||
+            atZero.Cr[i] != atMax.Cr[i]) {
+            sawDifference = true;
+            break;
+        }
+    }
+    CHECK(sawDifference);
+}
+
+// The fix changes real output at manualTransp's own default (0) too, the
+// field-mode counterpart of
+// test_kbuffer_pipeline_tag_by_facing_differs_from_single_tag_default()
+// above (Part E(d)): tag-by-facing through runFrameField() must differ from
+// the pre-existing single-tag default, both runs otherwise identical.
+static void test_kbuffer_pipeline_field_mode_tag_by_facing_differs_from_single_tag_default() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 singleTag(destW, destH);
+    runOnceField(w, destW, destH, singleTag, /*manualTransp=*/Weight(0));
+
+    video::Raster444 tagByFacing(destW, destH);
+    runOnceField(w, destW, destH, tagByFacing, /*manualTransp=*/Weight(0),
+                 /*frontTag=*/1, /*backTag=*/2);
+
+    bool sawDifference = false;
+    for (std::size_t i = 0; i < singleTag.Y.size(); ++i) {
+        if (singleTag.Y[i] != tagByFacing.Y[i] || singleTag.Cb[i] != tagByFacing.Cb[i] ||
+            singleTag.Cr[i] != tagByFacing.Cr[i]) {
+            sawDifference = true;
+            break;
+        }
+    }
+    CHECK(sawDifference);
+}
+
 int main() {
     test_opaque_nearest_wins_exactly();
     test_opaque_z_tie_breaks_by_smallest_tag();
@@ -646,5 +781,8 @@ int main() {
     test_kbuffer_pipeline_tag_by_facing_manual_transp_changes_real_output();
     test_kbuffer_pipeline_tag_by_facing_differs_from_single_tag_default();
     test_kbuffer_pipeline_tag_by_facing_threads_1_matches_threads_8();
+    test_kbuffer_pipeline_field_mode_default_tags_are_unaffected_by_manual_transp();
+    test_kbuffer_pipeline_field_mode_tag_by_facing_manual_transp_changes_real_output();
+    test_kbuffer_pipeline_field_mode_tag_by_facing_differs_from_single_tag_default();
     return scatter::test::summary("test_kbuffer_resolve");
 }
