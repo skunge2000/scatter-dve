@@ -325,4 +325,41 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
                                      TileBins& outBins,
                                      const CoarseShadingGrid* shadingGrid = nullptr);
 
+// WU-46 (DECISIONS.md ADR-090): per-fragment facing tag (WU-28c, above),
+// field-parity row visitation (WU-23a2a, above) -- combined. Named and
+// left unbuilt by WU-28c (CORRECTIONS.md C-037/DECISIONS.md ADR-089 both
+// point here): core/pipeline.cpp's runFrameField() has no sibling of
+// generateFragmentsFieldRows() that can give front- and back-facing
+// fragments different tags, so a self-folding lattice warped in field
+// mode has never been able to populate more than one k-buffer slot, the
+// same real-content gap C-020/C-036 found for whole-frame/row-range mode
+// before WU-35a4 closed it there. This function is that sibling -- a
+// pure combination of two already-`green` mechanisms, no new one of its
+// own: generateFragmentsRowRangeTagByFacing()'s own facing-based tag
+// policy (front-facing, normal.z < 0, gets frontTag; back-facing gets
+// backTag -- ADR-027/ADR-063) applied over generateFragmentsFieldRows()'s
+// own row-visitation shape (rowOffset, rowOffset + 2, ... < src.height,
+// rowStep 2, rowEnd pinned to src.height, never a field-shortened height
+// -- ADR-076). Both shared, `generateFragmentsRowRangeImpl()`'s (`.cpp`,
+// anonymous namespace) own `TagFn`/`rowStep` template parameters already
+// make this composition free -- no third mechanism, no new per-sample
+// logic, nothing this function's own body decides beyond which sibling's
+// two behaviours to combine.
+//
+// rowOffset must be 0 or 1, the same unchecked convention
+// generateFragmentsFieldRows() already uses. Every other parameter has
+// the same meaning as generateFragmentsRowRangeTagByFacing()'s own.
+//
+// This function alone does not make field mode's own k-buffer resolve
+// reachable -- core/pipeline.cpp's runFrameField() still does not call
+// it, and its own ADR-077 precondition (params.kBufferMode == Off) is
+// unchanged; see DECISIONS.md ADR-090 for why that wiring is left as a
+// separate, not-yet-built follow-on (WU-47) rather than done alongside
+// this function.
+BinStats generateFragmentsFieldRowsTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                                double maxK, const SupersampleConfig& ss,
+                                                std::uint8_t frontTag, std::uint8_t backTag,
+                                                int rowOffset, TileBins& outBins,
+                                                const CoarseShadingGrid* shadingGrid = nullptr);
+
 }  // namespace scatter

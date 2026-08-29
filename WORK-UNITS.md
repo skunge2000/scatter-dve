@@ -3492,6 +3492,133 @@ see `HANDOFF.md`. `tests/test_decklink_live_sphere.cpp`'s own two-line
 opt-in edit is reasoned through and verified by re-staging/diffing, same
 as every prior session's DeckLink-adjacent edits, but not built or run
 anywhere — no sandbox step exists for it.
+
+### WU-46 — `generateFragmentsFieldRowsTagByFacing()`: field-row visitation + facing tag, combined (`core/binner.hpp`/`.cpp`) `green`
+
+Named and left unbuilt by `WU-28c`, found missing again while building
+`WU-35a4` (`CORRECTIONS.md` C-037, `DECISIONS.md` ADR-089): `core/binner.hpp`
+had `generateFragmentsRowRangeTagByFacing()`/`generateFragmentsTagByFacing()`
+(facing-based tag, `WU-28c`) and `generateFragmentsFieldRows()` (field-parity
+row visitation, `WU-23a2a`), but no function combining both. `DECISIONS.md`
+ADR-090 has the full design conversation — checked directly against the real
+code before building anything, not assumed: both existing mechanisms are
+already thin wrappers around one shared, anonymous-namespace template,
+`generateFragmentsRowRangeImpl()`, templated on the tag policy and
+parameterised on `rowStart`/`rowEnd`/`rowStep` independently — so combining
+them is a pure composition, no new per-sample logic.
+
+**Files:** `src/core/binner.hpp` (declaration), `src/core/binner.cpp`
+(implementation — the facing-tag lambda copied verbatim from
+`generateFragmentsRowRangeTagByFacing()`, the `(rowOffset, src.height,
+rowStep=2)` arguments copied verbatim from `generateFragmentsFieldRows()`),
+`tests/test_binner.cpp` (two new tests) — two source files plus one test,
+matching `SESSION-PROTOCOL.md`'s own sizing rule.
+
+**Accept, both checked directly:** (1)
+`test_field_rows_tag_by_facing_matches_row_range_ground_truth()` — for both
+`rowOffset` values, output byte-for-byte identical, tile by tile, fragment by
+fragment, to accumulating one `generateFragmentsRowRangeTagByFacing()` call
+per row of that field parity — the same ground-truth shape
+`test_field_rows_match_row_range_ground_truth()` (`WU-23a2a`) already
+established for the plain-tag case, now proven for the tag-by-facing case
+too. (2) `test_field_rows_tag_by_facing_sphere_facing_sign()` — real
+self-fold content, the same sphere and the same two hand-derived control
+vertices `test_self_fold_front_and_back_get_different_tags()` (`WU-28c`)
+already uses (front: source pixel `(1, 1)`; back, the antipodal fold
+boundary: `(0, 1)`), both at source row `py == 1`: `rowOffset == 1` sees
+both tags correctly; `rowOffset == 0` (which never visits row 1 at all)
+sees neither check point, confirming the row-parity gate and the facing-tag
+policy are genuinely composed, not one silently overriding the other.
+
+**This unit alone does not make field mode's own k-buffer resolve
+reachable** — `core/pipeline.cpp`'s `runFrameField()` does not call this
+function yet, and its own `ADR-077` precondition (`params.kBufferMode ==
+Off`) is unchanged. See `WU-47` below for that wiring, scoped but not built
+here (file-count sizing, not because it needs a hard new design decision —
+`DECISIONS.md` ADR-090 works through why relaxing `kBufferMode`'s own
+precondition specifically is mechanical, not `weightOut`'s).
+
+**Status:** built and verified this session — fresh build, four
+configurations (GCC 13.3.0 Release tile 2^5, Clang Release tile 2^5, GCC
+Debug tile 2^4, GCC Debug+ASan+UBSan tile 2^5), all 28/28 `ctest` targets
+green in every one (`test_binner` itself: 39698 checks), zero compiler
+warnings in any configuration, zero sanitizer traps, sanitizer
+instrumentation confirmed genuinely linked (`nm -D`: 25 `asan`/11 `ubsan`
+hits; `ldd`: `libasan.so.8`/`libubsan.so.1` both actually linked). Built
+and tested in this session's own cloud sandbox (not the device-bridge
+shell, which has no `cmake`/`ninja` — the three changed files were then
+written back to the real repository via the device bridge and re-staged/
+diffed to confirm the write landed byte-for-byte, brace-balance and
+whole-file paren-delta checked against each file's own pre-edit baseline
+rather than a raw same-file count, since this codebase's own prose-heavy
+comments already carry a nonzero raw paren imbalance before any edit —
+confirmed directly, not assumed, by diffing HEAD's own counts against the
+working tree's). Not yet built, run, tagged or pushed at Steve's own real
+terminal.
+
+### WU-47 — wire `generateFragmentsFieldRowsTagByFacing()` (`WU-46`) into `core/pipeline.cpp`'s `runFrameField()`, relaxing its `kBufferMode` precondition `todo`
+
+Scoped this session (`DECISIONS.md` ADR-090), not built — split from `WU-46`
+above purely on file-count sizing (`core/resolve.hpp` +
+`core/pipeline.cpp` in addition to `core/binner.hpp`/`.cpp` would be four
+source files for one unit, past `SESSION-PROTOCOL.md`'s own three-file
+cap), the same "component before the thing that wires it" seam this
+project has used repeatedly (`WU-28a`–`WU-28d`, `WU-35a1`–`WU-35a4`,
+listed in full in `WU-35a`'s own entry above).
+
+**Design direction, from `DECISIONS.md` ADR-090's own reasoning — re-check
+against the real, current code before building, per this project's own
+standing discipline, in case anything has moved underneath this entry in
+the meantime:** `core/resolve.hpp`'s `runFrameField()` doc comment
+currently states its own precondition as "`params.kBufferMode` must be
+`Off` and `params.weightOut` must be `nullptr`" (`ADR-077`). ADR-090 found
+this can be narrowed, not reopened: each of `resolveOneParity()`'s two
+calls (one per field parity) already runs a complete, independent PASS-1/
+PASS-2 cycle producing its own full `destWidth x destHeight` raster, later
+decimated to that parity's own rows by `extractField()` — a k-buffer
+resolve fits entirely inside one such self-contained call, with no
+cross-parity interaction for `compositeKBuffer()` to need arbitrating.
+`weightOut` is a different, genuinely harder question (a single
+caller-supplied buffer written once per call, ambiguous across two calls
+per output frame) that ADR-090 does not resolve and this unit should not
+either — its own precondition stays `nullptr`, unrelaxed.
+
+**Files (per ADR-090, confirm before starting):** `src/core/resolve.hpp`
+(`runFrameField()`'s own doc comment — narrow the `kBufferMode` half of the
+precondition, leave the `weightOut` half as-is), `src/core/pipeline.cpp`
+(`resolveOneParity()`'s own `generateFragmentsFieldRows()` call gains the
+same gated branch `ADR-089` already added to the other two PASS-1 call
+sites — `kBufferMode != Off && frontTag != backTag` selects `WU-46`'s
+`generateFragmentsFieldRowsTagByFacing()` instead), `tests/test_kbuffer_resolve.cpp`
+or a new field-mode-specific test file (not decided here — check whether
+Part E's own shape extends naturally or field mode's own existing test
+file, `tests/test_field_pipeline.cpp`, is the better home; both already
+exist and this unit's own scoping pass should re-read both before
+choosing, not assume).
+
+**Accept, provisional, to be confirmed against the real code when this
+unit is picked up:** synthetic content via the real `runFrameField()` path
+(mirroring `WU-46`'s Part E from `WU-35a4`/ADR-089): `frontTag == backTag`
+(default) reproduces today's exact behaviour byte-for-byte (nothing
+regresses for a caller that does not opt in — field mode's own existing
+green tests, `test_field_pipeline.cpp` in particular, must stay green
+unmodified); opted in (`frontTag != backTag`, `kBufferMode != Off`) on a
+real self-folding lattice warped in field mode produces genuinely
+different output between `manualTransp`'s extremes, the field-mode
+equivalent of `WU-35a4`'s own Part E(c)/(d). No real-hardware/by-eye
+criterion of its own — this unit is core-only (`core/resolve.hpp`,
+`core/pipeline.cpp`), same as `WU-35a1`/`WU-35a4`, not
+`tests/test_decklink_live_sphere.cpp`-linked.
+
+**Not `[P]`-tier**, same reasoning as `WU-46` above and `WU-35a4`'s own
+wiring (`DECISIONS.md` ADR-089): this is reachability, not a new
+arbitration formula. **Does not reopen `ADR-077`** — narrows one of its
+two preconditions, per `DECISIONS.md` ADR-090's own explicit reasoning for
+why that is safe.
+
+*Status:* **`todo` — scoped this session, not built.** Depends on `WU-46`
+(above, `green`) for the function it calls.
+
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —
 adjust if it collides with a unit named between this sweep and whenever it

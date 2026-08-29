@@ -406,4 +406,25 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
         rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid);
 }
 
+// WU-46 (DECISIONS.md ADR-090): see core/binner.hpp's own comment. The
+// facing-tag lambda is copied verbatim from
+// generateFragmentsRowRangeTagByFacing() above; the row-visitation
+// arguments (rowOffset, src.height, rowStep 2) are copied verbatim from
+// generateFragmentsFieldRows() immediately above. Nothing else differs --
+// this function's own body decides nothing generateFragmentsRowRangeImpl()
+// does not already know how to do.
+BinStats generateFragmentsFieldRowsTagByFacing(const Lattice& lattice, const SourceRaster& src,
+                                                double maxK, const SupersampleConfig& ss,
+                                                std::uint8_t frontTag, std::uint8_t backTag,
+                                                int rowOffset, TileBins& outBins,
+                                                const CoarseShadingGrid* shadingGrid) {
+    return generateFragmentsRowRangeImpl(
+        lattice, src, maxK, ss,
+        [frontTag, backTag](const Jacobian& rawJ) noexcept {
+            // ADR-027/ADR-063: front-facing means normal.z < 0.
+            return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
+        },
+        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid);
+}
+
 }  // namespace scatter

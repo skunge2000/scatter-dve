@@ -664,6 +664,131 @@ static void test_field_rows_reject_naive_half_height_extraction_bug() {
     }
 }
 
+// --- WU-46 (DECISIONS.md ADR-090): field-row visitation + facing tag, ----
+// --- combined -------------------------------------------------------------
+
+static void test_field_rows_tag_by_facing_matches_row_range_ground_truth() {
+    // Same compressive affine map and geometry as
+    // test_field_rows_match_row_range_ground_truth() above -- this test's
+    // own point is checking that generateFragmentsRowRangeTagByFacing()'s
+    // own facing-tag policy and generateFragmentsFieldRows()'s own
+    // row-striding compose correctly through the shared
+    // generateFragmentsRowRangeImpl(), not re-deriving either one's own
+    // correctness in isolation (already covered by the WU-28c/WU-23a2a
+    // tests above).
+    const int W = 20, H = 15;
+    SignatureRaster src(W, H);
+    Lattice lat = makePixelAffineLattice(0.5, 0.5, 5.0, 5.0, W, H);
+    SupersampleConfig ss;
+    constexpr std::uint8_t kFrontTag = 7, kBackTag = 13;
+
+    for (int rowOffset = 0; rowOffset <= 1; ++rowOffset) {
+        TileBins fieldBins(64, 64);
+        const BinStats fieldStats = generateFragmentsFieldRowsTagByFacing(
+            lat, src.view(), /*maxK=*/1000.0, ss, kFrontTag, kBackTag, rowOffset, fieldBins);
+
+        // Ground truth: one generateFragmentsRowRangeTagByFacing() call per
+        // row of this field's own parity, each covering exactly
+        // [py, py + 1), accumulated into one TileBins in the same
+        // ascending row order generateFragmentsFieldRowsTagByFacing()
+        // itself visits them in -- the same ground-truth shape
+        // test_field_rows_match_row_range_ground_truth() above already
+        // established for the plain-tag case.
+        TileBins refBins(64, 64);
+        BinStats refStats;
+        for (int py = rowOffset; py < H; py += 2) {
+            const BinStats rowStats = generateFragmentsRowRangeTagByFacing(
+                lat, src.view(), /*maxK=*/1000.0, ss, kFrontTag, kBackTag, py, py + 1, refBins);
+            refStats.sourceSamples += rowStats.sourceSamples;
+            refStats.primaryFragments += rowStats.primaryFragments;
+            refStats.replicaFragments += rowStats.replicaFragments;
+            refStats.droppedOffRaster += rowStats.droppedOffRaster;
+        }
+
+        CHECK(fieldStats.sourceSamples == refStats.sourceSamples);
+        CHECK(fieldStats.primaryFragments == refStats.primaryFragments);
+        CHECK(fieldStats.replicaFragments == refStats.replicaFragments);
+        CHECK(fieldStats.droppedOffRaster == refStats.droppedOffRaster);
+
+        CHECK(fieldBins.tilesX() == refBins.tilesX() && fieldBins.tilesY() == refBins.tilesY());
+        for (int ty = 0; ty < fieldBins.tilesY(); ++ty) {
+            for (int tx = 0; tx < fieldBins.tilesX(); ++tx) {
+                const std::vector<Frag>& got = fieldBins.tile(tx, ty);
+                const std::vector<Frag>& want = refBins.tile(tx, ty);
+                CHECK_ONCE(got.size() == want.size());
+                if (got.size() == want.size()) {
+                    for (std::size_t i = 0; i < got.size(); ++i) {
+                        CHECK_ONCE(sameFrag(got[i], want[i]));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Real self-fold content, not just an affine map: the same sphere and same
+// two control vertices test_self_fold_front_and_back_get_different_tags()
+// above already hand-derives (front: source pixel (1, 1); back, the
+// antipodal fold boundary: (0, 1)) -- both at source row py == 1, i.e.
+// field parity (rowOffset) 1, so this test checks rowOffset == 1 sees both
+// tags correctly and rowOffset == 0 (which never visits row 1 at all) sees
+// neither check point.
+static void test_field_rows_tag_by_facing_sphere_facing_sign() {
+    constexpr double kPi = 3.14159265358979323846;
+    using scatter::shapes::SphereParams;
+    using scatter::shapes::buildSphereLattice;
+
+    SphereParams p;
+    p.angleSpanH = 2.0 * kPi;
+    p.centerX = 300.0;
+    p.centerY = 300.0;
+    const Lattice lat = buildSphereLattice(p);
+
+    const int W = 3, H = 3;
+    SignatureRaster src(W, H);
+    SupersampleConfig ss;
+    constexpr std::uint8_t kFrontTag = 7, kBackTag = 13;
+
+    TileBins oddBins(700, 700);
+    const BinStats oddStats = generateFragmentsFieldRowsTagByFacing(
+        lat, src.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag, /*rowOffset=*/1, oddBins);
+    CHECK(oddStats.droppedOffRaster == 0);
+
+    int frontCount = 0, backCount = 0;
+    for (int ty = 0; ty < oddBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < oddBins.tilesX(); ++tx) {
+            for (const Frag& f : oddBins.tile(tx, ty)) {
+                const auto sig = decode(f);
+                if (sig == std::pair{1, 1}) {
+                    CHECK_ONCE(f.tag == kFrontTag);
+                    ++frontCount;
+                } else if (sig == std::pair{0, 1}) {
+                    CHECK_ONCE(f.tag == kBackTag);
+                    ++backCount;
+                }
+            }
+        }
+    }
+    CHECK(frontCount > 0);
+    CHECK(backCount > 0);
+
+    // rowOffset == 0 never visits source row 1 at all (rowOffset,
+    // rowOffset + 2, ... -- row 1 is odd) -- neither check point's own
+    // signature should appear anywhere in this bin set.
+    TileBins evenBins(700, 700);
+    generateFragmentsFieldRowsTagByFacing(
+        lat, src.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag, /*rowOffset=*/0, evenBins);
+    for (int ty = 0; ty < evenBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < evenBins.tilesX(); ++tx) {
+            for (const Frag& f : evenBins.tile(tx, ty)) {
+                const auto sig = decode(f);
+                CHECK(sig != (std::pair{1, 1}));
+                CHECK(sig != (std::pair{0, 1}));
+            }
+        }
+    }
+}
+
 // --- WU-34b (DECISIONS.md ADR-084): coarse-grid shading multiplied into --
 // --- the sample ahead of Frag construction -------------------------------
 
@@ -860,6 +985,8 @@ int main() {
     test_self_fold_front_and_back_get_different_tags();
     test_field_rows_match_row_range_ground_truth();
     test_field_rows_reject_naive_half_height_extraction_bug();
+    test_field_rows_tag_by_facing_matches_row_range_ground_truth();
+    test_field_rows_tag_by_facing_sphere_facing_sign();
     test_shading_multiplies_rgb_intensity_ahead_of_frag_construction();
     test_shading_grid_defaults_to_null_and_preserves_existing_output();
     return scatter::test::summary("test_binner");

@@ -9257,3 +9257,103 @@ rump scope (`Auto Transp`, `Ext. Key`, the general swappable M1/M2/hybrid
 interface, the Jacobian-derived sheet tolerance) is untouched, still
 `todo`. Field mode's own k-buffer support (see above) is not scoped by this
 unit either.
+
+**ADR-090 -- `generateFragmentsFieldRowsTagByFacing()` (`core/binner.hpp`/
+`.cpp`, WU-46): a pure combination of two already-`green` mechanisms, no
+new design choice of its own. Separately: field mode's own k-buffer
+question (`CORRECTIONS.md` C-037, `ADR-089`) scoped, not built --
+`kBufferMode`'s own `runFrameField()` precondition (`ADR-077`) can be
+relaxed safely, `weightOut`'s cannot, without deciding the harder question
+`ADR-077` deferred.**
+
+This session (continuing the `WU-35a1` -> `WU-35a4` chain's own named
+follow-on). `ADR-089` wired `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` (`WU-28c`) into two of
+`core/pipeline.cpp`'s three PASS-1 call sites; the third,
+`runFrameField()`'s own `resolveOneParity()`, was left unchanged for two
+independent reasons (`CORRECTIONS.md` C-037): its own `ADR-077`
+precondition requires `params.kBufferMode == Off`, and no
+`generateFragmentsFieldRowsTagByFacing()` sibling existed in
+`core/binner.hpp`/`.cpp` for it to call even if it were reachable.
+
+**Part one, built this session (`WU-46`): the missing sibling.** Checked
+directly against `core/binner.cpp` before writing anything: every one of
+`generateFragmentsRowRange()`, `generateFragmentsTagByFacing()`,
+`generateFragmentsRowRangeTagByFacing()` and `generateFragmentsFieldRows()`
+is already a thin wrapper around one shared, anonymous-namespace template,
+`generateFragmentsRowRangeImpl()` (`WU-28c`/`ADR-065`, `WU-23a2a`/
+`ADR-076`) -- a per-sample loop templated on a `TagFn` (the facing-based
+lambda `TagByFacing` callers pass, vs. the plain constant-tag lambda
+`RowRange`/`FieldRows` callers pass) and parameterised on
+`rowStart`/`rowEnd`/`rowStep` independently of the tag policy. Combining
+"facing-based tag" with "field-parity row visitation" therefore needed no
+new per-sample logic of its own -- `generateFragmentsFieldRowsTagByFacing()`
+is `generateFragmentsRowRangeTagByFacing()`'s own facing lambda passed
+through with `generateFragmentsFieldRows()`'s own `(rowOffset, src.height,
+rowStep=2)` arguments, nothing else. Not `[P]`-tier: like `WU-46`'s own
+`ADR-089` before it, this is wiring an already-attested mechanism into a
+place it was never reachable from, not a new, unconfirmed design choice.
+
+**Part two, scoped this session, not built (`WU-47`): does relaxing
+`runFrameField()`'s own `kBufferMode == Off` precondition need a new
+design decision, or is it mechanical?** `ADR-077`'s own text groups
+`kBufferMode` and `weightOut` together as "`runFrame()`-level extras whose
+own semantics assume exactly one PASS-2 resolve per frame," deferring both
+without distinguishing them. Checked directly against
+`core/pipeline.cpp`'s real `runFrameField()`/`resolveOneParity()` before
+deciding, not assumed: `resolveOneParity(rowOffset)` already runs a
+*complete*, independent PASS-1/PASS-2 cycle per field parity -- its own
+`generateFragmentsFieldRows()` call, followed by the same normalise/
+composite path `runFrame()`'s own `threads<=1` branch uses -- each
+producing its own full `destWidth x destHeight` raster, only later
+decimated to that parity's own rows by `extractField()` and recombined by
+`interleaveFields()`. A `kBufferMode`-driven resolve (whether plain
+`compositeKBuffer()` or, after `WU-46`, its `TagByFacing`-fed form) fits
+entirely inside one such self-contained per-parity call -- there is no
+point at which a k-buffer slot from one parity's own resolve could be seen
+by, or need arbitrating against, the other parity's: each `resolveOneParity()`
+call already is, in every respect relevant to `compositeKBuffer()`'s own
+per-destination-cell resolve, indistinguishable from an ordinary
+`runFrame()`-style call restricted to a strided row set. Relaxing
+`kBufferMode`'s own precondition therefore needs no new cross-parity
+design decision -- it is exactly as mechanical as `WU-46`'s own binner.hpp
+sibling. **`weightOut` is a different question, left exactly where
+`ADR-077` put it.** `weightOut` is a single caller-supplied output buffer,
+sized and written once per `runFrame()`-style call (`core/resolve.hpp`'s
+own doc comment on it) -- calling `resolveOneParity()` twice per output
+frame means two independent writes into whatever buffer a relaxed
+precondition let a caller pass, and whether that means "each parity
+overwrites the same buffer" (which one wins?), "the caller must pass two
+buffers," or something else entirely is a real, undecided design question
+`ADR-077` was right to defer and this session does not resolve either.
+
+**Decision: `WU-47` (not built here) relaxes `runFrameField()`'s own
+precondition to `params.weightOut == nullptr` alone -- `kBufferMode` no
+longer unconditionally required `Off`, gated the same way `ADR-089`
+already gates the other two PASS-1 call sites
+(`kBufferMode != Off && frontTag != backTag`) -- and wires
+`resolveOneParity()`'s own `generateFragmentsFieldRows()` call to branch to
+`WU-46`'s `generateFragmentsFieldRowsTagByFacing()` exactly as `ADR-089`'s
+own two call sites already do. `weightOut`'s own precondition is
+untouched, still requiring `nullptr` -- narrowing `ADR-077`'s original
+"both must be off" precondition, not reopening it, per this project's own
+anti-drift rule 3.** Not built as part of `WU-46` because it needs
+`core/resolve.hpp` and `core/pipeline.cpp` in addition to
+`core/binner.hpp`/`.cpp` -- four source files for one unit, past
+`SESSION-PROTOCOL.md`'s own three-source-file sizing cap -- so `WU-46`
+(the binner.hpp/.cpp sibling alone, within the cap) and `WU-47` (the
+pipeline.cpp/resolve.hpp wiring, within the cap on its own) are split the
+same "component before the thing that wires it" way `WU-28a`-`WU-28d`/
+`WU-35a1`-`WU-35a4` already established, not because relaxing the
+precondition is itself a large design question -- it isn't, per the
+reasoning above -- but because of file-count sizing alone.
+
+**Not `[P]`-tier**, for the same reason `ADR-089` is not: this is wiring,
+not a new arbitration mechanism. **Does not reopen `ADR-077`** -- that
+ADR's own text already left both preconditions as this unit's own
+deliberately narrow scope, not a settled belief that neither could ever be
+relaxed; narrowing one of the two, with the reasoning above for why it is
+safe, is exactly the kind of follow-on `ADR-077` itself anticipated
+("a future unit's own job," its own text on threaded field mode already
+uses the identical phrase for a different deferred extension).
+
