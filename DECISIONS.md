@@ -9104,3 +9104,156 @@ cannot be built or tested in this project's own cloud sandbox. `WU-35`'s
 own remaining scope (`Auto Transp`, `Ext. Key`, the general swappable
 M1/M2/hybrid interface, the Jacobian-derived sheet tolerance) --
 untouched, still `todo`.
+
+---
+
+**ADR-089 — `core/pipeline.cpp`'s three PASS-1 call sites: how a caller opts
+into `generateFragmentsTagByFacing()` (`WU-28c`). New, additive
+`PipelineParams::frontTag`/`backTag` fields, gated by BOTH
+`kBufferMode != Off` AND `frontTag != backTag` -- not `kBufferMode` alone.
+`WU-35a4`, closes `CORRECTIONS.md` C-020/C-036. Not `[P]`-tier.**
+
+Session 72 (`WU-35a4`), the genuine new design question `CORRECTIONS.md`
+C-036/`WORK-UNITS.md`'s own `WU-35a4` entry both flagged and deliberately
+left open: `core/binner.hpp`'s `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` (`WU-28c`, `green` since Session
+39) have always been able to give a self-folding surface's front and back
+different `Frag::tag` values, and `WU-28a`'s k-buffer (`splat.cpp`'s
+`routeIntoKBuffer()`, keyed strictly by `slot.tag == f.tag`) has always been
+able to separate them once they do -- but `core/pipeline.cpp`'s three real
+PASS-1 call sites (`runThreaded()`'s threaded row-band loop, `runFrame()`'s
+own `threads<=1` plain-mode loop, and `runFrameField()`'s own
+`resolveOneParity()`) never called the `TagByFacing` siblings, always the
+plain single-scalar-tag ones, so a self-fold's front and back always landed
+in the same slot regardless of `kBufferMode`. This is the exact mechanism
+`CORRECTIONS.md` C-020 found once (an earlier session) and C-036 re-found
+under real-hardware pressure (Session 71) without re-reading C-020 first.
+
+**Three candidates, per `WORK-UNITS.md`'s own `WU-35a4` entry:** (a) new
+`PipelineParams::frontTag`/`backTag` fields, defaulted so existing callers
+are unaffected, with the PASS-1 call sites branching on `kBufferMode != Off`
+to choose `generateFragmentsTagByFacing()`/`generateFragmentsRowRangeTagByFacing()`
+over the plain functions; (b) fixed tag values (e.g. `0`/`1`) used
+automatically whenever `kBufferMode != Off`, no new `PipelineParams` field
+at all; (c) something else.
+
+**Decision: (a), refined.** New `std::uint8_t frontTag = 0` and
+`std::uint8_t backTag = 0` fields on `PipelineParams` (`core/resolve.hpp`),
+both defaulting to the same value as each other (and as `tag`'s own
+default) -- deliberately, so equality is guaranteed unless a caller changes
+one. The PASS-1 call sites use the `TagByFacing` siblings, with
+`params.frontTag`/`params.backTag`, only when BOTH `params.kBufferMode !=
+KBufferResolveMode::Off` AND `params.frontTag != params.backTag`; otherwise
+they call the plain, single-scalar-`tag` functions exactly as before, with
+`tag` unaffected.
+
+**Why not (b), and why not `kBufferMode` alone under (a) either: checked
+directly against the real code before deciding, not assumed.**
+`tests/test_kbuffer_resolve.cpp`'s own Part C (`test_kbuffer_pipeline_
+threads_1_matches_threads_8()`, already `green` since `WU-28b`) sets
+`params.tag = 5` AND `params.kBufferMode = KBufferResolveMode::Blend`
+together, on a real self-folding sphere -- an existing, shipped caller that
+combines a meaningful custom `tag` with the k-buffer turned on. Gating the
+new branch on `kBufferMode != Off` alone (option (b), or option (a) without
+the second condition) would have silently stopped honouring that `tag`
+value the moment this unit landed, for that one already-`green` caller,
+breaking the exact "every existing caller keeps compiling and behaving
+exactly as before, byte for byte" promise this codebase makes for every
+other additive `PipelineParams` field without exception (`pool` ADR-044,
+`weightOut` ADR-056, `kBufferMode` itself ADR-059/061, `manualTransp`
+ADR-087/088 -- all four say this explicitly in `core/resolve.hpp`). `tag`'s
+own doc comment (`core/binner.hpp`) already promises it is "copied into
+every emitted `Frag` unchanged... not otherwise used here" -- automatically
+overriding that promise based on an unrelated field (`kBufferMode`) is
+exactly the kind of quiet contract change `SESSION-PROTOCOL.md`'s own
+anti-drift rule 2 exists to prevent, even though `tag` itself is not
+literally renamed. Requiring `frontTag != backTag` as well keeps every
+existing caller's behaviour, including that one, provably identical: with
+both left at their shared default, the new branch's own condition is false
+by construction, regardless of `kBufferMode`, so `tag` alone still governs.
+
+**Consequence for `tests/test_decklink_live_sphere.cpp`:** unlike
+`WORK-UNITS.md`'s own `WU-35a4` entry's more hopeful note ("needs no
+further change of its own"), this design does require one -- checked
+directly against the real, current file (Session 71's own `WU-35a3` work,
+uncommitted at this session's own start): it constructs exactly one
+`PipelineParams`, sets `kBufferMode = Blend`, and never touches `tag`,
+`frontTag` or `backTag` at all, so `frontTag`/`backTag` stay at their
+shared default there today. A caller-opt-in design (a) means this file
+needs two lines added -- `params.frontTag`/`params.backTag` set to distinct
+values -- to actually benefit; see this session's own `WORK-UNITS.md` entry
+and `HANDOFF.md` for the exact edit. This is the direct, foreseeable cost
+of refusing option (b)'s automatic behaviour: explicit, discoverable,
+overridable, at the price of one more caller-side edit. Judged worth it
+given the alternative's silent breakage of an already-`green` test.
+
+**`runFrameField()`'s own third PASS-1 call site is deliberately NOT given
+the same branch -- see `CORRECTIONS.md` C-037.** `runFrameField()`'s own
+documented precondition (`core/resolve.hpp`) already requires
+`params.kBufferMode == Off` at every call through it, so the gate above
+would always be false there by construction even if it were added: this is
+not a gap this unit leaves, it is a call site the gate can never reach in
+valid usage. Separately (compounding, not the reason): no
+`generateFragmentsFieldRowsTagByFacing()` sibling exists in
+`core/binner.hpp`/`.cpp` -- `WU-28c` built only the whole-raster and
+row-range siblings, not a field-rows one -- so the branch could not compile
+there even if `runFrameField()`'s own precondition were ever relaxed. Field
+mode's own k-buffer support, if ever wanted, is a separate future unit's
+job: it needs both a relaxed (or reasoned-through) `runFrameField()`
+precondition and a new `core/binner.hpp`/`.cpp` entry point, neither of
+which is this unit's own file footprint.
+
+**Not `[P]`-tier.** Unlike `WU-35a`/`WU-35a1`'s own `manualTransp`
+coefficient (licensed by `ADR-087`'s Task A1 finding but not confirmed
+against the real historical Mirage), this unit is not a new arbitration
+formula -- it is wiring an already-`green`, already-tested mechanism
+(`WU-28a`'s tag-keyed k-buffer, `WU-28c`'s facing-tag generation) into the
+one place that was never calling it, so that basic self-fold occlusion
+(`Opaque` mode, `T = 0` in `Blend` mode) can happen at all for real content.
+`WORK-UNITS.md`'s own `WU-28d` entry already recorded `T = 0`/`Opaque` as
+matching `E1`'s real attested behaviour -- this unit makes that reachable,
+it does not introduce a new, unconfirmed mechanism of its own.
+
+**Scope -- two source files plus one test, matching
+`SESSION-PROTOCOL.md`'s own sizing rule.** `src/core/resolve.hpp`
+(`PipelineParams` gains `frontTag`/`backTag`). `src/core/pipeline.cpp` (two
+of its three PASS-1 call sites gain the gated branch; the third,
+`runFrameField()`'s own `resolveOneParity()`, gains only an explanatory
+comment, unchanged in behaviour). `tests/test_kbuffer_resolve.cpp` (six new
+tests -- see `WORK-UNITS.md`'s own `WU-35a4` entry for exactly what each
+checks). `tests/test_decklink_live_sphere.cpp` (two lines, opting in --
+Blackmagic-SDK-linked, not built or tested in this project's own cloud
+sandbox, same gap every DeckLink-touching unit in this project has named).
+`core/binner.hpp`/`.cpp` untouched -- `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` already existed, `green`, since
+`WU-28c`.
+
+**Build/test matrix -- cloud sandbox, genuinely for the first time in this
+whole `WU-35a`-numbered chain (`core/pipeline.cpp`, `core/binner.hpp`/`.cpp`
+and `core/resolve.hpp` link no Blackmagic SDK, `scatter-core` target,
+`CMakeLists.txt`):** GCC 13.3.0 and Clang 18.1.3 Release at tile 2^5, GCC
+13.3.0 Debug at tile 2^4, and GCC 13.3.0 Debug+ASan+UBSan at tile 2^5 -- all
+four configurations 28 of 28 portable `ctest` targets green, zero
+compiler warnings, zero sanitizer traps, sanitizer instrumentation
+confirmed genuinely linked (`nm -D`: 28 `asan` hits, 14 `ubsan` hits,
+matching `wu-45-green`'s/`WU-35a1`'s own prior-session counts exactly).
+`test_kbuffer_resolve` itself: 436190 checks passing (GCC Release t5),
+including the six new `WU-35a4` tests -- all real assertions (e.g.
+`sawDifference` genuinely observed true for the tag-by-facing case, false
+for the default-tags case), not vacuously-true loops. Confirmed against a
+fresh clone of `origin/main` at `60e2d28` (`WU-35a2`) with this session's
+own files overlaid, per this project's own standing discipline; the real
+Mac repository was at the same commit, confirmed directly, with Session
+71's own `WU-35a3` work (`src/io/decklink_capture_consumer.hpp`/`.cpp`,
+`tests/test_decklink_live_sphere.cpp`) still uncommitted there -- unrelated
+to and untouched by this unit's own edits, except this unit's own two-line
+addition to that one test file (see above).
+
+**Not decided here:** `WU-33`'s own "front/back source pair, selected by
+facing" (a second video source, not this unit's occlusion-tagging of one
+source -- checked directly, they are adjacent but distinct, per
+`WORK-UNITS.md`'s own `WU-33` entry) is untouched. `WU-35`'s own remaining
+rump scope (`Auto Transp`, `Ext. Key`, the general swappable M1/M2/hybrid
+interface, the Jacobian-derived sheet tolerance) is untouched, still
+`todo`. Field mode's own k-buffer support (see above) is not scoped by this
+unit either.

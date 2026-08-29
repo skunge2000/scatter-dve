@@ -20,7 +20,19 @@
 // identical to --threads 8, for a real folding-sphere frame (WU-21g/h's own
 // pole-to-pole wrap geometry, ADR-053) with kBufferMode == Blend: I6 for
 // the completed feature, now that resolveOneTile() actually wires the
-// k-buffer path into the real thread pool.
+// k-buffer path into the real thread pool. Deliberately one tag only (see
+// runOnce()'s own comment) -- Part E below is what real-content multi-tag
+// coverage.
+//
+// Part E -- WU-35a4 (DECISIONS.md ADR-089): generateFragmentsTagByFacing()
+// wired into the real PASS-1 call sites, gated by
+// kBufferMode != Off && frontTag != backTag (core/pipeline.cpp,
+// core/resolve.hpp). This is the specific hole CORRECTIONS.md C-020/C-036
+// both named: Parts A/B/D above all exercise compositeKBuffer() directly
+// against hand-built KSlot arrays, never through real fragment generation,
+// and Part C's own real self-folding sphere deliberately carries a single
+// tag only -- nothing until this unit drove two genuinely different tags
+// through the real runFrame() path against real self-folding geometry.
 
 #include "core/resolve.hpp"
 #include "core/shapes/shapes.hpp"
@@ -374,11 +386,13 @@ constexpr double kPi = 3.14159265358979323846;
 // angleSpanV == pi reaches both poles without folding on its own;
 // angleSpanH == 2*pi wraps fully around, deliberately folding the rest of
 // the way -- opposite sides of the sphere land in the same destination
-// cells at different depths. One tag only (PipelineParams::tag is
-// single-valued per call, so one runFrame() call cannot itself route
-// fragments into more than one k-buffer slot per cell -- Parts A/B above
-// already cover the multi-slot resolve arithmetic directly); this test's
-// own job is solely I6 through the new threaded k-buffer code path.
+// cells at different depths. Reused by both Part C below (one tag only --
+// PipelineParams::tag is single-valued per call, so one runFrame() call
+// cannot itself route fragments into more than one k-buffer slot per cell
+// unless a caller opts into WU-35a4's own frontTag/backTag, which that
+// part's own test deliberately does not; Parts A/B above already cover the
+// multi-slot resolve arithmetic directly against hand-built KSlot arrays)
+// and Part E below (which does opt in, through this same real geometry).
 struct WarpedFrame {
     Lattice lattice;
     std::vector<Sample> y, cb, cr;
@@ -403,8 +417,17 @@ WarpedFrame buildFoldingSphereFrame(int srcSize, int destW, int destH) {
     return w;
 }
 
+// WU-35a4: frontTag/backTag both added as trailing, defaulted parameters --
+// default 0/0 (equal), matching PipelineParams::frontTag/backTag's own
+// shared default exactly, so every pre-existing call site above (both of
+// which still pass only the first five arguments) keeps compiling and
+// behaving byte-for-byte as it did before this unit: PipelineParams::tag
+// (still hardcoded to 5 below) governs every fragment, unaffected by
+// kBufferMode, exactly as core/pipeline.cpp's own gate requires. Part E
+// below is the only caller that passes frontTag/backTag explicitly.
 void runOnce(const WarpedFrame& w, int destW, int destH, int threads,
-             video::Raster444& dest) {
+             video::Raster444& dest, Weight manualTransp = 0,
+             std::uint8_t frontTag = 0, std::uint8_t backTag = 0) {
     SourceRaster src;
     src.width = w.srcSize;
     src.height = w.srcSize;
@@ -419,6 +442,9 @@ void runOnce(const WarpedFrame& w, int destW, int destH, int threads,
     params.tag = 5;
     params.threads = threads;
     params.kBufferMode = KBufferResolveMode::Blend;
+    params.manualTransp = manualTransp;
+    params.frontTag = frontTag;
+    params.backTag = backTag;
 
     runFrame(w.lattice, src, params, dest);
 }
@@ -460,6 +486,147 @@ static void test_kbuffer_pipeline_threads_1_matches_threads_8() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Part E -- WU-35a4 (DECISIONS.md ADR-089): generateFragmentsTagByFacing()
+// wired into the real PASS-1 call sites, through the real runFrame() path
+// against real self-folding geometry -- see this file's own header comment.
+// ---------------------------------------------------------------------------
+
+// PipelineParams::frontTag/backTag's own binding default (core/resolve.hpp)
+// -- checked directly against the struct, the same way
+// test_pipeline_params_manual_transp_defaults_to_zero() above already
+// checks manualTransp's.
+static void test_pipeline_params_front_back_tag_default_to_equal() {
+    const PipelineParams params;
+    CHECK(params.frontTag == params.backTag);
+    CHECK(params.frontTag == std::uint8_t(0));
+    CHECK(params.backTag == std::uint8_t(0));
+}
+
+// frontTag == backTag (the shared default) must leave core/pipeline.cpp's
+// own WU-35a4 gate false regardless of kBufferMode -- every fragment this
+// self-fold ever produces still carries the identical tag, so
+// compositeKBuffer() never has more than one occupied slot to fold between
+// for this content, exactly the pre-WU-35a4 degeneracy C-020/C-036 both
+// describe. Checked here, through the real runFrame() path rather than by
+// inspecting core/pipeline.cpp's own source: manualTransp's two extremes
+// (0 and kWeightUnity) must produce byte-identical output when frontTag/
+// backTag are left at their default, since a between-sheet coefficient has
+// nothing to modulate with only one occupied slot everywhere.
+static void test_kbuffer_pipeline_default_tags_are_unaffected_by_manual_transp() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 atZero(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, atZero, /*manualTransp=*/Weight(0));
+
+    video::Raster444 atMax(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, atMax,
+            /*manualTransp=*/Weight(kWeightUnity));
+
+    for (std::size_t i = 0; i < atZero.Y.size(); ++i) {
+        CHECK_ONCE(atZero.Y[i] == atMax.Y[i]);
+        CHECK_ONCE(atZero.Cb[i] == atMax.Cb[i]);
+        CHECK_ONCE(atZero.Cr[i] == atMax.Cr[i]);
+    }
+}
+
+// frontTag != backTag is this unit's own fix: the self-fold now genuinely
+// populates two KSlots wherever front and back overlap, so manualTransp's
+// two extremes must now produce genuinely different real output somewhere
+// on the raster -- the direct, real-content, real-runFrame()-path proof
+// CORRECTIONS.md C-020 named as missing (Parts A/B/D above only ever call
+// compositeKBuffer() directly against hand-built KSlot arrays; Part C's own
+// real sphere deliberately carries one tag only, see its own comment).
+static void test_kbuffer_pipeline_tag_by_facing_manual_transp_changes_real_output() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 atZero(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, atZero, /*manualTransp=*/Weight(0),
+            /*frontTag=*/1, /*backTag=*/2);
+
+    video::Raster444 atMax(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, atMax,
+            /*manualTransp=*/Weight(kWeightUnity), /*frontTag=*/1, /*backTag=*/2);
+
+    bool sawDifference = false;
+    for (std::size_t i = 0; i < atZero.Y.size(); ++i) {
+        if (atZero.Y[i] != atMax.Y[i] || atZero.Cb[i] != atMax.Cb[i] ||
+            atZero.Cr[i] != atMax.Cr[i]) {
+            sawDifference = true;
+            break;
+        }
+    }
+    CHECK(sawDifference);
+}
+
+// The fix changes real output at manualTransp's own default (0, "Opaque")
+// too: with two genuinely occupied slots, T=0 fully occludes the farther
+// one wherever both are covered -- different from the pre-WU-35a4
+// degenerate single-slot accumulate this exact content and manualTransp
+// value produced when frontTag == backTag (checked directly here, both
+// runs otherwise identical). This is the real, on-screen difference
+// Steve's own real-hardware report (HANDOFF.md Session 71, CORRECTIONS.md
+// C-036) found missing before this unit.
+static void test_kbuffer_pipeline_tag_by_facing_differs_from_single_tag_default() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 singleTag(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, singleTag,
+            /*manualTransp=*/Weight(0));  // frontTag == backTag == 0, the default
+
+    video::Raster444 tagByFacing(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, tagByFacing, /*manualTransp=*/Weight(0),
+            /*frontTag=*/1, /*backTag=*/2);
+
+    bool sawDifference = false;
+    for (std::size_t i = 0; i < singleTag.Y.size(); ++i) {
+        if (singleTag.Y[i] != tagByFacing.Y[i] || singleTag.Cb[i] != tagByFacing.Cb[i] ||
+            singleTag.Cr[i] != tagByFacing.Cr[i]) {
+            sawDifference = true;
+            break;
+        }
+    }
+    CHECK(sawDifference);
+}
+
+// I6 for the new WU-35a4 branch specifically: Part C above already checked
+// --threads 1 vs --threads {2,3,8} through runThreaded()'s own k-buffer
+// path, but always with frontTag == backTag (the default), which never
+// reaches this unit's own new generateFragmentsRowRangeTagByFacing() call
+// site at all -- that branch needs its own I6 check, not an inference from
+// Part C's.
+static void test_kbuffer_pipeline_tag_by_facing_threads_1_matches_threads_8() {
+    const int destW = 161;
+    const int destH = 129;
+    const int srcSize = 96;
+    const WarpedFrame w = buildFoldingSphereFrame(srcSize, destW, destH);
+
+    video::Raster444 reference(destW, destH);
+    runOnce(w, destW, destH, /*threads=*/1, reference,
+            /*manualTransp=*/Weight(kWeightUnity / 2), /*frontTag=*/1, /*backTag=*/2);
+
+    const int threadCounts[] = {2, 3, 8};
+    for (int threads : threadCounts) {
+        video::Raster444 dest(destW, destH);
+        runOnce(w, destW, destH, threads, dest, Weight(kWeightUnity / 2),
+                /*frontTag=*/1, /*backTag=*/2);
+        for (std::size_t i = 0; i < reference.Y.size(); ++i) {
+            CHECK_ONCE(dest.Y[i] == reference.Y[i]);
+            CHECK_ONCE(dest.Cb[i] == reference.Cb[i]);
+            CHECK_ONCE(dest.Cr[i] == reference.Cr[i]);
+        }
+    }
+}
+
 int main() {
     test_opaque_nearest_wins_exactly();
     test_opaque_z_tie_breaks_by_smallest_tag();
@@ -474,5 +641,10 @@ int main() {
     test_pipeline_params_manual_transp_defaults_to_zero();
     test_no_occupied_slot_is_pure_background_both_modes();
     test_kbuffer_pipeline_threads_1_matches_threads_8();
+    test_pipeline_params_front_back_tag_default_to_equal();
+    test_kbuffer_pipeline_default_tags_are_unaffected_by_manual_transp();
+    test_kbuffer_pipeline_tag_by_facing_manual_transp_changes_real_output();
+    test_kbuffer_pipeline_tag_by_facing_differs_from_single_tag_default();
+    test_kbuffer_pipeline_tag_by_facing_threads_1_matches_threads_8();
     return scatter::test::summary("test_kbuffer_resolve");
 }

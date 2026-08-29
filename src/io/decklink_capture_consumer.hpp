@@ -219,6 +219,28 @@ public:
     // frames processed after this call, not retroactively.
     void setLattice(Lattice lattice);
 
+    // WU-35a3 (CORRECTIONS.md C-035): replaces the manualTransp coefficient
+    // used for every frame processed after this call returns -- mirrors
+    // setLattice() immediately above exactly, for the same reason: C-035
+    // found that PipelineParams::manualTransp being additive (WU-35a1) said
+    // nothing about whether a caller holding an already-constructed
+    // CaptureConsumer could change it afterward, and it could not --
+    // m_params is stored const and read by the consumer thread on every
+    // frame, for this object's whole lifetime, with no update path. An
+    // animated caller (e.g. tests/test_decklink_live_sphere.cpp's own T/t
+    // operator controls, WU-35a2) calls this on its own thread as often as
+    // it likes; the consumer thread picks up the new value at the start of
+    // its own next processOne(), never mid-frame. Guarded by a new
+    // dedicated m_manualTranspMutex, separate from both m_latticeMutex and
+    // m_mutex -- the same "each piece of cross-thread state gets its own
+    // lock, not one shared lock for everything" shape setLattice() already
+    // established, extended here rather than reused, so a caller polling
+    // copyLatestFrame(), a caller animating setLattice(), and a caller
+    // animating setManualTransp() never contend with each other. Safe to
+    // call from any thread, including before start(). Takes effect for
+    // frames processed after this call, not retroactively.
+    void setManualTransp(Weight manualTransp);
+
 private:
     // WU-23b2b (ADR-080, extended by ADR-081): processOne()'s own three
     // now-possible outcomes, communicated to run() as an enum class return
@@ -245,6 +267,11 @@ private:
 
     mutable std::mutex m_latticeMutex;
     Lattice m_lattice;  // guarded by m_latticeMutex; see setLattice() (WU-21f)
+
+    // WU-35a3 (CORRECTIONS.md C-035): mirrors m_latticeMutex/m_lattice
+    // immediately above exactly -- see setManualTransp() for why.
+    mutable std::mutex m_manualTranspMutex;
+    Weight m_manualTransp;  // guarded by m_manualTranspMutex; see setManualTransp() (WU-35a3)
 
     const PipelineParams m_params;
     const std::size_t m_dstRowBytes;

@@ -28,6 +28,7 @@ CaptureConsumer::CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, Pipeli
                                   CoverageCallback coverageCallback)
     : m_ring(ring),
       m_lattice(std::move(lattice)),
+      m_manualTransp(params.manualTransp),  // WU-35a3 (CORRECTIONS.md C-035)
       m_params(params),
       m_dstRowBytes(scatter::v210::rowBytesMin(m_params.destWidth)),
       m_coverageCallback(std::move(coverageCallback)),
@@ -59,6 +60,11 @@ bool CaptureConsumer::copyLatestFrame(std::vector<std::uint8_t>& out) const {
 void CaptureConsumer::setLattice(Lattice lattice) {
     std::lock_guard<std::mutex> lock(m_latticeMutex);
     m_lattice = std::move(lattice);
+}
+
+void CaptureConsumer::setManualTransp(Weight manualTransp) {
+    std::lock_guard<std::mutex> lock(m_manualTranspMutex);
+    m_manualTransp = std::move(manualTransp);
 }
 
 void CaptureConsumer::run() {
@@ -136,17 +142,32 @@ CaptureConsumer::ProcessResult CaptureConsumer::processOne(ComPtr<IDeckLinkVideo
         return ProcessResult::Failed;
     }
 
-    // WU-22c (ADR-058): a per-call copy of m_params, only ever diverging from
-    // it in the one field a coverage-observing caller needs --
-    // callParams.weightOut -- and only when m_coverageCallback is actually
-    // set. m_params itself is never mutated (it stays const, as it always
-    // was); this local copy is cheap (PipelineParams is a small
-    // trivially-copyable-shaped struct, ADR-044) and needed because
-    // weightOut must point at a buffer sized and owned by *this* call, not
-    // shared across frames the way the rest of m_params is -- runFrameBytes()
-    // itself has no notion of "this call wants weightOut, that one doesn't"
-    // beyond whatever pointer it is handed each time.
+    // WU-22c (ADR-058)/WU-35a3 (CORRECTIONS.md C-035): a per-call copy of
+    // m_params, diverging from it in two fields, each for a different
+    // caller-facing reason. callParams.weightOut is set only when
+    // m_coverageCallback is actually set (WU-22c) -- weightOut must point
+    // at a buffer sized and owned by *this* call, not shared across frames
+    // the way the rest of m_params is -- runFrameBytes() itself has no
+    // notion of "this call wants weightOut, that one doesn't" beyond
+    // whatever pointer it is handed each time. callParams.manualTransp is
+    // set unconditionally, every frame (WU-35a3, just below) -- the live-
+    // update path setManualTransp() gives this field, mirroring
+    // setLattice() (WU-21f), the same way the lattice snapshot above
+    // mirrors it for the lattice. m_params itself is never mutated (it
+    // stays const, as it always was); this local copy is cheap
+    // (PipelineParams is a small trivially-copyable-shaped struct,
+    // ADR-044).
     PipelineParams callParams = m_params;
+    // WU-35a3 (CORRECTIONS.md C-035): manualTransp snapshot, taken under
+    // m_manualTranspMutex -- placed here, right alongside callParams
+    // itself and the weightOut override just below, rather than up with
+    // the lattice snapshot above: manualTransp is a single cheap Weight
+    // (uint16_t) with no reason to be read out before the
+    // StartAccess/EndAccess bracket the way the (much larger) lattice is.
+    {
+        std::lock_guard<std::mutex> lock(m_manualTranspMutex);
+        callParams.manualTransp = m_manualTransp;
+    }
     std::vector<WeightAccum> coverageBuf;
     if (m_coverageCallback) {
         coverageBuf.assign(std::size_t(m_params.destWidth) * std::size_t(m_params.destHeight), WeightAccum(0));

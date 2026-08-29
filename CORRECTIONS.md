@@ -1314,3 +1314,197 @@ struct's own field declaration alone, without also reading the class that
 actually consumes an instance of that struct across its own lifetime, is
 the specific mistake this correction is about -- check the consumer, not
 just the struct, before writing a `Files:` line for a live-control unit.
+
+**C-036 -- This session's own close-out claimed building `CaptureConsumer::
+setManualTransp()` (`WU-35a3`) would make sweeping `T`/`t` visibly change
+`test_decklink_live_sphere`'s picture. Checked directly against
+`core/pipeline.cpp`/`core/binner.hpp`/`core/splat.cpp` after Steve reported
+it does not: it cannot, for a reason `WU-35a3`'s own work is not wrong
+about and does not touch.**
+
+*Claimed (this session's own close-out message, and `WORK-UNITS.md`'s
+`WU-35a3` entry as first written):* "the sweep half of `WU-35a2`'s own
+`Accept:` line ... should now be observable for the first time." Steve's
+own real-hardware report: pressing `T`/`t` changes nothing on screen, and
+the sphere has "always" shown a see-through self-fold, before this
+session's work and unrelated to it.
+
+*Correct, verified directly against the real code, not inferred:*
+`compositeKBuffer()` (`core/resolve.hpp`/`.cpp`) resolves each
+destination cell's occupied `KSlot`s, and `src/core/splat.cpp`'s
+`routeIntoKBuffer()` keys those slots strictly by `Frag::tag`
+(`slot.tag == f.tag`, line ~183) -- confirmed already correctly described
+by `C-020`. `core/binner.hpp`'s `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` (`WU-28c`, `green`) exist
+specifically to give front- and back-facing fragments of one self-folding
+lattice *different* tags so they can ever land in different slots. But
+`core/pipeline.cpp` -- every PASS-1 call site (`runThreaded()`'s threaded
+loop, the single-threaded plain-mode loop, and `resolveOneParity()` for
+field mode) -- calls only the plain `generateFragmentsRowRange()`/
+`generateFragments()`/`generateFragmentsFieldRows()`, always passing the
+one scalar `PipelineParams::tag` (default `0`, `core/resolve.hpp` line
+~363). `generateFragmentsTagByFacing()`/`generateFragmentsRowRangeTagByFacing()`
+are called nowhere outside `tests/test_binner.cpp` in the whole repository
+(checked by grep across every `.cpp`/`.hpp`). Consequence: every fragment
+`runFrame()`/`runFrameBytes()`/`runFrameBytesDeinterlaced()` ever produces
+for a self-folding shape like the sphere carries the identical tag, so
+`compositeKBuffer()` never has more than one occupied slot to fold between
+-- `Opaque` and `Blend` both trivially degenerate to that one slot's own
+already-accumulated result, byte-identical to a plain `composite()` call,
+regardless of `kBufferMode` or `manualTransp`'s own value. This is true
+of `test_decklink_live_sphere.cpp` specifically because nothing in that
+file (or in `CaptureConsumer`, which calls `runFrameBytesDeinterlaced()`
+exactly once per frame with one `PipelineParams`) has ever set a
+differentiated front/back tag -- `PipelineParams` has no `frontTag`/
+`backTag` field at all, only the single `tag`. The self-fold's front and
+back contributions therefore always land in the *same* `KSlot` and
+accumulate together per I11's own within-sheet rule ("contributions
+accumulate ... this is resampling, not compositing") -- a permanently
+blended, see-through look at every self-overlap, true since before
+`kBufferMode` existed and unrelated to `WU-35a`/`WU-35a1`/`WU-35a2`/
+`WU-35a3` in either direction.
+
+*What this means for the units already `green`/drafted:* none of
+`WU-28a`/`WU-28b`/`WU-28c`/`WU-35a1` are wrong -- each does exactly what
+its own `Accept:` line, checked against synthetic multi-tag test fixtures
+(`tests/test_kbuffer_resolve.cpp`, `tests/test_binner.cpp`), says it
+does. `WU-35a3`'s own `CaptureConsumer::setManualTransp()` is also
+correct and verified (mirrors `setLattice()` exactly, reaches
+`callParams.manualTransp`, which reaches `compositeKBuffer()` exactly as
+designed) -- the value it delivers simply never has more than one slot to
+act on, for this specific demo content, today. `WU-28d`'s own original
+scope ("Files: `tests/test_decklink_live_sphere.cpp` only ... this unit
+sets `kBufferMode` ... once `WU-28c`'s per-fragment facing tags make
+doing so meaningful") already carried this same wrong premise -- that
+setting `kBufferMode` in the test file alone would be enough once `WU-28c`
+existed -- but `WU-28d` was superseded by `WU-35a` before ever being
+built or run for real, so the premise was never actually tested against
+real hardware until this session. `WU-35a2`'s own header comment (this
+session, before this correction) and this session's own close-out message
+both repeated the same unverified premise -- corrected in both files this
+same session.
+
+**General lesson:** `C-020` already found and precisely explained this
+exact mechanism two units ago. This session re-derived it from scratch
+under real-hardware pressure rather than re-reading `C-020` before
+predicting what `WU-35a3` would make visible -- a "read `CORRECTIONS.md`
+in full, not just the one entry a continuation prompt points at" gap, the
+same class of miss `SESSION-PROTOCOL.md`'s own anti-drift rule 6 ("do not
+rely on recall") exists to prevent. A unit's own accept criterion
+inherited from an earlier, superseded unit (`WU-28d` -> `WU-35a2`) needs
+its own premise re-checked against the current real code before being
+repeated as a prediction, not just carried forward as settled. See
+`WORK-UNITS.md`'s new entry (proposed numbering `WU-35a4`) for the actual
+fix this correction points at, not built here -- outside this session's
+own scope, and a genuinely new design question (how a caller opts into
+tag-by-facing: new `PipelineParams` fields, automatic whenever
+`kBufferMode != Off`, or something else) that deserves its own ADR, not a
+quiet extension of three `core/pipeline.cpp` call sites.
+**C-037 -- `WORK-UNITS.md`'s own `WU-35a4` entry (Session 71) said the
+"same decision" needed applying "consistently" across all three
+`core/pipeline.cpp` PASS-1 call sites. Checked directly against the real
+code while implementing it (Session 72): the third one structurally
+cannot receive it, for two independent reasons neither Session 71's entry
+named.**
+
+*Claimed (`WORK-UNITS.md`'s own `WU-35a4` entry, Session 71):* "Three call
+sites in `core/pipeline.cpp` need the same decision applied consistently
+(`runThreaded()`, the single-threaded plain-mode branch,
+`resolveOneParity()`)."
+
+*Correct, found while implementing `WU-35a4` (Session 72):* the third call
+site -- `resolveOneParity()`, inside `runFrameField()` -- cannot take the
+same `generateFragmentsTagByFacing()`-vs-plain branch the other two do, for
+two separate reasons. First: `runFrameField()`'s own already-documented
+precondition (`core/resolve.hpp`, `ADR-077`) requires
+`params.kBufferMode == KBufferResolveMode::Off` at every call through it --
+so a gate keyed on `kBufferMode != Off` would always evaluate false there,
+by construction, in any valid call. Second, independently: no
+`generateFragmentsFieldRowsTagByFacing()` sibling exists in
+`core/binner.hpp`/`.cpp` -- `WU-28c` built only
+`generateFragmentsTagByFacing()` and
+`generateFragmentsRowRangeTagByFacing()` (the whole-raster and
+contiguous-row-range siblings), never a strided field-rows one -- so the
+branch could not even be written, let alone reached, without first adding a
+new `core/binner.hpp`/`.cpp` entry point outside this unit's own file
+footprint (`core/pipeline.cpp`, `core/resolve.hpp` only, per
+`WORK-UNITS.md`'s own `WU-35a4` entry). Neither reason is a defect in
+`WU-28c`'s own scope (field mode was never that unit's job) or in Session
+71's own investigation (`CORRECTIONS.md` C-036) -- C-036 correctly named
+all three call sites as calling only the plain functions today; it did not
+claim the fix would apply identically to all three, and `WU-35a4`'s own
+entry's "same decision... consistently" phrasing was the part that did not
+survive contact with the real code.
+
+*Resolution:* `resolveOneParity()` is left unchanged by `WU-35a4`
+(`DECISIONS.md` `ADR-089`) -- still calling the plain
+`generateFragmentsFieldRows()` with `params.tag` alone, exactly as before --
+with a comment at that call site explaining why, referencing this entry.
+Field mode's own k-buffer support, if ever wanted, is a separate future
+unit's job: it needs both a relaxed (or separately reasoned-through)
+`runFrameField()` precondition and a new `core/binner.hpp`/`.cpp` entry
+point.
+
+**General lesson:** a scoping entry's own summary of "what needs to
+happen" at several call sites is a plan, not a finding already checked
+against every one of them individually -- `WU-35a4`'s own entry was
+written immediately after discovering the bug (Session 71, under
+real-hardware pressure, per C-036's own account) and reasonably assumed
+symmetry across three call sites that turned out not to be symmetric. The
+fix: check each call site's own actual preconditions and the actual
+existence of the sibling function it would need, individually, before
+writing "the same decision, consistently" into a scoping note -- the same
+class of premise-not-rechecked gap C-036's own general lesson already
+named for a different claim in the same entry.
+
+
+
+### C-038 — Session 72's own WU-35a4 close-out gave a manual tag/push command
+block with no `git add`/`git commit` step in it, so the tag landed on the
+wrong commit
+
+**Finding, Session 72 (right after WU-35a4's own close-out, before this
+session's own conversation ended).** The manual close-out fallback offered
+alongside `./tools/close.sh` read:
+```
+git tag -a wu-35a4-green -m "..."
+git push origin main
+git push origin --tags
+```
+with no `git add`/`git commit` in between the diff-review step and the tag
+step. Steve ran it as given. Checked directly afterward, not assumed: `git
+rev-parse HEAD origin/main` still read `60e2d28` (the prior session's own
+`WU-35a2` commit) and `git status --short` still listed all ten of
+`WU-35a4`'s own changed files as ordinary uncommitted working-tree
+modifications -- `wu-35a4-green` was a real, pushed, annotated tag, but it
+tagged `60e2d28`, a commit containing none of `WU-35a4`'s own work. `git
+push origin main` had silently done nothing (no new commit existed to
+push); `git push origin --tags` pushed the misplaced tag to `origin`
+successfully, which is what made this a real, live inconsistency and not
+just a local slip.
+
+**Root cause.** The close-out message's own instruction (`SESSION-PROTOCOL.md`,
+this project's own standing anti-drift rule 9: "exact, copy-pasteable
+command blocks") was followed literally -- but the block itself was
+incomplete. Every earlier session's own manual-tag fallback in this
+project's history committed first, as part of normal review-then-commit
+flow, so a commit step being implicit rather than explicit had never
+previously been tested by a session that skipped straight to the tag
+command as given.
+
+**Resolution.** Fixed by hand this same conversation, not by a numbered
+work unit: `wu-35a4-green` deleted both locally and on `origin`, the real
+`WU-35a4` diff (plus `WU-35a2`/`WU-35a3`'s own still-uncommitted work,
+folded in at the same time once Steve's own real-hardware `T`/`t` check
+confirmed all three together) committed for real, `wu-35a4-green`
+recreated on the new commit, both the commit and the corrected tag pushed.
+
+**General lesson, stated plainly for every future close-out this project
+writes:** a tag-then-push command block is only ever correct immediately
+after a commit -- either inside the same block (an explicit `git add`/
+`git commit` step, shown in full, not narrated) or with the commit's own
+hash named and re-verified against `git status --short`/`git log -1`
+directly beforehand. Never assume `git tag` implies a prior commit
+happened just because the surrounding prose talks about one; check
+`git status --short` is clean and `HEAD` is the intended commit,
+concretely, before including a tag command in any close-out block again.

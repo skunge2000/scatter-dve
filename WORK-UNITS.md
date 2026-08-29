@@ -3255,6 +3255,236 @@ this session (cannot confirm green); see `HANDOFF.md`'s own close-out
 commands for the manual and `close.sh` paths, left for Steve's own
 real-terminal run to decide between.
 
+**Addendum (`WU-35a3`, below):** the `CaptureConsumer` follow-up this
+entry named as missing has now been built — `CaptureConsumer::
+setManualTransp()` gives `manualTransp` the same live-update path
+`setLattice()` (`WU-21f`) already gives the lattice, and every call site
+in this file that already called `consumer.setLattice()`/`consumer->
+setLattice()` on a `T`/`t` keypress now also calls `consumer.
+setManualTransp(manualTransp)` right alongside it. This entry's own text
+above is left as written (the historical account of what this session
+found and did not build); see `WU-35a3` for what closed the gap.
+
+### WU-35a3 — `CaptureConsumer` live-update path for `manualTransp`, mirroring `setLattice()` (WU-21f) `todo` (built this session; not built/tested/tagged — cannot be, no Blackmagic SDK/Cocoa toolchain in the cloud sandbox this was drafted in)
+Follow-up named by `WU-35a2`'s own entry above and `CORRECTIONS.md` C-035:
+`io/decklink_capture_consumer.hpp`'s `CaptureConsumer` stored its
+constructor's `PipelineParams` argument as `const PipelineParams
+m_params`, read by the consumer thread on every processed frame, for the
+object's whole lifetime, with no update path for `manualTransp` — unlike
+the lattice, which got `setLattice()`/`m_latticeMutex`/`m_lattice` for
+exactly this reason (`WU-21f`). This unit gives `manualTransp` the same
+shape, mirrored as closely as the two fields' own different sizes allow.
+`[P]`-tier by inheritance (`ADR-087`/`ADR-088`, same standing as
+`WU-35a`/`WU-35a1`/`WU-35a2` above) — this unit does not add to or narrow
+that flag, it only gives the already-`[P]`-tier coefficient a live-update
+path. Plumbing, not a new design choice: no new ADR opened for it, per
+this project's own standing instruction to open one only for a genuine
+new design question — mirroring an already-proven pattern (`setLattice()`)
+onto a second field is not one.
+
+**Files:** `src/io/decklink_capture_consumer.hpp`/`.cpp` (edited — new
+`void setManualTransp(Weight)` public method, a new dedicated
+`m_manualTranspMutex` separate from both `m_latticeMutex` and `m_mutex`,
+and a new `Weight m_manualTransp` member initialized from
+`params.manualTransp` in the constructor, alongside where `m_lattice` is
+initialized from `lattice`; `processOne()` now takes a snapshot of
+`m_manualTransp` under the new mutex and assigns it onto `callParams.
+manualTransp`, placed right alongside the existing `callParams.weightOut
+= coverageBuf.data()` per-call override — the existing precedent for
+"per-call override of one field on a local copy without touching
+`m_params` itself" — rather than up with the lattice snapshot taken
+earlier in the function, since `manualTransp` is a single cheap `Weight`
+(`uint16_t`) with no reason to be read out before the
+`StartAccess`/`EndAccess` bracket the way the much larger lattice is).
+`tests/test_decklink_live_sphere.cpp` (edited — the `T`/`t` key handling
+at all three call sites that already call `consumer.setLattice()`/
+`consumer->setLattice()` on a lattice-affecting key now also calls
+`consumer.setManualTransp(manualTransp)`/`ctx->consumer->
+setManualTransp(*ctx->manualTransp)` when the key is `Key::TInc`/
+`Key::TDec`: `handleCoverageStdinReadable()`, the `CoverageWindow`'s own
+`setKeyHandler()` lambda, and the flag-off loop's own separate inline
+switch, each after the existing local-variable update, not replacing it.
+Both stderr help-text lines updated to say the control is now live
+instead of "local/printed only". Header comment and the `manualTransp`
+variable's own doc comment updated to match — the prior "not yet wired"
+account is now the corrected, wired one.
+`tests/test_decklink_capture_consumer.cpp` **not touched, deliberately**:
+read in full this session first — it is a real-hardware integration
+smoke test with no isolated unit test of `setLattice()` either (`WU-21f`
+added no test of its own for `setLattice()`, and this file's own
+accounting-invariant `CHECK`s do not exercise it), so the matching
+precedent is that a live-update method gets no dedicated coverage there
+— decided from the real file's own current content, not assumed from
+this entry's own note.
+
+**Accept:** mechanical, not by-eye — this unit adds no new observable
+behaviour of its own beyond what `WU-35a2`'s own `Accept:` already
+describes; it only removes the blocker that entry named. Once Steve
+builds and runs `tests/test_decklink_live_sphere.cpp` at his own real
+terminal, the sweep half of `WU-35a2`'s own `Accept:` line ("sweeping the
+control ... should visibly show the far hemisphere increasingly show
+through") should now be observable for the first time, in addition to the
+rest-position half already reachable since `WU-35a2`.
+
+*Status:* **not `green`, not built or run — cannot be, no Blackmagic
+SDK/Cocoa toolchain in the cloud sandbox this was drafted in, the same
+gap every DeckLink-touching unit in this project has named.** Reasoned
+through directly against the real, current files (both read in full
+before editing), applied via a scripted read-modify-write (exact string
+anchors, each checked to match exactly once before being replaced), and
+verified by re-staging and diffing every changed file afterward, brace/
+paren balance-checked too (all three files: counts equal).
+
+**Correction (`CORRECTIONS.md` C-036, same session, after Steve's own
+real-hardware report):** the paragraph above originally claimed the sweep
+half of `WU-35a2`'s own `Accept:` line "should now be observable for the
+first time." Wrong — checked directly against `core/pipeline.cpp` after
+Steve reported no visible change either way: this unit's own code is
+correct (`CaptureConsumer::setManualTransp()` genuinely mirrors
+`setLattice()` and genuinely reaches `compositeKBuffer()` via
+`callParams.manualTransp`), but `core/pipeline.cpp`'s own PASS-1 call
+sites never call `generateFragmentsTagByFacing()` (`WU-28c`) — only the
+plain, single-scalar-tag `generateFragments()`/`generateFragmentsRowRange()`/
+`generateFragmentsFieldRows()`, always — so a self-folding shape like the
+sphere never populates more than one `KSlot` per destination cell
+(`core/splat.cpp`'s `routeIntoKBuffer()` keys slots by `Frag::tag` alone),
+and `compositeKBuffer()`'s `Blend`-mode fold — the thing `manualTransp`
+actually modulates — never has a second slot to fold against, regardless
+of this unit's own live-update path. See `WU-35a4` below for the actual
+fix, not built here. `C-020` had already found and explained this same
+mechanism; see C-036's own "General lesson" for why it was not re-applied
+here before predicting `WU-35a3`'s own visible effect.
+
+Not this session's own call to tag or accept — Steve's own real-hardware
+build/run confirms `WU-35a3`'s own mechanical correctness (no crash, `T`/
+`t` accepted as keys, everything `WU-35a2` already asked him to check
+still holds); the sweep becoming visible needs `WU-35a4` first.
+
+### WU-35a4 — wire `generateFragmentsTagByFacing()` into `core/pipeline.cpp`'s real PASS-1 call sites, gated by `kBufferMode != Off` and `frontTag != backTag` `green` (sandbox-verified Session 72; real-terminal build/tag/push and by-eye confirmation still Steve's own to run)
+See `DECISIONS.md` ADR-089 for the full design conversation. Closes the
+real-content gap `CORRECTIONS.md` C-020/C-036 both describe:
+`core/binner.hpp`'s `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()` (`WU-28c`, `green`) give front-
+and back-facing fragments of one self-folding lattice different `Frag::tag`
+values — exactly what `compositeKBuffer()`'s `KSlot` resolve (`WU-28a`/
+`WU-28b`) needs to ever see more than one occupied slot for a shape like
+the sphere — but until this unit, nothing in `core/pipeline.cpp` ever
+called them.
+
+**Design question resolved (`DECISIONS.md` ADR-089): option (a),
+refined.** New `PipelineParams::frontTag`/`backTag` fields
+(`std::uint8_t`, both default `0`, `core/resolve.hpp`). `core/pipeline.cpp`'s
+PASS-1 call sites use `generateFragmentsTagByFacing()`/
+`generateFragmentsRowRangeTagByFacing()`, with `params.frontTag`/
+`params.backTag`, only when BOTH `params.kBufferMode !=
+KBufferResolveMode::Off` AND `params.frontTag != params.backTag`;
+otherwise they call the plain, single-scalar-`tag` functions exactly as
+before, `tag` fully unaffected. `kBufferMode != Off` alone was
+deliberately *not* enough (checked directly against
+`tests/test_kbuffer_resolve.cpp`'s own already-`green` Part C before
+deciding, not assumed): that test sets `kBufferMode == Blend` and
+`tag == 5` together on real self-fold geometry, so gating on `kBufferMode`
+alone would have silently stopped honouring that already-shipped caller's
+own `tag` value the moment this unit landed — see ADR-089 for the full
+"why not (b)" reasoning.
+
+**Only two of the three PASS-1 call sites actually change.**
+`runThreaded()`'s threaded row-band loop and `runFrame()`'s own
+`threads<=1` plain-mode loop both gain the gated branch above.
+`runFrameField()`'s own third call site (`resolveOneParity()`) does
+**not** — checked directly, not assumed, while implementing this unit: that
+function's own already-documented precondition (`core/resolve.hpp`,
+ADR-077) requires `params.kBufferMode == Off` at every call through it, so
+the gate would always be false there by construction, and separately, no
+`generateFragmentsFieldRowsTagByFacing()` sibling exists in
+`core/binner.hpp`/`.cpp` for it to call even if it were reachable — `WU-28c`
+never built one. This corrects this entry's own earlier premise (Session
+71) that "the same decision" needed applying "consistently" to all three
+call sites — logged as `CORRECTIONS.md` C-037. Field mode's own k-buffer
+support, if ever wanted, is a separate future unit's job (a relaxed/
+reasoned-through `runFrameField()` precondition plus a new
+`core/binner.hpp`/`.cpp` entry point, neither in this unit's own file
+footprint).
+
+**`tests/test_decklink_live_sphere.cpp` does need a small change of its
+own** — checked directly against the real, current file (Session 71's own
+`WU-35a3` work, still uncommitted at this session's own start), not
+assumed from this entry's own earlier, more hopeful note. It constructs
+exactly one `PipelineParams`, sets `kBufferMode = Blend`, and never touches
+`tag`/`frontTag`/`backTag`, so under this unit's own opt-in design it would
+otherwise stay at the shared default (`frontTag == backTag == 0`) and see
+no change at all. Two lines added: `params.frontTag = 1;` and
+`params.backTag = 2;`, right alongside the existing `params.kBufferMode =
+scatter::KBufferResolveMode::Blend;`/`params.manualTransp = manualTransp;`
+block — plus the file's own header comment updated to record this unit
+landing and correct its own prior "this file cannot show the sweep yet
+either way" note (`CORRECTIONS.md` C-036's own text, carried into that
+file verbatim at the time).
+
+**Files, confirmed against the real, current code before writing anything
+(not assumed from this entry's own earlier note):** `src/core/resolve.hpp`
+(`PipelineParams` gains `frontTag`/`backTag`), `src/core/pipeline.cpp`
+(two of its three PASS-1 call sites gain the gated branch; the third gains
+only an explanatory comment), `tests/test_kbuffer_resolve.cpp` (six new
+tests, Part E below), `tests/test_decklink_live_sphere.cpp` (two lines
+plus a header-comment correction, Blackmagic-SDK-linked, not built/tested
+in the cloud sandbox, same gap every DeckLink-touching unit in this
+project has named). `core/binner.hpp`/`.cpp` untouched — the functions
+this unit calls already existed, `green`, since `WU-28c`.
+
+**Accept — both halves met (the first automatically, in the cloud sandbox;
+the second is Steve's own to confirm):**
+
+1. **Synthetic-content-via-real-`runFrame()`-path check, automated,
+   sandbox-verified.** `tests/test_kbuffer_resolve.cpp`'s new Part E: (a)
+   `PipelineParams::frontTag`/`backTag` default to equal (`0`/`0`),
+   checked directly against the struct; (b) with `frontTag == backTag`
+   (default) and `kBufferMode == Blend`, `manualTransp`'s two extremes (0
+   and `kWeightUnity`) produce byte-identical real output on the real
+   folding-sphere frame — the pre-`WU-35a4` degeneracy, still reproduced
+   exactly, proving nothing regressed for a caller that does not opt in;
+   (c) with `frontTag = 1`/`backTag = 2` (opted in) on the identical real
+   frame, `manualTransp`'s two extremes now produce genuinely *different*
+   real output — the actual fix, proven through `runFrame()` end to end,
+   not `compositeKBuffer()` called directly against hand-built `KSlot`
+   arrays the way Parts A/B/D already do; (d) the opted-in case at
+   `manualTransp == 0` differs from the not-opted-in case at the same
+   `manualTransp` value, both otherwise identical — the direct, on-screen-
+   shaped difference Steve's own real-hardware report (`HANDOFF.md`
+   Session 71) found missing; (e) I6 (`--threads 1` vs. `{2,3,8}`)
+   specifically for the new `generateFragmentsRowRangeTagByFacing()` branch
+   in `runThreaded()`, not inferred from Part C's own I6 check (which never
+   reaches that branch, `frontTag == backTag` there too). This is exactly
+   the hole `CORRECTIONS.md` C-020 named as missing: "no test in
+   `tests/test_kbuffer_resolve.cpp` positioned to catch it."
+2. **Real by-eye confirmation, Steve's own to run, not done here.**
+   `tests/test_decklink_live_sphere.cpp`'s own long-standing criterion
+   (`WU-28d`'s original scope, `WU-35a2`'s own `Accept:` line): the folding
+   sphere's back half visibly occluded at `manualTransp == 0` and
+   increasingly showing through as `T` sweeps toward `kWeightUnity`, on a
+   real SDI monitor — unreachable from this cloud sandbox either way
+   (Blackmagic-SDK-linked), and this is the criterion this whole
+   `WU-35a1`→`WU-35a4` chain has been building toward.
+
+**Status:** built and verified in the cloud sandbox this session (Session
+72) — genuinely the first time in this whole `WU-35a`-numbered chain that
+real building and testing was possible (`core/pipeline.cpp`,
+`core/binner.hpp`/`.cpp` and `core/resolve.hpp` link no Blackmagic SDK,
+`scatter-core` target). Fresh clone of `origin/main` at `60e2d28`
+(`WU-35a2`) with this session's own files overlaid; four configurations
+— GCC 13.3.0 Release tile 2^5, Clang 18.1.3 Release tile 2^5, GCC 13.3.0
+Debug tile 2^4, GCC 13.3.0 Debug+ASan+UBSan tile 2^5 — all 28 of 28
+portable `ctest` targets green in every one, zero compiler warnings, zero
+sanitizer traps, sanitizer instrumentation confirmed genuinely linked
+(`nm -D`: 28 `asan`/14 `ubsan` hits, matching `wu-45-green`'s/`WU-35a1`'s
+own prior counts exactly). `test_kbuffer_resolve` itself: 436190 checks
+passing (GCC Release t5), including all six new Part E tests, every one a
+real, non-vacuous assertion. Not yet built, run, tagged or pushed at
+Steve's own real terminal — that is the standard remaining close-out step,
+see `HANDOFF.md`. `tests/test_decklink_live_sphere.cpp`'s own two-line
+opt-in edit is reasoned through and verified by re-staging/diffing, same
+as every prior session's DeckLink-adjacent edits, but not built or run
+anywhere — no sandbox step exists for it.
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —
 adjust if it collides with a unit named between this sweep and whenever it

@@ -98,18 +98,47 @@
 // time in this file (WU-28d's/WU-35a's own long-scoped intent, unblocked
 // by WU-28c, wu-28c-green): without it, compositeKBuffer()'s own Blend
 // fold never runs and manualTransp has no effect at all (Opaque mode
-// ignores it outright, core/resolve.hpp). **Read before assuming this
-// makes the sweep visible on a real SDI monitor:** CaptureConsumer's own
-// m_params (io/decklink_capture_consumer.hpp) is copied in once at
-// construction and held const, with no live-update path the way
-// setLattice() (WU-21f) gives the lattice -- so pressing T/t updates this
-// file's own local manualTransp variable (and, via it, what gets printed)
-// but not yet the consumer thread's own copy of PipelineParams. Making
-// the sweep actually reach the output needs a small, separate addition to
-// io/decklink_capture_consumer.hpp/.cpp (a manualTransp counterpart to
-// setLattice()) -- out of this unit's own one-file scope (WORK-UNITS.md's
-// own WU-35a2 `Files:` line) and not implemented here. See this session's
-// own HANDOFF.md for the full account.
+// ignores it outright, core/resolve.hpp).
+//
+// WU-35a3 (CORRECTIONS.md C-035): T/t now do reach the running consumer,
+// not just this file's own local variable and printed text.
+// CaptureConsumer::setManualTransp() (io/decklink_capture_consumer.hpp/
+// .cpp) gives manualTransp the same live-update path setLattice()
+// (WU-21f) already gives the lattice, and every call site below that
+// already called consumer.setLattice()/consumer->setLattice() on a T/t
+// keypress now also calls consumer.setManualTransp(manualTransp) (or
+// ctx->consumer->setManualTransp(*ctx->manualTransp)) right alongside it.
+// Unbuilt and untested here either way -- Blackmagic-SDK-linked, no
+// sandbox step exists for this file, same as every session that has
+// touched it.
+//
+// **Correction (CORRECTIONS.md C-036): reaching the consumer is not the
+// same as reaching the screen, and this file could not show the sweep
+// either way, as of the session that wrote this paragraph.** Steve's own
+// real-hardware run found T/t change nothing visible, and the self-fold
+// has always looked see-through regardless of T. Root cause, verified
+// directly against core/pipeline.cpp/core/splat.cpp: every fragment this
+// file's own runFrameBytesDeinterlaced() call produced carried the
+// identical PipelineParams::tag (there was no frontTag/backTag field, and
+// core/pipeline.cpp's own PASS-1 call sites never called
+// generateFragmentsTagByFacing(), WU-28c, at all) -- so the sphere's
+// self-fold never populated more than one KSlot per cell, and
+// compositeKBuffer()'s Blend fold (what manualTransp modulates) never had
+// a second slot to fold against. Not a defect in this file, in
+// CaptureConsumer::setManualTransp(), or in anything WU-35a1 built.
+//
+// WU-35a4 (DECISIONS.md ADR-089, WORK-UNITS.md WU-35a4): the actual fix
+// landed in core/pipeline.cpp/core/resolve.hpp, not here -- but it is an
+// opt-in design (frontTag/backTag must genuinely differ, not just
+// kBufferMode being on, per ADR-089's own reasoning), so this file does
+// need two lines of its own to benefit: params.frontTag/params.backTag,
+// set below, right alongside the existing kBufferMode/manualTransp
+// construction. Sandbox-verified this session against real self-folding
+// geometry through the real runFrame() path (tests/test_kbuffer_resolve.cpp's
+// new Part E) -- this file itself remains unbuilt and untested here
+// either way, Blackmagic-SDK-linked, no sandbox step, same as always.
+// Build and run at your own real terminal to confirm the sweep is now
+// actually visible.
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -499,6 +528,12 @@ void handleCoverageStdinReadable(void* rawContext) {
                     ctx->consumer->setLattice(rotateLattice(
                         makeSphereLattice(*ctx->radius, *ctx->centerX, *ctx->centerY), *ctx->yaw, *ctx->pitch,
                         *ctx->centerX, *ctx->centerY, *ctx->radius));
+                    // WU-35a3 (CORRECTIONS.md C-035): T/t reach the running
+                    // consumer now too, the same way the lattice-affecting
+                    // keys above already do via setLattice().
+                    if (outcome.key == Key::TInc || outcome.key == Key::TDec) {
+                        ctx->consumer->setManualTransp(*ctx->manualTransp);
+                    }
                 }
             }
             if (std::size_t(n) < sizeof(buf)) break;  // drained everything currently available
@@ -578,13 +613,13 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
     // facing counterpart to PipelineParams::manualTransp (core/resolve.hpp,
     // WU-35a1/wu-35a1-green) -- same [0, kWeightUnity] range and type as
     // the field itself, updated live by the T/t keys below via applyKey().
-    // See this file's own header comment (top of file) for why this does
-    // NOT yet reach the live composited/SDI output: CaptureConsumer's own
-    // m_params is copied in once at construction and held const, unlike
-    // the lattice (setLattice(), WU-21f) -- pressing T/t updates this
-    // variable (and what gets printed) only, until io/decklink_capture_
-    // consumer.hpp/.cpp gets its own small follow-up, out of this unit's
-    // one-file scope.
+    // WU-35a3 (CORRECTIONS.md C-035): now also pushed to the running
+    // consumer via consumer.setManualTransp(manualTransp) at every call
+    // site below that changes this variable, mirroring how consumer.
+    // setLattice() is already called for the other keys -- see this
+    // file's own header comment (top of file) and
+    // io/decklink_capture_consumer.hpp's setManualTransp() for the
+    // live-update path this now uses.
     scatter::Weight manualTransp = 0;
 
     // WU-35a2: Blend, not WU-28d's own never-built Opaque/Blend toggle --
@@ -600,6 +635,16 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
     // again after construction.
     params.kBufferMode = scatter::KBufferResolveMode::Blend;
     params.manualTransp = manualTransp;
+    // WU-35a4 (DECISIONS.md ADR-089): opts this consumer's own self-fold
+    // into facing-based k-buffer tags -- frontTag/backTag must genuinely
+    // differ for core/pipeline.cpp's own PASS-1 call sites to route through
+    // generateFragmentsTagByFacing() at all (ADR-089's own gate is
+    // kBufferMode != Off AND frontTag != backTag, deliberately not
+    // kBufferMode alone). Fixed for this CaptureConsumer's whole lifetime,
+    // the same as kBufferMode itself above -- not a third live control,
+    // and not read back by anything below this constructor call.
+    params.frontTag = 1;
+    params.backTag = 2;
 
     // WU-22c: whether stdin is a real terminal is queried here, up front --
     // moved earlier than WU-21i's own original placement (previously just
@@ -721,16 +766,23 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                         if (applyKey(key, yaw, pitch, centerX, centerY, radius, manualTransp)) {
                             consumer.setLattice(rotateLattice(makeSphereLattice(radius, centerX, centerY), yaw,
                                                                 pitch, centerX, centerY, radius));
+                            // WU-35a3 (CORRECTIONS.md C-035): T/t reach the
+                            // running consumer now too, the same way the
+                            // lattice-affecting keys above already do via
+                            // setLattice().
+                            if (key == Key::TInc || key == Key::TDec) {
+                                consumer.setManualTransp(manualTransp);
+                            }
                         }
                     });
 
                 std::fprintf(stderr,
                              "test_decklink_live_sphere: cursor keys rotate (left/right = yaw, up/down = "
                              "pitch); X/x = position right/left, Y/y = position down/up, Z/z = bigger/"
-                             "smaller, T/t = more/less transparent (WU-35a2: local/printed only, not "
-                             "yet wired to the live output -- see this file's own header comment). Q "
-                             "quits. All of this works from either the terminal or the coverage window "
-                             "-- click into whichever one you want focused.\n");
+                             "smaller, T/t = more/less transparent (WU-35a3: now live -- see this "
+                             "file's own header comment). Q quits. All of this works from either the "
+                             "terminal or the coverage window -- click into whichever one you want "
+                             "focused.\n");
 
                 coverageWindow->run();  // blocks until Q (either channel) or window close
 
@@ -741,9 +793,8 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                 std::fprintf(stderr,
                              "test_decklink_live_sphere: cursor keys rotate (left/right = yaw, up/down = "
                              "pitch); X/x = position right/left, Y/y = position down/up, Z/z = bigger/"
-                             "smaller, T/t = more/less transparent (WU-35a2: local/printed only, not yet "
-                             "wired to the live output -- see this file's own header comment). Q "
-                             "quits.\n");
+                             "smaller, T/t = more/less transparent (WU-35a3: now live -- see this "
+                             "file's own header comment). Q quits.\n");
 
                 for (;;) {
                     const Key key = readKey();
@@ -766,9 +817,16 @@ static void test_live_playback_manual_sphere_control_letter_keys(bool showCovera
                         case Key::TInc:
                             manualTransp = scatter::Weight(
                                 std::min(int(scatter::kWeightUnity), int(manualTransp) + kTranspStep));
+                            // WU-35a3 (CORRECTIONS.md C-035): pushes the new
+                            // value to the running consumer immediately,
+                            // the same way consumer.setLattice() below
+                            // already does for the other keys (via the
+                            // shared if (changed) call after this switch).
+                            consumer.setManualTransp(manualTransp);
                             break;
                         case Key::TDec:
                             manualTransp = scatter::Weight(std::max(0, int(manualTransp) - kTranspStep));
+                            consumer.setManualTransp(manualTransp);
                             break;
                         case Key::Quit:    changed = false; break;
                         case Key::Unknown: changed = false; break;

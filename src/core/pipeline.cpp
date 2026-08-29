@@ -175,6 +175,39 @@
 // the same "share the one tile-resolve function, do not hand-duplicate it"
 // discipline WU-16a's own file comment already established for its own two
 // paths, now a fourth caller.
+//
+// WU-35a4 (Phase 7, DECISIONS.md ADR-089) closes the real-content gap
+// CORRECTIONS.md C-020/C-036 both describe: two of this file's three PASS-1
+// call sites (runThreaded()'s threaded row-band loop and runFrame()'s own
+// threads<=1 plain-mode loop) now branch on the new
+// PipelineParams::frontTag/backTag pair (core/resolve.hpp) -- when
+// params.kBufferMode != KBufferResolveMode::Off AND frontTag != backTag,
+// they call core/binner.hpp's generateFragmentsRowRangeTagByFacing()/
+// generateFragmentsTagByFacing() (WU-28c, green) instead of the plain,
+// single-scalar-tag generateFragmentsRowRange()/generateFragments(), so a
+// self-folding surface's front and back fragments finally carry different
+// Frag::tag values and WU-28a's k-buffer (splat.cpp's routeIntoKBuffer(),
+// keyed by tag) has more than one slot to ever separate them into. The gate
+// is deliberately both conditions, not kBufferMode alone (ADR-089): with
+// frontTag/backTag left at their shared default (0, equal), every existing
+// caller -- including tests/test_kbuffer_resolve.cpp's own already-`green`
+// Part C, which sets kBufferMode == Blend and tag == 5 but never touches
+// the new fields -- takes the exact same plain-tag branch it always has,
+// byte for byte.
+//
+// runFrameField()'s own third PASS-1 call site (resolveOneParity() below)
+// is deliberately NOT given the same branch: that function's own documented
+// precondition (core/resolve.hpp) already requires params.kBufferMode ==
+// Off at every call through it, so the gate above would always be false
+// there by construction, and no generateFragmentsFieldRowsTagByFacing()
+// sibling exists in core/binner.hpp/.cpp to call even if it were reachable
+// -- WU-28c never built one, and building one is outside this unit's own
+// file footprint (core/pipeline.cpp, core/resolve.hpp only). See
+// CORRECTIONS.md C-037: an earlier draft of this unit's own scoping note
+// (WORK-UNITS.md WU-35a4) assumed all three call sites would get "the same
+// decision applied consistently" -- checked directly against the real code,
+// the third one structurally cannot, for both reasons above. Field mode's
+// own k-buffer support, if ever wanted, is a separate future unit's job.
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -468,9 +501,22 @@ void runThreaded(const Lattice& lattice, const SourceRaster& src,
     pool.runOnAll([&](int worker) {
         const int rowStart = (worker * src.height) / numWorkers;
         const int rowEnd = ((worker + 1) * src.height) / numWorkers;
-        generateFragmentsRowRange(lattice, src, params.maxK, params.supersample,
-                                   params.tag, rowStart, rowEnd,
-                                   workerBins[std::size_t(worker)]);
+        // WU-35a4 (DECISIONS.md ADR-089): facing-based tags only when a
+        // caller has both turned the k-buffer on and actually asked for
+        // front/back to differ -- see this file's own header comment and
+        // PipelineParams::frontTag/backTag's own doc comment
+        // (core/resolve.hpp) for why the gate is both conditions, not
+        // kBufferMode alone.
+        if (params.kBufferMode != KBufferResolveMode::Off &&
+            params.frontTag != params.backTag) {
+            generateFragmentsRowRangeTagByFacing(
+                lattice, src, params.maxK, params.supersample, params.frontTag,
+                params.backTag, rowStart, rowEnd, workerBins[std::size_t(worker)]);
+        } else {
+            generateFragmentsRowRange(lattice, src, params.maxK, params.supersample,
+                                       params.tag, rowStart, rowEnd,
+                                       workerBins[std::size_t(worker)]);
+        }
     });
 
     // Barrier: this is architecture.md 6's own barrier between pass 1 and
@@ -580,8 +626,16 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         // (see below), so a default-constructed PipelineParams -- pool
         // still nullptr -- lands here exactly as it always has.
         TileBins bins(params.destWidth, params.destHeight);
-        generateFragments(lattice, src, params.maxK, params.supersample,
-                           params.tag, bins);
+        // WU-35a4 (DECISIONS.md ADR-089): same gate as runThreaded() above
+        // -- see this file's own header comment.
+        if (params.kBufferMode != KBufferResolveMode::Off &&
+            params.frontTag != params.backTag) {
+            generateFragmentsTagByFacing(lattice, src, params.maxK, params.supersample,
+                                          params.frontTag, params.backTag, bins);
+        } else {
+            generateFragments(lattice, src, params.maxK, params.supersample,
+                               params.tag, bins);
+        }
 
         TileAccum accum;
         std::vector<AccumCell> tileCells(tilePixelsN);
@@ -653,7 +707,15 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
     // temporary full destWidth x destHeight raster -- exactly runFrame()'s
     // own threads<=1 oracle-loop body above, with
     // generateFragmentsFieldRows() standing in for generateFragments() as
-    // PASS 1's own entry point. Single-threaded only, this unit (see
+    // PASS 1's own entry point. WU-35a4 (DECISIONS.md ADR-089): unlike
+    // runFrame()'s own two PASS-1 call sites, this one does NOT gain a
+    // frontTag/backTag branch -- this function's own documented precondition
+    // (core/resolve.hpp) already requires params.kBufferMode == Off at every
+    // call through it, so that gate would always be false here by
+    // construction, and no generateFragmentsFieldRowsTagByFacing() sibling
+    // exists in core/binner.hpp/.cpp to call even if it were reachable (see
+    // this file's own header comment and CORRECTIONS.md C-037). Single-
+    // threaded only, this unit (see
     // runFrameField()'s own doc comment, core/resolve.hpp, ADR-077):
     // params.threads/params.pool are not read here, the same incremental
     // staging WU-16a through WU-19a already used before threading a new

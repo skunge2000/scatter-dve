@@ -477,6 +477,57 @@ struct PipelineParams {
     // capture (see core/pipeline.cpp's resolveOneTile()).
     KBufferResolveMode kBufferMode = KBufferResolveMode::Off;
 
+    // WU-35a4 (DECISIONS.md ADR-089, WORK-UNITS.md WU-35a4): which tag a
+    // front-facing fragment gets versus a back-facing one, for a self-
+    // folding surface -- the caller-facing half of closing the real-content
+    // gap CORRECTIONS.md C-020/C-036 both describe. core/binner.hpp's
+    // generateFragmentsTagByFacing()/generateFragmentsRowRangeTagByFacing()
+    // (WU-28c, green) have always been able to give front and back
+    // different Frag::tag values, so WU-28a's k-buffer (which keys its
+    // slots by tag, splat.cpp's routeIntoKBuffer()) has something to key
+    // apart -- but until this unit, core/pipeline.cpp's own PASS-1 call
+    // sites never called them, always using the single scalar tag above
+    // instead, so a self-fold's front and back always landed in the same
+    // slot regardless of kBufferMode.
+    //
+    // Both default to 0 -- equal to each other and to tag's own default --
+    // deliberately, so every existing caller (including this project's own
+    // tests/test_kbuffer_resolve.cpp Part C, which sets kBufferMode ==
+    // Blend and tag == 5 but never touches these two fields) keeps
+    // compiling and behaving exactly as before, byte for byte: see
+    // core/pipeline.cpp's own resolveOneTile()-adjacent PASS-1 call sites
+    // for the exact gate. generateFragmentsTagByFacing()/
+    // generateFragmentsRowRangeTagByFacing() are used in place of tag's own
+    // generateFragments()/generateFragmentsRowRange() only when BOTH
+    // kBufferMode != Off AND frontTag != backTag -- kBufferMode alone was
+    // deliberately not enough (ADR-089): that would have silently changed
+    // what tag == 5 with kBufferMode == Blend means for an existing,
+    // already-`green` caller, breaking the same "byte for byte unchanged at
+    // this field's own default" promise every other additive PipelineParams
+    // field above already makes. When the gate is false (frontTag ==
+    // backTag, the shared default), tag above still governs every emitted
+    // fragment exactly as it always has, regardless of kBufferMode -- a
+    // caller wanting the old, single-slot-degenerate k-buffer behaviour (or
+    // simply not opting into facing-based tags at all) needs to change
+    // nothing. A caller that does want a self-fold's front and back kept
+    // apart sets these two to distinct values; which value goes to which is
+    // this field's whole point, so neither defaults to tag's own value
+    // instead of 0 -- tag itself is simply not consulted at all once the
+    // gate is true.
+    //
+    // Not consulted by runFrameField() (WU-23a2b, ADR-077): that function's
+    // own documented precondition already requires kBufferMode == Off at
+    // every call through it, so the gate above is always false there by
+    // construction -- see that function's own doc comment. Its own PASS-1
+    // call site (generateFragmentsFieldRows(), core/pipeline.cpp) is
+    // unchanged by this unit and always uses tag alone; extending field
+    // mode to facing-based tags would additionally need a
+    // generateFragmentsFieldRowsTagByFacing() sibling in core/binner.hpp/
+    // .cpp, which does not exist and is not built by this unit (see
+    // CORRECTIONS.md C-037 and DECISIONS.md ADR-089's own scope note).
+    std::uint8_t frontTag = 0;
+    std::uint8_t backTag = 0;
+
     // WU-35a (DECISIONS.md ADR-087, WORK-UNITS.md WU-35a) -- **[P]-tier,
     // not a confirmed historical mechanism**: `Manual Transp`, one
     // global, operator-set transparency coefficient for compositeKBuffer()
