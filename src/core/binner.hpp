@@ -218,11 +218,44 @@ struct BinStats {
 // own. Building and owning the CoarseShadingGrid (and the LightingScene it
 // comes from) for a real frame is not this unit's job -- see
 // WORK-UNITS.md's own WU-34b entry for what is deferred.
+//
+// WU-33a (DECISIONS.md ADR-092, WORK-UNITS.md WU-33): backSrc, when
+// non-null, is a second, independently-freezable source raster -- ADR-073's
+// own "front and back are two independently selected video sources, chosen
+// per sample by facing" historical finding. Every parameter above still
+// names the front source (src is always sampled for a front-facing
+// fragment); a back-facing fragment (surfaceNormal(rawJ).z >= 0.0, this
+// project's own ADR-027/ADR-063 convention -- the same sign
+// generateFragmentsTagByFacing() below already keys its own frontTag/
+// backTag split on) samples *backSrc instead. The same rawJ this loop
+// already computes for the supersampling decision (and, on a TagByFacing
+// call, for tag selection) is reused for this -- no extra Jacobian
+// evaluation, and this file's own per-sample facing signal (WU-26/WU-28c)
+// gains a second, independent job rather than a duplicated one. Default
+// nullptr: every existing caller keeps compiling and sampling only src,
+// exactly as before, byte for byte -- the same "optional, caller-owned,
+// default-off, zero-cost-when-absent" shape shadingGrid above already
+// established, this time for a second *input* raster rather than an
+// additive shading multiply. Ownership is the caller's own responsibility,
+// the same unchecked "must outlive this call" convention src/shadingGrid
+// above already use. *backSrc must have the same width and height as src*
+// (also unchecked, the same convention this codebase already uses for
+// every other cross-parameter precondition, e.g. weightOut above): the
+// per-sample (subPx, subPy) coordinate this loop computes is always in
+// src's own pixel space (the loop bound is src.width/src.height, never
+// backSrc's), so sampleBilinear() looks that same coordinate up directly
+// in whichever raster front/back facing selects -- a differently-sized
+// backSrc would not be reinterpreted or rescaled, it would simply be
+// sampled at the wrong relative position. Not yet reachable from a real
+// runFrame()/runFrameField() caller -- see WORK-UNITS.md's own WU-33b
+// entry for what is deferred (the PipelineParams-level wiring), and WU-33c
+// for the DeckLink live-capture half.
 BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& src,
                                     double maxK, const SupersampleConfig& ss,
                                     std::uint8_t tag, int rowStart, int rowEnd,
                                     TileBins& outBins,
-                                    const CoarseShadingGrid* shadingGrid = nullptr);
+                                    const CoarseShadingGrid* shadingGrid = nullptr,
+                                    const SourceRaster* backSrc = nullptr);
 
 // Pass 1: generate and bin fragments for an entire source raster.
 //
@@ -242,10 +275,14 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
 // in headers are fixed" — read the same way ADR-026/030 already read it,
 // as forbidding a change to an existing function's own contract, not as
 // forbidding a new sibling entry point next to it).
+// WU-33a: backSrc, a new optional trailing parameter, is passed straight
+// through to generateFragmentsRowRange() above -- see that function's own
+// comment for what it does. Default nullptr, same as there.
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins,
-                            const CoarseShadingGrid* shadingGrid = nullptr);
+                            const CoarseShadingGrid* shadingGrid = nullptr,
+                            const SourceRaster* backSrc = nullptr);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, row-range
 // variant. New, additive tag mode alongside generateFragmentsRowRange()
@@ -271,21 +308,33 @@ BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
 // own direct output, before pixelJacobian()'s conversion strips dz/du,
 // dz/dv — ADR-063's own explicit warning about the one trap a future WU-28c
 // session could otherwise rediscover by a wrong result.
+//
+// WU-33a: backSrc, when non-null, gives this same per-sample facing sign a
+// second job -- selecting which raster is sampled (src for front-facing,
+// *backSrc for back-facing), not only which tag is assigned. The two are
+// independent: a caller can set frontTag == backTag (no tag differentiation)
+// while still supplying backSrc, or vice versa. See
+// generateFragmentsRowRange()'s own comment above for the full account.
 BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const SourceRaster& src,
                                                double maxK, const SupersampleConfig& ss,
                                                std::uint8_t frontTag, std::uint8_t backTag,
                                                int rowStart, int rowEnd, TileBins& outBins,
-                                               const CoarseShadingGrid* shadingGrid = nullptr);
+                                               const CoarseShadingGrid* shadingGrid = nullptr,
+                                               const SourceRaster* backSrc = nullptr);
 
 // WU-28c (DECISIONS.md ADR-065): per-fragment facing tag, whole-raster
 // variant. A thin wrapper around generateFragmentsRowRangeTagByFacing()
 // above, exactly the relationship generateFragments() already has to
 // generateFragmentsRowRange() (WU-16b, ADR-041).
+// WU-33a: backSrc passed straight through to
+// generateFragmentsRowRangeTagByFacing() above. Default nullptr, same as
+// there.
 BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster& src,
                                        double maxK, const SupersampleConfig& ss,
                                        std::uint8_t frontTag, std::uint8_t backTag,
                                        TileBins& outBins,
-                                       const CoarseShadingGrid* shadingGrid = nullptr);
+                                       const CoarseShadingGrid* shadingGrid = nullptr,
+                                       const SourceRaster* backSrc = nullptr);
 
 // WU-23a2a (DECISIONS.md ADR-076): field-parity row visitation, the
 // lattice-aware half of field mode (video/interlace.hpp's own file comment;
@@ -319,11 +368,15 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
 // row/tile index in this codebase already uses, e.g. Lattice::at()); every
 // other parameter has the same meaning as generateFragmentsRowRange()'s
 // own.
+// WU-33a: backSrc passed straight through to generateFragmentsRowRange()'s
+// own shared implementation, same as generateFragments() above. Default
+// nullptr, same as there.
 BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& src,
                                      double maxK, const SupersampleConfig& ss,
                                      std::uint8_t tag, int rowOffset,
                                      TileBins& outBins,
-                                     const CoarseShadingGrid* shadingGrid = nullptr);
+                                     const CoarseShadingGrid* shadingGrid = nullptr,
+                                     const SourceRaster* backSrc = nullptr);
 
 // WU-46 (DECISIONS.md ADR-090): per-fragment facing tag (WU-28c, above),
 // field-parity row visitation (WU-23a2a, above) -- combined. Named and
@@ -356,10 +409,15 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
 // unchanged; see DECISIONS.md ADR-090 for why that wiring is left as a
 // separate, not-yet-built follow-on (WU-47) rather than done alongside
 // this function.
+//
+// WU-33a: backSrc passed straight through, same meaning as
+// generateFragmentsRowRangeTagByFacing()'s own. Default nullptr, same as
+// there.
 BinStats generateFragmentsFieldRowsTagByFacing(const Lattice& lattice, const SourceRaster& src,
                                                 double maxK, const SupersampleConfig& ss,
                                                 std::uint8_t frontTag, std::uint8_t backTag,
                                                 int rowOffset, TileBins& outBins,
-                                                const CoarseShadingGrid* shadingGrid = nullptr);
+                                                const CoarseShadingGrid* shadingGrid = nullptr,
+                                                const SourceRaster* backSrc = nullptr);
 
 }  // namespace scatter

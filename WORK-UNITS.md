@@ -2633,40 +2633,119 @@ ADR-069's fixed view vector, or whether this unit is a deliberate, flagged
 departure from strict Starlight reproduction — a design decision, not
 resolved by this documentation-only sweep. Not scoped past this note.
 
-### WU-33 — Front/back source pair, selected by facing `todo`
-**New Session 41 (WU-32, `DECISIONS.md` ADR-073).** Historical finding:
-front and back are two independently freezable video sources selected per
-sample by the sign of the surface normal, not a transition A/B pair
-(`docs/sources/WU-SM-01.md` §3.9.4.3). scatter-dve already has half of the
-mechanism — WU-28c's `generateFragmentsTagByFacing()` computes exactly this
-facing sign, today to choose a k-buffer tag rather than a video source. Not
-scoped past this note: whoever picks this unit up needs to decide how a
-second source raster enters the pipeline (a second `SourceRaster` per
-`runFrame()`/`runFrameBytes()` call, most likely) and how `binner.cpp`
-samples front vs. back per fragment, consuming WU-26/WU-28c's own facing
-signal rather than duplicating it. Depends on WU-26 and WU-28c.
+### WU-33a — backSrc: thread a second, optional source raster through core/binner.hpp's six entry points `green`
+**Split from WU-33 this session (Session 76), after re-scoping it against
+the real current code -- see `DECISIONS.md` ADR-092 for the full account,
+and WU-33b/WU-33c below for the rest of the original WU-33 note.** WU-36's
+own scope amendment (previously below, now folded into this split) found
+WU-33's real footprint spans `core/binner.hpp`/`.cpp`, `core/resolve.hpp`
+and `core/pipeline.cpp` — four already-green source files — which alone
+exceeds `SESSION-PROTOCOL.md`'s "3 source files plus test" cap once
+`pipeline.cpp`'s own PASS-1 call-site wiring is counted alongside
+`binner.hpp`/`.cpp` and `resolve.hpp`. This unit is the "component before
+the thing that wires it" half — the same seam WU-28's a/b/c/d split and
+WU-34's a/b/c split already used: `backSrc`, threaded through
+`core/binner.hpp`'s six `generateFragments*()` entry points, with no real
+`runFrame()`/`runFrameField()` caller yet — WU-33b below is that caller.
 
-**Scope amendment, WU-36 (this sweep) — F6 confirmed by reading the real
-code, not inferred:** every current ingest entry point (`core/binner.hpp`'s
-`generateFragments()`/`generateFragmentsRowRange()`/`*TagByFacing()`,
-`core/resolve.hpp`'s `runFrame()`/`runFrameBytes()`/`runFrameFile()`,
-`core/pipeline.cpp`'s `runThreaded()`) takes exactly one `SourceRaster`.
-This unit's real file footprint therefore includes *modifying* those
-already-green, frozen-signature files — a new `SourceRaster` parameter
-threaded through each — not only adding new ones beside them, which is a
-materially larger and more central change than every other Phase-7 unit
-built so far (all of which have been strictly additive). On the live-capture
-side, `io/decklink_input.hpp`/`.cpp` and `io/decklink_capture_consumer.hpp`/
-`.cpp` (WU-20b/WU-21b, both green) would need a second, independent
-capture-source-and-consumer pair per ADR-073's own "two independently
-freezable" requirement — `CaptureConsumer` today holds exactly one
-`Lattice` by value (WU-21f's `setLattice()`) with no notion of a second
-video feed at all. None of this is a defect in what shipped; it is why this
-unit was flagged as one of the three most consequential open scoping
-questions in this sweep's checkpoint summary. Per Ground Rule 3, this does
-not move WU-33 earlier or renumber anything — it is recorded here so
-whoever picks WU-33 up scopes it against its real footprint from the start
-rather than discovering it mid-session.
+Design: `const SourceRaster* backSrc = nullptr`, a new trailing parameter
+on all six entry points, mirroring `shadingGrid`'s own exact "optional,
+caller-owned, default-off, zero-cost-when-absent" shape (WU-34b, ADR-084)
+— additive, not a changed contract, so `SESSION-PROTOCOL.md`'s own
+anti-drift rule 2 is not implicated (a new trailing default parameter, the
+same shape WU-34b already established for this exact set of six
+functions, not a rename or refactor). The shared per-sample loop
+(`generateFragmentsRowRangeImpl()`, `binner.cpp`, anonymous namespace)
+already computes `rawJ` — the un-collapsed Jacobian — ahead of both
+`sampleBilinear()` and `tagFor(rawJ)`; this unit's own selection
+(`backSrc != nullptr && surfaceNormal(rawJ).z >= 0.0 ? *backSrc : src`)
+sits immediately ahead of `sampleBilinear()`, reusing that same `rawJ`
+rather than evaluating a second Jacobian — ADR-073's own facing signal
+gets a second job, not a duplicated one. Raster selection and tag
+selection (WU-28c's own `frontTag`/`backTag`) are independent gates: a
+caller can set one without the other. `backSrc` must have the same width
+and height as `src` (unchecked, documented) — the per-sample `(subPx,
+subPy)` coordinate is always in `src`'s own pixel space.
+
+**Files:** `src/core/binner.hpp` (six additive, default-nullptr signature
+changes plus doc comments), `src/core/binner.cpp`
+(`generateFragmentsRowRangeImpl()` gains the `backSrc` parameter and the
+one selection line; all six public wrappers thread it through);
+`tests/test_binner.cpp` (a new `OffsetSignatureRaster` fixture, offset by
+a constant from `SignatureRaster`'s own encoding so a decoded fragment
+shows which raster it came from; two new tests). Two source files plus
+its test — within the 3-file cap.
+
+**Accept:** every existing caller (all pre-existing `test_binner.cpp`
+checks) unaffected, byte for byte — 39698 checks before this unit, 40439
+after (a +741 delta from the two new tests alone). `backSrc == nullptr`
+(explicit or implicit) produces bins byte-for-byte identical to its
+absence entirely
+(`test_back_src_defaults_to_null_and_preserves_existing_output()`).
+Against the same self-folding `buildSphereLattice()` fixture WU-28c's own
+test already uses: every front-tagged fragment decodes back through
+`src`'s own signature, every back-tagged fragment decodes back through
+`*backSrc`'s own (distinctly offset) signature — checked for every
+emitted fragment, not only the two hand-derived query points, plus those
+two points explicitly (front-most control vertex through `src`, antipodal
+fold-boundary through `*backSrc`)
+(`test_back_src_front_and_back_facing_sample_different_rasters()`).
+Verified non-vacuous directly: temporarily forcing the selection to
+always read `src` (the parameter still referenced, its job disabled)
+reproduces exactly the two expected failing checks, nothing else, then
+reverted and reconfirmed 40439/40439 green.
+
+*Status:* `green` — built and cloud-sandbox-tested this session (Session
+76): fresh tarball of `origin/main` at `d5569a3` (WU-34c's own commit, not
+yet tagged — see `HANDOFF.md`) with these three files overlaid. GCC
+13.3.0 Release and Debug, Clang 18.1.3 Release, plus GCC Debug+ASan+UBSan
+(`nm -D`/`ldd` confirm genuine instrumentation linkage) — all clean, zero
+warnings, full 29/29 `ctest` suite green in every configuration,
+`test_binner` itself 40439 checks passing in Release/Debug/Clang, same
+count under ASan/UBSan. All three files written back to the real
+repository via the device bridge, re-staged and diffed byte-for-byte
+against the cloud sandbox's own copy — identical. Not yet built, run,
+tagged or pushed at Steve's own real terminal.
+
+### WU-33b — wire `PipelineParams::backSrc` into `runFrame()`/`runFrameField()` `todo`
+**Split from WU-33 this session (Session 76) — see WU-33a above and
+`DECISIONS.md` ADR-092.** The pipeline-wiring half: `core/resolve.hpp`'s
+`PipelineParams` gains a `const SourceRaster* backSrc = nullptr` field,
+and `core/pipeline.cpp`'s three PASS-1 dispatch points (`runThreaded()`'s
+row-band call, `runFrame()`'s own `threads <= 1` branch,
+`resolveOneParity()`'s field call inside `runFrameField()`) pass it
+through to whichever of WU-33a's six entry points that call site already
+makes — the same free propagation `frontTag`/`backTag`/`kBufferMode`/
+`shadingGrid`/`lightingScene` already get through `runFrameBytes()`/
+`runFrameBytesDeinterlaced()`/`runFrameFile()` (all three delegate to
+`runFrame()` with `params` forwarded unchanged). Mirrors WU-34c's own
+shape (a `PipelineParams` field plus `pipeline.cpp` call-site wiring)
+closely enough that WU-34c's own `resolve.hpp`/`pipeline.cpp` diff is the
+concrete template to work from. Not scoped past this note — whoever picks
+this up should re-derive the exact call-site diffs against the real
+current `pipeline.cpp` rather than assume this paragraph's account still
+matches once WU-33a's own files have had any further change. Depends on
+WU-33a (done, `green`).
+
+**Files (provisional):** `src/core/resolve.hpp`, `src/core/pipeline.cpp`,
+a new test file or an extension of an existing pipeline test file (WU-34c's
+own choice among `test_binner.cpp`/`test_field_pipeline.cpp`/a new file is
+the precedent to weigh against). Two source files plus a test — within
+cap.
+
+### WU-33c — DeckLink live capture: a second, independent capture-source-and-consumer pair `todo`
+**Split from WU-33 this session (Session 76) — see WU-33a/WU-33b above and
+`DECISIONS.md` ADR-092.** ADR-073's own "two independently freezable"
+requirement needs a second, independent capture-source-and-consumer pair
+on the live side: `io/decklink_input.hpp`/`.cpp` (WU-20b) and
+`io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b), both green, both built
+around exactly one video feed — `CaptureConsumer` holds exactly one
+`Lattice` by value (WU-21f's `setLattice()`) with no notion of a second.
+Not scoped past this note; likely needs its own further split once picked
+up — four files (two headers, two `.cpp`) already exceeds the 3-file cap
+on its own, before a test file. Device-bridge hand-off only, the same
+treatment WU-28d already established — cannot be built or tested in the
+cloud sandbox (Blackmagic SDK, Cocoa). Depends on WU-33a and WU-33b.
 
 ### WU-34a — Coarse-grid shading field: facet normals, filtering ladder, grid shift `green`
 **Split from the single WU-34 line this replaces (`DECISIONS.md` ADR-083),

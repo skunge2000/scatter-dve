@@ -149,6 +149,41 @@ struct SignatureRaster {
     }
 };
 
+// WU-33a: a second SignatureRaster-shaped fixture, offset from
+// SignatureRaster's own (px, py) encoding by a constant (50) large enough
+// that no (px, py) either fixture uses in this file could collide with it
+// -- so a decoded fragment unambiguously shows which of the two rasters
+// (front or back) it was actually sampled from, not merely which tag it
+// carries.
+struct OffsetSignatureRaster {
+    int width, height;
+    std::vector<Sample> y, cb, cr;
+
+    explicit OffsetSignatureRaster(int w, int h) : width(w), height(h) {
+        y.resize(std::size_t(w) * std::size_t(h));
+        cb.resize(std::size_t(w) * std::size_t(h));
+        cr.resize(std::size_t(w) * std::size_t(h));
+        for (int py = 0; py < h; ++py) {
+            for (int px = 0; px < w; ++px) {
+                const std::size_t i = std::size_t(py) * std::size_t(w) + std::size_t(px);
+                y[i]  = Sample(px + 50);
+                cb[i] = Sample(py + 50);
+                cr[i] = 0;
+            }
+        }
+    }
+
+    SourceRaster view() const noexcept {
+        SourceRaster r;
+        r.width = width;
+        r.height = height;
+        r.r = y.data();
+        r.g = cb.data();
+        r.b = cr.data();
+        return r;
+    }
+};
+
 std::pair<int, int> decode(const Frag& f) noexcept {
     return {int(f.R), int(f.G)};
 }
@@ -977,6 +1012,122 @@ static void test_shading_grid_defaults_to_null_and_preserves_existing_output() {
     }
 }
 
+// --- WU-33a: backSrc selects front vs back raster by facing ------------
+
+static void test_back_src_defaults_to_null_and_preserves_existing_output() {
+    // Same shape as test_shading_grid_defaults_to_null_and_preserves_existing_output()
+    // above, for backSrc instead of shadingGrid: an explicit nullptr call
+    // and the implicit-default call must produce byte-for-byte identical
+    // bins.
+    const int W = 20, H = 15;
+    SignatureRaster src(W, H);
+    Lattice lat = makePixelAffineLattice(0.5, 0.5, 5.0, 5.0, W, H);
+    SupersampleConfig ss;
+
+    TileBins implicitBins(64, 64);
+    generateFragments(lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, implicitBins);
+
+    TileBins explicitBins(64, 64);
+    generateFragments(lat, src.view(), /*maxK=*/1000.0, ss, /*tag=*/0, explicitBins,
+                       /*shadingGrid=*/nullptr, /*backSrc=*/nullptr);
+
+    CHECK(implicitBins.tilesX() == explicitBins.tilesX() &&
+          implicitBins.tilesY() == explicitBins.tilesY());
+    for (int ty = 0; ty < implicitBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < implicitBins.tilesX(); ++tx) {
+            const std::vector<Frag>& a = implicitBins.tile(tx, ty);
+            const std::vector<Frag>& b = explicitBins.tile(tx, ty);
+            CHECK_ONCE(a.size() == b.size());
+            const std::size_t n = std::min(a.size(), b.size());
+            for (std::size_t i = 0; i < n; ++i) {
+                CHECK_ONCE(sameFrag(a[i], b[i]));
+            }
+        }
+    }
+}
+
+static void test_back_src_front_and_back_facing_sample_different_rasters() {
+    constexpr double kPi = 3.14159265358979323846;
+    using scatter::shapes::SphereParams;
+    using scatter::shapes::buildSphereLattice;
+
+    // Same self-folding sphere fixture as
+    // test_self_fold_front_and_back_get_different_tags() above: front-most
+    // control vertex decodes to source pixel (1, 1), the antipodal
+    // fold-boundary control vertex to (0, 1).
+    SphereParams p;
+    p.angleSpanH = 2.0 * kPi;
+    p.centerX = 300.0;
+    p.centerY = 300.0;
+    const Lattice lat = buildSphereLattice(p);
+
+    const int W = 3, H = 3;
+    SignatureRaster front(W, H);
+    OffsetSignatureRaster back(W, H);
+    const SourceRaster backView = back.view();
+
+    TileBins bins(700, 700);
+    SupersampleConfig ss;
+    constexpr std::uint8_t kFrontTag = 7, kBackTag = 13;
+    const BinStats stats = generateFragmentsTagByFacing(
+        lat, front.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag, bins,
+        /*shadingGrid=*/nullptr, /*backSrc=*/&backView);
+    CHECK(stats.droppedOffRaster == 0);
+
+    // Every fragment tagged front must decode back to front's own
+    // signature (R, G both < 50); every fragment tagged back must decode
+    // back to back's own, offset signature (R, G both >= 50) -- not just
+    // at the two hand-derived query points below, but for every fragment
+    // this call emits, confirming backSrc (not merely the tag) actually
+    // changed which raster was read. sawFrontPoint/sawBackPoint separately
+    // confirm the exact front-most (1, 1) and antipodal fold-boundary
+    // (0, 1) control vertices ADR-063 already hand-derives decode through
+    // the expected raster at the expected source pixel, not just some
+    // front/back pixel.
+    int frontCount = 0, backCount = 0;
+    bool sawFrontPoint = false, sawBackPoint = false;
+    for (int ty = 0; ty < bins.tilesY(); ++ty) {
+        for (int tx = 0; tx < bins.tilesX(); ++tx) {
+            for (const Frag& f : bins.tile(tx, ty)) {
+                const auto sig = decode(f);
+                if (f.tag == kFrontTag) {
+                    CHECK_ONCE(sig.first < 50 && sig.second < 50);
+                    ++frontCount;
+                    if (sig == std::pair{1, 1}) sawFrontPoint = true;
+                } else {
+                    CHECK_ONCE(f.tag == kBackTag);
+                    CHECK_ONCE(sig.first >= 50 && sig.second >= 50);
+                    ++backCount;
+                    // Antipodal fold-boundary source pixel (0, 1); back's
+                    // own offset encoding puts that at (50, 51).
+                    if (sig == std::pair{50, 51}) sawBackPoint = true;
+                }
+            }
+        }
+    }
+    CHECK(frontCount > 0);
+    CHECK(backCount > 0);
+    CHECK(sawFrontPoint);
+    CHECK(sawBackPoint);
+
+    // backSrc left at its default nullptr must keep sampling only front,
+    // exactly the pre-WU-33a behaviour, even with facing-based tagging
+    // active -- raster selection and tag selection are independently
+    // gated (frontTag != backTag turns on tag differentiation; backSrc !=
+    // nullptr, separately, turns on raster differentiation).
+    TileBins frontOnlyBins(700, 700);
+    generateFragmentsTagByFacing(lat, front.view(), /*maxK=*/1.0e6, ss, kFrontTag, kBackTag,
+                                  frontOnlyBins);
+    for (int ty = 0; ty < frontOnlyBins.tilesY(); ++ty) {
+        for (int tx = 0; tx < frontOnlyBins.tilesX(); ++tx) {
+            for (const Frag& f : frontOnlyBins.tile(tx, ty)) {
+                const auto sig = decode(f);
+                CHECK_ONCE(sig.first < 50 && sig.second < 50);
+            }
+        }
+    }
+}
+
 int main() {
     test_fragment_count_matches_source_samples_under_compression();
     test_boundary_straddling_replicates_into_right_neighbours();
@@ -989,5 +1140,7 @@ int main() {
     test_field_rows_tag_by_facing_sphere_facing_sign();
     test_shading_multiplies_rgb_intensity_ahead_of_frag_construction();
     test_shading_grid_defaults_to_null_and_preserves_existing_output();
+    test_back_src_defaults_to_null_and_preserves_existing_output();
+    test_back_src_front_and_back_facing_sample_different_rasters();
     return scatter::test::summary("test_binner");
 }

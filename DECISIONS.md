@@ -9470,3 +9470,111 @@ caller. `core/resolve.hpp`/`core/pipeline.cpp` touch no DeckLink-linked
 file, so this is a real, standard `scatter-core` build/test run -- see
 `HANDOFF.md` for the exact commands and why Steve's own real-terminal run
 is still the final word regardless.
+
+**ADR-092 — WU-33a scoping, design and build: `backSrc` threaded through
+`core/binner.hpp`'s six entry points, split from the rest of WU-33.**
+Re-scoped against the real current code (not the WU-33 note's own
+assumption, and not WU-36's own plausible-but-unverified sketch) before any
+`Files:`/`Accept:` was written for WU-33a, per this session's own opening
+instruction to check WU-36's footprint finding directly rather than trust
+it. Confirmed directly: `core/binner.hpp` has exactly six
+`generateFragments*()` entry points (re-grepped `^BinStats
+generateFragments` — six, matching WU-36's own count, unchanged since
+WU-46/47); `core/resolve.hpp` has exactly five `runFrame*()` functions;
+`core/pipeline.cpp` has exactly one `runThreaded()`. All single-`SourceRaster`,
+as WU-36 found.
+
+The real question this session had to answer was not "does WU-33 touch
+more than three files" (WU-36 already established that) but "what is the
+smallest first unit that is independently useful and fits the cap
+anyway" — the same question WU-28 and WU-34 already answered by splitting
+into a/b/c/d and a/b/c respectively. Reading `core/binner.cpp`'s shared
+`generateFragmentsRowRangeImpl()` directly (not assumed) found the exact
+hook: `rawJ`, the un-collapsed Jacobian, is already computed ahead of both
+`sampleBilinear(src, subPx, subPy)` and `tagFor(rawJ)` — WU-28c's own
+`TagByFacing` lambdas already call `surfaceNormal(rawJ).z < 0.0` to pick a
+tag. A second `SourceRaster` parameter can hook in at exactly the same
+point, calling the same `surfaceNormal()` on the same `rawJ`, with no new
+Jacobian evaluation — ADR-073's "front and back... selected per sample by
+facing" giving that one per-sample facing sign a second job rather than a
+duplicated one. This — `core/binner.hpp`/`.cpp` alone, no `pipeline.cpp`
+wiring yet — is a strictly additive, independently testable unit (every
+existing caller keeps compiling and behaving byte-for-byte, the same
+"optional, default-off" shape `shadingGrid` (WU-34b, ADR-084) already
+established for this identical set of six functions), and fits the
+3-source-files-plus-test cap with one file to spare. `pipeline.cpp`'s own
+PASS-1 call-site wiring (three dispatch points, up to six call sites once
+the plain/TagByFacing branch at each is counted) is real work of
+comparable size on its own, so it is WU-33b, not folded into this unit —
+mirroring WU-34a/34b/34c's own three-way split for a structurally similar
+problem (a new optional per-fragment computation threaded through the same
+six entry points, then wired into `runFrame()`/`runFrameField()` by a
+later unit). The DeckLink live-capture half (`io/decklink_input.*`,
+`io/decklink_capture_consumer.*`) is WU-33c, unchanged from WU-36's own
+finding that `CaptureConsumer` holds exactly one `Lattice` by value with no
+notion of a second feed — device-bridge hand-off only, the same treatment
+WU-28d already established, not attempted this session.
+
+Design decided and built this session: `const SourceRaster* backSrc =
+nullptr`, a new trailing parameter on all six `core/binner.hpp` entry
+points (mirroring `shadingGrid`'s own exact shape, not a new sibling
+function — SESSION-PROTOCOL.md's anti-drift rule 2 read the same way
+ADR-026/030/WU-34b already read it, as forbidding a changed *contract*,
+not an additive default parameter). Selection
+(`backSrc != nullptr && surfaceNormal(rawJ).z >= 0.0 ? *backSrc : src`)
+sits immediately ahead of `sampleBilinear()` inside
+`generateFragmentsRowRangeImpl()`, the one shared implementation all six
+public wrappers already route through — so the selection logic exists in
+exactly one place, not duplicated six times. Deliberately independent of
+tag selection: a caller can supply `backSrc` without `frontTag != backTag`
+(raster differentiation, no tag differentiation) or vice versa — checked
+directly in `tests/test_binner.cpp`'s own
+`test_back_src_front_and_back_facing_sample_different_rasters()`, which
+also confirms `backSrc == nullptr` keeps sampling only `src` even with
+facing-based tagging active. `backSrc` must have the same width and height
+as `src` (unchecked, documented in `core/binner.hpp`): the per-sample
+`(subPx, subPy)` coordinate is always in `src`'s own pixel space (the loop
+bound is `src.width`/`src.height`, never `backSrc`'s), so a
+differently-sized `backSrc` would be sampled at the wrong relative
+position rather than rescaled.
+
+**Built this session, matching the scope above exactly:** `src/core/binner.hpp`
+(six additive, default-`nullptr` trailing-parameter signature changes,
+doc comments). `src/core/binner.cpp` (`generateFragmentsRowRangeImpl()`
+gains the `backSrc` parameter and the one selection line ahead of
+`sampleBilinear()`; all six public wrappers thread it through unchanged
+otherwise). `tests/test_binner.cpp` (new `OffsetSignatureRaster` fixture,
+offset by a constant from `SignatureRaster`'s own encoding so a decoded
+fragment shows which raster it came from, not only which tag; two new
+tests, doesn't count against the cap).
+
+**Tested in the cloud sandbox, all green:** GCC 13.3.0 Release and Debug,
+Clang 18.1.3 Release, plus GCC 13 Debug
+`-fsanitize=address,undefined -fno-sanitize-recover=all` — four
+configurations (smaller than ADR-091's own ten-configuration matrix; this
+unit's own risk surface — one new selection expression in one shared
+function, gated by a pointer's nullness — did not seem to warrant the full
+tile-size x compiler cross product this session, a judgement call, not a
+project-wide relaxation of the standing practice), all clean, zero
+warnings, full 29/29 `ctest` suite green in every configuration, `nm -D`/
+`ldd` confirming genuine ASan/UBSan instrumentation linkage.
+`test_binner` itself: 39698 checks before this unit (rebuilt and confirmed
+at a fresh `d5569a3` checkout before any file was touched), 40439 after —
+a +741 delta from the two new tests alone, confirming they are real,
+non-vacuous additions. The new tests' own accept criteria were verified
+this session to actually catch a regression, not pass vacuously:
+temporarily forced the selection to always read `src` (the `backSrc`
+parameter left referenced via an explicit `(void)backSrc;` so
+`-Werror=unused-parameter` did not itself mask the mutation) and confirmed
+exactly the two expected checks failed (`sig.first >= 50 && sig.second >=
+50` and `sawBackPoint`), nothing else, then reverted and confirmed the
+restored file was byte-for-byte identical to its pre-mutation state before
+rebuilding to 40439/40439 green again. Every pre-existing test in
+`test_binner.cpp` and every other test file is unaffected, byte for byte,
+confirming this unit's own default-`nullptr` promise holds for every
+existing caller. `core/binner.hpp`/`.cpp` touch no DeckLink-linked file,
+so this is a real, standard `scatter-core` build/test run. All three
+changed files written back to the real repository via the device bridge,
+then re-staged and diffed byte-for-byte against the cloud sandbox's own
+working copy — identical. See `HANDOFF.md` for the exact commands and why
+Steve's own real-terminal run is still the final word regardless.

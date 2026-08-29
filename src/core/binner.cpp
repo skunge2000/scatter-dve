@@ -191,12 +191,23 @@ SubPos encodeTileLocal(double relativePixels) noexcept {
 // applyShading(), immediately ahead of Frag construction. WU-41: the
 // shadingStandard parameter this comment used to also describe is gone --
 // applyShading() no longer takes one, see its own comment above.
+// WU-33a (DECISIONS.md ADR-092): backSrc, when non-null, threads through
+// the same way -- the shared loop is the one and only place that actually
+// selects which raster sampleBilinear() reads, immediately ahead of that
+// call. rawJ (needed for the facing sign) is already computed above, for
+// the n == 1 / n > 1 cases alike, ahead of both the colour sample and
+// tagFor(rawJ) below -- backSrc selection reuses that same value, calling
+// surfaceNormal() on it directly rather than only inside TagFn, since a
+// caller can want raster selection without tag differentiation (or vice
+// versa) -- see core/binner.hpp's own comment on generateFragmentsRowRange()
+// for the full account.
 template <typename TagFn>
 BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaster& src,
                                         double maxK, const SupersampleConfig& ss,
                                         TagFn&& tagFor, int rowStart, int rowEnd,
                                         int rowStep, TileBins& outBins,
-                                        const CoarseShadingGrid* shadingGrid) {
+                                        const CoarseShadingGrid* shadingGrid,
+                                        const SourceRaster* backSrc) {
     BinStats stats;
 
     // WU-16b (ADR-041): the loop bound is the caller's own row band
@@ -271,7 +282,18 @@ BinStats generateFragmentsRowRangeImpl(const Lattice& lattice, const SourceRaste
                     const double k = densityCompensation(J, maxK);
                     const double weight = k * invN2;
 
-                    const Colour rawColour = sampleBilinear(src, subPx, subPy);
+                    // WU-33a (DECISIONS.md ADR-092): backSrc, when non-null,
+                    // gives this sample's own rawJ (already computed above
+                    // for chooseSupersample()/tagFor()) a second job --
+                    // ADR-073's "front and back... chosen per sample by
+                    // facing", front-facing meaning surfaceNormal().z < 0.0,
+                    // the same ADR-027/ADR-063 convention
+                    // generateFragmentsTagByFacing()'s own tagFor already
+                    // uses. Null (the default) samples src unconditionally,
+                    // exactly the pre-WU-33a behaviour, byte for byte.
+                    const SourceRaster& sampleSrc =
+                        (backSrc != nullptr && surfaceNormal(rawJ).z >= 0.0) ? *backSrc : src;
+                    const Colour rawColour = sampleBilinear(sampleSrc, subPx, subPy);
                     // WU-34b (DECISIONS.md ADR-084): shadingGrid sampled at
                     // this same (u, v) -- no extra lattice evaluation --
                     // ahead of Frag construction (I10). Null preserves
@@ -341,11 +363,12 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
                                     double maxK, const SupersampleConfig& ss,
                                     std::uint8_t tag, int rowStart, int rowEnd,
                                     TileBins& outBins,
-                                    const CoarseShadingGrid* shadingGrid) {
+                                    const CoarseShadingGrid* shadingGrid,
+                                    const SourceRaster* backSrc) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [tag](const Jacobian&) noexcept { return tag; },
-        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid);
+        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid, backSrc);
 }
 
 // WU-16b: a thin wrapper — the whole raster is exactly the row range
@@ -353,13 +376,15 @@ BinStats generateFragmentsRowRange(const Lattice& lattice, const SourceRaster& s
 // ones, unchanged (WU-34b's shadingGrid was a new optional trailing
 // parameter, default nullptr, per ADR-084 -- every pre-existing caller is
 // unaffected; WU-41 removes the shadingStandard parameter ADR-084 also
-// added, now unused -- see binner.hpp's own comment); see ADR-041.
+// added, now unused -- see binner.hpp's own comment); see ADR-041. WU-33a's
+// backSrc (ADR-092) is a second such trailing parameter, same shape.
 BinStats generateFragments(const Lattice& lattice, const SourceRaster& src,
                             double maxK, const SupersampleConfig& ss,
                             std::uint8_t tag, TileBins& outBins,
-                            const CoarseShadingGrid* shadingGrid) {
+                            const CoarseShadingGrid* shadingGrid,
+                            const SourceRaster* backSrc) {
     return generateFragmentsRowRange(lattice, src, maxK, ss, tag, 0, src.height, outBins,
-                                      shadingGrid);
+                                      shadingGrid, backSrc);
 }
 
 // WU-28c (DECISIONS.md ADR-065): see core/binner.hpp's own comment.
@@ -369,14 +394,15 @@ BinStats generateFragmentsRowRangeTagByFacing(const Lattice& lattice, const Sour
                                                double maxK, const SupersampleConfig& ss,
                                                std::uint8_t frontTag, std::uint8_t backTag,
                                                int rowStart, int rowEnd, TileBins& outBins,
-                                               const CoarseShadingGrid* shadingGrid) {
+                                               const CoarseShadingGrid* shadingGrid,
+                                               const SourceRaster* backSrc) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [frontTag, backTag](const Jacobian& rawJ) noexcept {
             // ADR-027/ADR-063: front-facing means normal.z < 0.
             return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
         },
-        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid);
+        rowStart, rowEnd, /*rowStep=*/1, outBins, shadingGrid, backSrc);
 }
 
 // WU-28c: a thin wrapper, exactly generateFragments()'s own relationship to
@@ -385,10 +411,11 @@ BinStats generateFragmentsTagByFacing(const Lattice& lattice, const SourceRaster
                                        double maxK, const SupersampleConfig& ss,
                                        std::uint8_t frontTag, std::uint8_t backTag,
                                        TileBins& outBins,
-                                       const CoarseShadingGrid* shadingGrid) {
+                                       const CoarseShadingGrid* shadingGrid,
+                                       const SourceRaster* backSrc) {
     return generateFragmentsRowRangeTagByFacing(lattice, src, maxK, ss, frontTag, backTag,
                                                  0, src.height, outBins,
-                                                 shadingGrid);
+                                                 shadingGrid, backSrc);
 }
 
 // WU-23a2a (DECISIONS.md ADR-076): see core/binner.hpp's own comment.
@@ -399,11 +426,12 @@ BinStats generateFragmentsFieldRows(const Lattice& lattice, const SourceRaster& 
                                      double maxK, const SupersampleConfig& ss,
                                      std::uint8_t tag, int rowOffset,
                                      TileBins& outBins,
-                                     const CoarseShadingGrid* shadingGrid) {
+                                     const CoarseShadingGrid* shadingGrid,
+                                     const SourceRaster* backSrc) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [tag](const Jacobian&) noexcept { return tag; },
-        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid);
+        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid, backSrc);
 }
 
 // WU-46 (DECISIONS.md ADR-090): see core/binner.hpp's own comment. The
@@ -417,14 +445,15 @@ BinStats generateFragmentsFieldRowsTagByFacing(const Lattice& lattice, const Sou
                                                 double maxK, const SupersampleConfig& ss,
                                                 std::uint8_t frontTag, std::uint8_t backTag,
                                                 int rowOffset, TileBins& outBins,
-                                                const CoarseShadingGrid* shadingGrid) {
+                                                const CoarseShadingGrid* shadingGrid,
+                                                const SourceRaster* backSrc) {
     return generateFragmentsRowRangeImpl(
         lattice, src, maxK, ss,
         [frontTag, backTag](const Jacobian& rawJ) noexcept {
             // ADR-027/ADR-063: front-facing means normal.z < 0.
             return surfaceNormal(rawJ).z < 0.0 ? frontTag : backTag;
         },
-        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid);
+        rowOffset, src.height, /*rowStep=*/2, outBins, shadingGrid, backSrc);
 }
 
 }  // namespace scatter
