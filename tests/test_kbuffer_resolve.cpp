@@ -222,6 +222,146 @@ static void test_blend_known_ratio() {
 }
 
 // ---------------------------------------------------------------------------
+// Part D -- WU-35a: manualTransp (DECISIONS.md ADR-087, WORK-UNITS.md
+// WU-35a). **[P]-tier, not a confirmed historical mechanism** -- see this
+// unit's own entries in DECISIONS.md/WORK-UNITS.md. All four tests below
+// re-derive their expected values independently of compositeKBuffer()'s
+// own blendBetweenSheets() helper (resolve.cpp), the same "hand-computed,
+// not a call back into the function under test" discipline
+// test_blend_known_ratio() above already uses.
+// ---------------------------------------------------------------------------
+
+// manualTransp's default (0) must leave compositeKBuffer()'s own Blend
+// mode byte-identical to every session before WU-35a existed -- checked
+// here by passing 0 explicitly as the new fourth argument and comparing
+// against the same hand-ordered composite() chain
+// test_blend_three_slots_matches_hand_ordered_chain() above already
+// establishes as an independent reference.
+static void test_manual_transp_zero_reproduces_pre_wu35a_blend() {
+    const AccumCell back = makeUniformCell(fromCode10(100), fromCode10(100),
+                                            fromCode10(100), WeightAccum(kWeightUnity));
+    const AccumCell mid = makeUniformCell(fromCode10(500), fromCode10(400),
+                                           fromCode10(300), WeightAccum(kWeightUnity / 2));
+    const AccumCell front = makeUniformCell(fromCode10(900), fromCode10(50),
+                                             fromCode10(700), WeightAccum(kWeightUnity / 4));
+
+    std::array<KSlot, kBufferK> slots{makeSlot(1, /*z=*/900, back), makeSlot(2, /*z=*/50, front),
+                                       makeSlot(3, /*z=*/400, mid), KSlot{}};
+
+    const CompositedCell got =
+        compositeKBuffer(slots, KBufferResolveMode::Blend, kDefaultBackground, /*manualTransp=*/0);
+
+    const CompositedCell step1 = composite(back);
+    const Background afterBack{step1.R, step1.G, step1.B};
+    const CompositedCell step2 = composite(mid, afterBack);
+    const Background afterMid{step2.R, step2.G, step2.B};
+    const CompositedCell expected = composite(front, afterMid);
+
+    CHECK(got.R == expected.R);
+    CHECK(got.G == expected.G);
+    CHECK(got.B == expected.B);
+}
+
+// T = kWeightUnity ("Ext. Key"/farthest-only end of the coefficient, not a
+// named S1 mode itself but the mirror image of Opaque per WU-SM-02.md
+// fixture 30): two fully-covered slots, nearer contributes
+// (kWeightUnity - T) = 0, so the result must equal the farther slot's own
+// resolved colour alone, independent of the nearer slot's colour --
+// fixture 30's own "at T = 1 the near hemisphere should fully vanish
+// behind the far one".
+static void test_manual_transp_one_reverses_two_slot_occlusion() {
+    const AccumCell farther = makeUniformCell(fromCode10(200), fromCode10(600),
+                                               fromCode10(150), WeightAccum(kWeightUnity));
+    const AccumCell nearer = makeUniformCell(fromCode10(800), fromCode10(100),
+                                              fromCode10(900), WeightAccum(kWeightUnity));
+
+    std::array<KSlot, kBufferK> slots{makeSlot(4, /*z=*/1000, farther),
+                                       makeSlot(6, /*z=*/50, nearer), KSlot{}, KSlot{}};
+
+    const CompositedCell got = compositeKBuffer(slots, KBufferResolveMode::Blend,
+                                                  kDefaultBackground, Weight(kWeightUnity));
+    const CompositedCell expected = composite(farther);  // fully covered: bg irrelevant
+
+    CHECK(got.R == expected.R);
+    CHECK(got.G == expected.G);
+    CHECK(got.B == expected.B);
+}
+
+// T = kWeightUnity / 2: two fully-covered, equal-weight slots must match
+// what an unarbitrated accumulate-then-normalise produces (fixture 30's
+// own "at T = 0.5 the result should match ... the same starting point
+// WU-28a/WU-28b shipped before any tag-based arbitration existed") -- for
+// two equal-weight fully-covered cells that reduces to the plain average
+// of their two resolved colours, rounded to nearest exactly the way
+// blend()'s own "add half the divisor" convention already rounds.
+static void test_manual_transp_half_matches_unarbitrated_accumulate() {
+    const AccumCell farther = makeUniformCell(fromCode10(200), fromCode10(600),
+                                               fromCode10(150), WeightAccum(kWeightUnity));
+    const AccumCell nearer = makeUniformCell(fromCode10(800), fromCode10(100),
+                                              fromCode10(900), WeightAccum(kWeightUnity));
+
+    std::array<KSlot, kBufferK> slots{makeSlot(4, /*z=*/1000, farther),
+                                       makeSlot(6, /*z=*/50, nearer), KSlot{}, KSlot{}};
+
+    const CompositedCell got = compositeKBuffer(
+        slots, KBufferResolveMode::Blend, kDefaultBackground, Weight(kWeightUnity / 2));
+
+    auto expectAverage = [](Sample a, Sample b) {
+        return Sample((std::int64_t(a) + std::int64_t(b) + 1) / 2);
+    };
+    CHECK(got.R == expectAverage(fromCode10(800), fromCode10(200)));
+    CHECK(got.G == expectAverage(fromCode10(100), fromCode10(600)));
+    CHECK(got.B == expectAverage(fromCode10(900), fromCode10(150)));
+}
+
+// T applies only to the between-sheet contribution, gated by the nearer
+// slot's own coverage exactly the way a plain composite() call already
+// scales by coverage -- a half-covered nearer slot at T = 0.5 should not
+// simply average with the farther slot at full weight; the general
+// two-value blend formula (test_blend_known_ratio()'s own idiom above)
+// applied at the coverage-discounted alpha WU-35a's own design computes
+// gives the independent expected value here.
+static void test_manual_transp_gated_by_own_coverage_known_ratio() {
+    const AccumCell back =
+        makeUniformCell(fromCode10(200), fromCode10(300), fromCode10(400),
+                         WeightAccum(kWeightUnity));  // fully covered
+    const AccumCell front =
+        makeUniformCell(fromCode10(1000), fromCode10(100), fromCode10(50),
+                         WeightAccum(kWeightUnity / 2));  // exactly half covered
+
+    std::array<KSlot, kBufferK> slots{makeSlot(1, /*z=*/1000, back),
+                                       makeSlot(2, /*z=*/0, front), KSlot{}, KSlot{}};
+    const CompositedCell got = compositeKBuffer(
+        slots, KBufferResolveMode::Blend, kDefaultBackground, Weight(kWeightUnity / 2));
+
+    // back is fully covered, so the base step resolves to back's own
+    // colour regardless of bg (test_blend_known_ratio()'s own reasoning).
+    // The between-sheet alpha is front's own half coverage further
+    // discounted by (kWeightUnity - T) = kWeightUnity / 2, i.e.
+    // coverageAlpha * nearerShare / kWeightUnity, rounded.
+    const std::int64_t unity = std::int64_t(kWeightUnity);
+    const std::int64_t coverageAlpha = unity / 2;   // front's own coverage
+    const std::int64_t nearerShare = unity - unity / 2;  // kWeightUnity - T
+    const std::int64_t alpha = (coverageAlpha * nearerShare + unity / 2) / unity;
+    auto expectChannel = [&](Sample frontC, Sample backC) {
+        return Sample((std::int64_t(frontC) * alpha + std::int64_t(backC) * (unity - alpha) +
+                        unity / 2) /
+                       unity);
+    };
+    CHECK(got.R == expectChannel(fromCode10(1000), fromCode10(200)));
+    CHECK(got.G == expectChannel(fromCode10(100), fromCode10(300)));
+    CHECK(got.B == expectChannel(fromCode10(50), fromCode10(400)));
+}
+
+// PipelineParams::manualTransp's own default -- WU-35a's binding
+// constraint that T defaults to 0 (Opaque), checked directly against the
+// struct rather than assumed from the header comment alone.
+static void test_pipeline_params_manual_transp_defaults_to_zero() {
+    const PipelineParams params;
+    CHECK(params.manualTransp == 0);
+}
+
+// ---------------------------------------------------------------------------
 // Part C -- full pipeline I6: --threads 1 byte-identical to --threads 8, a
 // real folding-sphere frame, kBufferMode == Blend.
 // ---------------------------------------------------------------------------
@@ -327,6 +467,11 @@ int main() {
     test_blend_three_slots_matches_hand_ordered_chain();
     test_blend_z_tie_breaks_by_smallest_tag();
     test_blend_known_ratio();
+    test_manual_transp_zero_reproduces_pre_wu35a_blend();
+    test_manual_transp_one_reverses_two_slot_occlusion();
+    test_manual_transp_half_matches_unarbitrated_accumulate();
+    test_manual_transp_gated_by_own_coverage_known_ratio();
+    test_pipeline_params_manual_transp_defaults_to_zero();
     test_no_occupied_slot_is_pure_background_both_modes();
     test_kbuffer_pipeline_threads_1_matches_threads_8();
     return scatter::test::summary("test_kbuffer_resolve");

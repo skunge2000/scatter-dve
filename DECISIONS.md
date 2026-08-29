@@ -8996,3 +8996,111 @@ here or anywhere else this session -- Steve's own explicit instruction
 was to record the finding and re-scope the blocker first, before any
 resolve code. See `WORK-UNITS.md`'s own `WU-35` entry for the updated
 scope.
+
+---
+
+**ADR-088 — `compositeKBuffer()`'s `Blend`-mode between-sheet step gains a
+transparency coefficient (`WU-35a1`); the farthest-vs-background fold step
+is explicitly excluded from it. `[P]`-tier, licensed by ADR-087, not
+confirmed by it.**
+
+Session 69 (`WU-35a1`), scoping `WU-35a`'s own carve-out (ADR-087) against
+the real, current code rather than that note's own paraphrase, per
+`SESSION-PROTOCOL.md`'s own anti-drift rule 1. `WU-35a`'s own design
+direction described `T` as "applied where that function currently
+composites farthest-to-nearest with plain `composite()` alone" -- true of
+`compositeKBuffer()`'s `Blend` mode only from its second fold step onward,
+not its first: the farthest occupied slot composites against the true
+background `bg`, not against another sheet, and there is no principled
+value of `manualTransp` that both (a) leaves that step meaningful and (b)
+reproduces `WU-35a`'s own required `T = 0`/`T = 0.5`/`T = 1` identities at
+fixture 30's three checkpoints. Checked by hand derivation before writing
+any code: applying `(1 − T)`/`T` scaling uniformly at every fold step,
+including the base one, lets the true background leak into a two-fully-
+opaque-slot result at `T = 0.5` (a three-way split among near/far/
+background instead of an exact 50/50 near/far blend), which is not what
+"matches an unarbitrated accumulate-then-normalise" (`WU-35a`'s own
+`Accept:` line, fixture 30) means for exactly two occupied slots.
+
+**Decision.** The base step (farthest occupied slot vs. `bg`) stays an
+unconditional, plain `composite()` call, exactly as it was before this
+unit existed -- the true background is not a sheet, so it is not subject
+to between-sheet arbitration. `manualTransp` applies starting at the
+second fold step: each nearer slot's own resolved colour contributes
+`(kWeightUnity − manualTransp)`, the already-accumulated farther result
+contributes `manualTransp` (WU-SM-02.md §4.0/ADR-SM-020's own formula),
+further scaled by that slot's own coverage alpha the same way a plain
+`composite()` call already scales by coverage, so a partially-covered
+edge fragment still lets the farther result show through its own
+uncovered portion regardless of `manualTransp`.
+
+**Consequence, checked algebraically and by test:** `manualTransp = 0`
+makes every between-sheet step collapse to exactly the pre-`WU-35a1`
+plain `composite()` call (the fixed-point rounding cancels exactly, no
+fuzz), so `compositeKBuffer()`'s own `Blend` mode is byte-identical to its
+behaviour before this unit at its own default -- `WU-35a`'s own required
+`T = 0` identity holds by construction, not by coincidence, and
+`WU-28d`'s already-scoped accept criterion (self-fold back half fully
+occluded) is reproduced for free. `manualTransp = kWeightUnity` reduces
+every between-sheet step to the farther result alone (`WU-35a`'s "near
+hemisphere fully vanishes"). `manualTransp = kWeightUnity / 2`, for
+exactly two fully-covered slots, reduces to the plain rounded average of
+their two colours (`WU-35a`'s "matches an unarbitrated
+accumulate-then-normalise"). All three checked directly in
+`tests/test_kbuffer_resolve.cpp`, independently hand-derived rather than
+computed by calling back into the function under test, the same
+discipline `test_blend_known_ratio()` already established in that file.
+
+**`[P]`-tier, explicitly -- this ADR does not settle what `WU-35a` itself
+already left open.** `ADR-087`'s own Task A1 finding licenses proceeding
+on a provisional M2-shaped choice; it does not confirm that the blend
+formula, the sheet-membership test, or -- new to this ADR -- this
+specific generalisation of a two-value compare (WU-SM-02.md §4.0's own
+formula is written for exactly two sheets) to a multi-slot fold of up to
+`kBufferK` (4) occupied slots, is what the real Mirage built. The
+generalisation chosen here (every fold step but the first is a
+between-sheet decision) is this unit's own reasonable but unconfirmed
+extrapolation, not independently evidenced. Only the two-occupied-slot
+case (the live sphere demo's own self-fold front/back) is validated
+against `WU-SM-02.md` fixture 30's own three checkpoints;
+three-or-more-slot `Blend`-mode behaviour under a non-zero
+`manualTransp` is exercised by no fixture and no accept criterion,
+WU-35a's or this ADR's own. Whoever eventually builds `WU-35`'s own
+general swappable M1/M2/hybrid interface should expect
+`PipelineParams::manualTransp` and this mechanism to be superseded by
+that interface's own parameterisation, not extended in place -- the same
+expectation `PipelineParams::manualTransp`'s own doc comment
+(`core/resolve.hpp`) already states.
+
+**Scope -- three source files plus one test, matching
+`SESSION-PROTOCOL.md`'s own sizing rule.** `src/core/resolve.hpp`
+(`compositeKBuffer()`'s declaration gains a fourth, trailing, defaulted
+parameter, `Weight manualTransp = 0`; `PipelineParams` gains the same
+field, same default). `src/core/resolve.cpp` (the implementation: a new
+`blendBetweenSheets()` helper beside `nearerThan()`; the `Blend`-mode fold
+itself restructured into an unconditional base step plus a
+`manualTransp`-gated loop over the rest). `src/core/pipeline.cpp` (the one
+real call site, `resolveOneTile()`, now threads `params.manualTransp`
+through). `tests/test_kbuffer_resolve.cpp` (five new tests -- see
+`WORK-UNITS.md`'s own `WU-35a1` entry for exactly what each checks).
+`Opaque` mode and `WU-28a`'s own same-sheet tag-keyed membership test
+(`core/splat.hpp`/`.cpp`) are both untouched. Every existing call site of
+`compositeKBuffer()` (three in `tests/test_kbuffer_resolve.cpp`, one in
+`core/pipeline.cpp` before this unit's own edit) kept compiling unchanged
+throughout, since the new parameter is purely additive with a default.
+
+**Build/test matrix -- full twelve configurations, cloud sandbox:** see
+`WORK-UNITS.md`'s own `WU-35a1` entry for the full table. 28 of 28 tests
+pass in every configuration (`test_kbuffer_resolve`: 186957 checks,
+tile-invariant, identical across all twelve), zero warnings, zero
+sanitizer traps, sanitizer instrumentation confirmed genuinely linked
+(`nm -D`/`ldd`, matching `wu-45-green`'s own prior-session counts exactly:
+28 `asan` hits, 14 `ubsan` hits).
+
+**Not decided here:** `WU-35a2` (wiring `manualTransp` into a live
+operator control in `tests/test_decklink_live_sphere.cpp`) -- flagged,
+scoped, not built this session, since it is Blackmagic-SDK-linked and
+cannot be built or tested in this project's own cloud sandbox. `WU-35`'s
+own remaining scope (`Auto Transp`, `Ext. Key`, the general swappable
+M1/M2/hybrid interface, the Jacobian-derived sheet tolerance) --
+untouched, still `todo`.

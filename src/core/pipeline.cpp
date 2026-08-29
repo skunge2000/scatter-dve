@@ -346,7 +346,8 @@ void resolveOneTile(std::span<const TileBins* const> sources,
                     (*tileKCells)[std::size_t(ly) * std::size_t(kTileSize) +
                                   std::size_t(lx)];
                 const CompositedCell out =
-                    compositeKBuffer(slots, params.kBufferMode, params.background);
+                    compositeKBuffer(slots, params.kBufferMode, params.background,
+                                      params.manualTransp);
 
                 const int dx = originX + lx;
                 const int dy = originY + ly;

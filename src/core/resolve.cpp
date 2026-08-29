@@ -130,11 +130,45 @@ bool nearerThan(const KSlot& a, const KSlot& b) noexcept {
     return a.tag < b.tag;
 }
 
+// WU-35a (DECISIONS.md ADR-087, WORK-UNITS.md WU-35a) -- **[P]-tier, not a
+// confirmed historical mechanism**. One channel of compositeKBuffer()'s own
+// Blend-mode between-sheet step: `nearerColour` (the slot currently being
+// folded in) against `fartherColour` (everything already accumulated
+// farther than it), weighted by WU-SM-02.md §4.0/ADR-SM-020's formula --
+// nearer contributes `(kWeightUnity - manualTransp)`, farther contributes
+// `manualTransp` -- and that whole contribution further scaled by this
+// slot's own coverage (`coverageAlpha`, already clamped to
+// [0, kWeightUnity] by the caller, composite()'s own convention) exactly
+// the way a plain composite() call already scales by coverage: a
+// partially-covered edge fragment still lets `fartherColour` show through
+// its own uncovered portion regardless of `manualTransp`, which governs
+// only the fully-covered, genuinely between-sheet case.
+//
+// At manualTransp == 0 this collapses to blend(nearerColour, fartherColour,
+// coverageAlpha) exactly -- the same per-channel call composite() itself
+// makes -- so compositeKBuffer()'s own default reproduces its pre-WU-35a
+// behaviour byte for byte; see this function's own caller for the proof
+// this is actually reached only for the between-sheet steps, never the
+// base (farthest-vs-bg) one, which stays a plain composite() call
+// unconditionally since there is no real "farther sheet" there to
+// arbitrate against. Rounded the same "add half the divisor, then divide"
+// way as blend()/divideRounded() above.
+Sample blendBetweenSheets(Sample nearerColour, Sample fartherColour,
+                           std::int64_t coverageAlpha,
+                           std::int64_t manualTransp) noexcept {
+    const std::int64_t unity = std::int64_t(kWeightUnity);
+    const std::int64_t nearerShare = unity - manualTransp;
+    const std::int64_t effectiveAlpha =
+        (coverageAlpha * nearerShare + unity / 2) / unity;
+    return blend(nearerColour, fartherColour, effectiveAlpha);
+}
+
 }  // namespace
 
 CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
                                  KBufferResolveMode mode,
-                                 const Background& bg) noexcept {
+                                 const Background& bg,
+                                 Weight manualTransp) noexcept {
     std::array<const KSlot*, kBufferK> occupied{};
     int n = 0;
     for (const KSlot& s : slots) {
@@ -176,9 +210,34 @@ CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
         occupied[std::size_t(j + 1)] = key;
     }
 
-    Background acc = bg;
-    for (int i = n - 1; i >= 0; --i) {
-        const CompositedCell step = composite(occupied[std::size_t(i)]->cell, acc);
+    // The farthest step has no real "farther sheet" to arbitrate against,
+    // only `bg` itself -- stays a plain composite() call using its own
+    // coverage as alpha, unconditionally, byte-identical to
+    // compositeKBuffer()'s own behaviour before WU-35a existed.
+    Background acc = asBackground(composite(occupied[std::size_t(n - 1)]->cell, bg));
+
+    // Every subsequent, nearer slot is a genuine between-sheet decision --
+    // WU-35a (DECISIONS.md ADR-087, WORK-UNITS.md WU-35a), **[P]-tier**,
+    // see this function's own doc comment in resolve.hpp.
+    const std::int64_t transp = std::clamp<std::int64_t>(
+        std::int64_t(manualTransp), std::int64_t(0), std::int64_t(kWeightUnity));
+
+    for (int i = n - 2; i >= 0; --i) {
+        const AccumCell& cell = occupied[std::size_t(i)]->cell;
+        const ResolvedCell resolved = normaliseCell(cell);
+        if (!resolved.covered) {
+            // Σw == 0 on an "occupied" slot shouldn't happen in practice,
+            // but composite() already treats it as a no-op against
+            // whatever background it is handed -- match that here rather
+            // than let an all-zero resolved cell corrupt acc.
+            continue;
+        }
+        const std::int64_t coverageAlpha = std::clamp<std::int64_t>(
+            std::int64_t(cell.w), std::int64_t(0), std::int64_t(kWeightUnity));
+        CompositedCell step;
+        step.R = blendBetweenSheets(resolved.R, acc.R, coverageAlpha, transp);
+        step.G = blendBetweenSheets(resolved.G, acc.G, coverageAlpha, transp);
+        step.B = blendBetweenSheets(resolved.B, acc.B, coverageAlpha, transp);
         acc = asBackground(step);
     }
     return CompositedCell{acc.R, acc.G, acc.B};

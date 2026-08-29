@@ -238,15 +238,38 @@ enum class KBufferResolveMode {
 // - Opaque: among the occupied slots, the one with the smallest
 //   KSlot::firstSeenZ ("near = 0", Frag::z's own convention) is
 //   composite()'d against `bg` alone, as if it were the cell's only
-//   surface; every other slot is discarded.
+//   surface; every other slot is discarded. `manualTransp` (below) plays
+//   no part here -- Opaque already always picks one slot outright.
 // - Blend: every occupied slot, sorted front-to-back by firstSeenZ,
-//   composited back-to-front -- the farthest against `bg` first, each
-//   nearer slot then composited over the accumulated result using its own
-//   coverage as alpha. Literally compositeLayered()'s own "read, then
-//   write over the read" mechanism above, generalised from exactly two
-//   caller-ordered layers to however many slots are occupied, ordered by
-//   depth instead of by caller: two occupied slots reduce to one
-//   compositeLayered() call with upperTag forced equal to opaqueTag --
+//   composited back-to-front. The farthest step, against `bg` itself, has
+//   no real "farther sheet" to arbitrate against -- only the true
+//   background -- so it stays a plain composite() call using its own
+//   coverage as alpha, byte-identical to every session before WU-35a.
+//   Every subsequent, nearer slot is a genuine between-sheet decision:
+//   WU-35a (DECISIONS.md ADR-087, WORK-UNITS.md WU-35a) -- **[P]-tier,
+//   not a confirmed historical mechanism** -- applies WU-SM-02.md
+//   §4.0/ADR-SM-020's formula there instead of a plain composite() call.
+//   The nearer slot's own resolved colour contributes
+//   `(kWeightUnity - manualTransp)`, the already-accumulated farther
+//   result contributes `manualTransp` (1.15 fixed point, same convention
+//   as `Weight`/`kWeightUnity` elsewhere in this header), and that whole
+//   contribution is further scaled by the nearer slot's own coverage
+//   alpha exactly the way a plain composite() already would be -- a
+//   partially-covered edge fragment still lets the farther result show
+//   through its own uncovered portion regardless of `manualTransp`, which
+//   governs only the fully-covered, genuinely between-sheet case.
+//   `manualTransp == 0` (the default -- `Opaque` per WU-SM-02.md's own
+//   S1 p.11 table) makes every one of these steps collapse back to the
+//   original plain composite() call exactly: WU-35a is additive at its
+//   own default, not a behaviour change, and reproduces WU-28d's own
+//   already-scoped accept criterion (self-fold back half fully occluded)
+//   for free. Literally compositeLayered()'s own "read, then write over
+//   the read" mechanism above, generalised from exactly two caller-
+//   ordered layers to however many slots are occupied, ordered by depth
+//   instead of by caller, now with an explicit between-sheet coefficient
+//   in place of an implicit alpha == 1 at full coverage: two occupied
+//   slots at `manualTransp == 0` still reduce to one compositeLayered()
+//   call with upperTag forced equal to opaqueTag --
 //   tests/test_kbuffer_resolve.cpp checks this directly, an independent
 //   cross-check against an already-tested function.
 //
@@ -260,9 +283,25 @@ enum class KBufferResolveMode {
 //
 // A cell with no occupied slot returns composite(AccumCell{}, bg) -- pure
 // background, the same "Σw == 0" case composite() already handles.
+//
+// `manualTransp` -- WU-35a only (DECISIONS.md ADR-087, WORK-UNITS.md
+// WU-35a), **[P]-tier**: default 0 (`Opaque`, see above). Clamped to
+// [0, kWeightUnity] the same defensive way composite()'s own alpha
+// already clamps cell.w -- a value outside that range is a caller error
+// (this is a coefficient, not an accumulator, so it has no legitimate
+// reason to exceed unity the way coverage weight does), not a case this
+// function tries to make meaningful. See PipelineParams::manualTransp
+// below for where a real caller sources this from. This is a single
+// global coefficient (`Manual Transp` specifically, WU-SM-02.md §4.0's
+// table) -- it is not `Auto Transp`, not `Ext. Key`, and not the general
+// swappable M1/M2/hybrid arbitration interface WU-35's own rump scope
+// still owns; ADR-087's Task A1 finding *licenses* this choice, it does
+// not *confirm* the formula or the sheet-membership test are what the
+// real Mirage built.
 CompositedCell compositeKBuffer(const std::array<KSlot, kBufferK>& slots,
                                  KBufferResolveMode mode,
-                                 const Background& bg = kDefaultBackground) noexcept;
+                                 const Background& bg = kDefaultBackground,
+                                 Weight manualTransp = 0) noexcept;
 
 // ---------------------------------------------------------------------------
 // Pipeline orchestration -- WU-10; implemented in src/core/pipeline.cpp.
@@ -437,6 +476,39 @@ struct PipelineParams {
     // a k-buffer cell has no single AccumCell::w for its contract to
     // capture (see core/pipeline.cpp's resolveOneTile()).
     KBufferResolveMode kBufferMode = KBufferResolveMode::Off;
+
+    // WU-35a (DECISIONS.md ADR-087, WORK-UNITS.md WU-35a) -- **[P]-tier,
+    // not a confirmed historical mechanism**: `Manual Transp`, one
+    // global, operator-set transparency coefficient for compositeKBuffer()
+    // above's own Blend mode (kBufferMode above), per WU-SM-02.md's own
+    // §4.0 formula (ADR-SM-020) -- the nearer sheet contributes
+    // `(kWeightUnity - manualTransp)`, the farther sheet contributes
+    // `manualTransp`, at each between-sheet step of that function's own
+    // farthest-to-nearest fold. 1.15 fixed point, the same convention as
+    // `Weight`/`kWeightUnity` elsewhere in this header: kWeightUnity
+    // (32768) is manualTransp == 1.0 (farther sheet only, nearer fully
+    // transparent); 0, the default, is manualTransp == 0.0, i.e. `Opaque`
+    // -- the nearer sheet fully occludes the farther one wherever both
+    // are fully covered, exactly WU-28d's own already-scoped accept
+    // criterion (self-fold back half fully occluded), reproduced here for
+    // free since 0 leaves compositeKBuffer()'s own Blend-mode fold byte-
+    // identical to its pre-WU-35a behaviour (see resolve.cpp). Ignored
+    // when kBufferMode != Blend -- Off has no between-sheet fold at all;
+    // Opaque already always picks the single nearest slot outright,
+    // independent of any coefficient.
+    //
+    // This field is deliberately narrow -- `Manual Transp` only, not
+    // `Auto Transp` (shape-derived) or `Ext. Key` (per-pixel, external),
+    // and not the general swappable M1/M2/hybrid arbitration interface
+    // WU-35's own rump scope still owns. ADR-087's own Task A1 finding
+    // (GB2158671A read in full, silent on multi-sheet arbitration)
+    // *licenses* proceeding on this provisional M2-shaped choice; it does
+    // not *confirm* the blend formula or the sheet-membership mechanism
+    // are what the real Mirage built. Whoever eventually builds WU-35's
+    // own swappable interface should expect this field to be superseded
+    // by whatever that interface's own parameterisation turns out to be,
+    // not extended in place.
+    Weight manualTransp = 0;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

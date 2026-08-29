@@ -2978,27 +2978,21 @@ whose own job — wiring self-fold occlusion into the live sphere demo —
 this unit now does instead, with a real `T` in place of `WU-28d`'s own
 binary `Opaque`/`Blend` toggle.
 
-**Design direction, not yet scoped in full — whoever picks this up should
-re-read the real, current code before committing to a file list, the same
-discipline every unit in this project uses:** extend the already-shipped,
-depth-sorted, tag-keyed k-buffer resolve (`WU-28a`/`WU-28b`,
-`core/resolve.hpp`/`.cpp` — confirm the real current location of
-`compositeKBuffer()` directly, do not assume it is still where WU-28b
-left it) with `ADR-072`'s between-sheet blend formula — nearer sheet
-`(1 − T)`, farther sheet `T` — applied where that function currently
-composites farthest-to-nearest with plain `composite()` alone; same-sheet
-accumulation (`WU-28a`'s own tag-keyed membership test) is untouched,
-this unit only changes what happens *between* sheets. `T` itself: a new
-`PipelineParams` field (or equivalent), defaulting to `0` (`Opaque`,
-matching `E1`'s attested v1-sphere behaviour and giving `WU-28d`'s own
-already-scoped `Accept:` criterion for free at `T = 0`), adjustable live
-via two new letter keys in `tests/test_decklink_live_sphere.cpp` — the
-same increment/decrement scheme `WU-21i` already established
-(`X`/`x`/`Y`/`y`/`Z`/`z`), not a new input model. Whether this extends
-`compositeKBuffer()` in place or sits beside it as a second resolve path
-is `WU-35`'s own still-open first design question — this unit should
-answer it in practice, for the `Manual Transp` case specifically, and
-report back rather than deciding it a second time in the abstract.
+**Design direction, as originally left by this unit's own carve-out — see
+`WU-35a1`/`WU-35a2` below for what that scoping pass actually found in the
+real code:** extend the already-shipped, depth-sorted, tag-keyed k-buffer
+resolve (`WU-28a`/`WU-28b`, `core/resolve.hpp`/`.cpp`) with `ADR-072`'s
+between-sheet blend formula — nearer sheet `(1 − T)`, farther sheet `T` —
+applied where that function currently composites farthest-to-nearest with
+plain `composite()` alone; same-sheet accumulation (`WU-28a`'s own
+tag-keyed membership test) is untouched, this unit only changes what
+happens *between* sheets. `T` itself: a new `PipelineParams` field,
+defaulting to `0` (`Opaque`, matching `E1`'s attested v1-sphere behaviour
+and giving `WU-28d`'s own already-scoped `Accept:` criterion for free at
+`T = 0`), adjustable live via two new letter keys in
+`tests/test_decklink_live_sphere.cpp` — the same increment/decrement
+scheme `WU-21i` already established (`X`/`x`/`Y`/`y`/`Z`/`z`), not a new
+input model.
 
 **Flag prominently, in code comments and in this unit's own close-out:**
 this is a `[P]`-tier design choice, not a confirmed historical mechanism —
@@ -3019,7 +3013,177 @@ visibly match an unarbitrated accumulate-then-normalise (the same
 starting point `WU-28a`/`WU-28b` shipped before any tag-based
 arbitration existed, useful as a sanity cross-check); at `T = 1` the near
 hemisphere should fully vanish behind the far one, the mirror image of
-`T = 0`. Not scoped past this note.
+`T = 0`.
+
+**Split, Session 69 (this session's own scoping pass, its own first job
+per this entry's own note above) — `WU-35a1`/`WU-35a2` carved out, the
+same "component before the thing that wires it" seam this project has now
+used repeatedly (`WU-23a2`→`a2a`/`a2b`; `WU-23b`→`b1`/`b2`→`b2a`/`b2b`;
+`WU-27`/`WU-34`, ADR-082; `WU-34`→`WU-34a`/`WU-34b`; `WU-28`→
+`WU-28a`/`WU-28b`/`WU-28c`/`WU-28d`) — and in particular the same split
+`WU-28d` (above, superseded by this unit) itself already used, for the
+same reason: read directly against the real, current code before writing
+`Files:`/`Accept:`, confirming `compositeKBuffer()`'s real location
+(`core/resolve.hpp`/`.cpp`, unmoved since WU-28b) and that its own
+extension touches no Blackmagic-SDK-linked or Cocoa-linked file —
+`core/resolve.hpp`/`.cpp`, `core/pipeline.cpp` only — so it is buildable,
+runnable and testable directly in the cloud sandbox exactly the way
+`WU-28c` was and `WU-28d` was not. Wiring a live operator control for it
+into `tests/test_decklink_live_sphere.cpp` is Blackmagic-SDK-linked and
+can only be reasoned through and handed off via the device bridge, never
+built or run in this project's own cloud sandbox — the same DeckLink/Cocoa
+split `WU-28c`/`WU-28d` themselves already used, and every DeckLink-
+touching unit before them (ADR-059's own explicit reason `WU-28a`/`WU-28b`
+stayed core-only in the first place). See `WU-35a1`/`WU-35a2` below; this
+entry's own `Design direction`/`Flag prominently`/`Accept` text above is
+carried forward unchanged as the carve-out's original design-direction
+note, not restated or re-derived — `WU-35a1` below is where it was
+actually checked against the real code and, in one respect (the base,
+farthest-slot-vs-background fold step never being subject to `T` at all,
+since the true background is not a sheet), found to need a real design
+decision this note did not anticipate.
+
+### WU-35a1 — `compositeKBuffer()`'s between-sheet blend: `manualTransp` `green` (`wu-35a1-green`)
+Core half of `WU-35a`'s own split, this session. `[P]`-tier (`DECISIONS.md`
+ADR-087) — a provisional, licensed-not-confirmed choice; see `WU-35a`
+above and `ADR-087` for what licenses it and what it does not confirm.
+
+**What was found scoping this, directly against the real code, not
+assumed from `WU-35a`'s own carve-out note above.** `compositeKBuffer()`
+(`core/resolve.hpp`/`.cpp`) is unmoved since `WU-28b` — still exactly
+where that unit left it, still called from exactly one site
+(`core/pipeline.cpp`'s `resolveOneTile()`). Its `Blend` mode is a fold,
+farthest occupied slot to nearest: the **first** (farthest) step composites
+against the true background `bg` using `composite()`'s own plain,
+coverage-only alpha; **every subsequent step** composites a nearer slot
+over the already-accumulated result of everything farther. `WU-35a`'s own
+note above described the whole fold uniformly as "applied where that
+function currently composites farthest-to-nearest with plain `composite()`
+alone" — checked directly, this is only true of the between-sheet steps.
+The base step has no real farther *sheet* to arbitrate against, only the
+true background, and `T` cannot apply there without breaking the `T = 0`
+identity this unit's own `Accept:` line requires (verified concretely: a
+naive uniform application of `(1 − T)`/`T` scaling at every fold step,
+including the base one, lets the true background leak into a two-fully-
+opaque-slot result at `T = 0.5` instead of producing an exact 50/50 blend
+of the two sheets alone — checked by hand derivation before writing any
+code, not discovered by a failing test). **Resolution:** the base
+(farthest-vs-background) step stays exactly the pre-`WU-35a` plain
+`composite()` call, unconditionally; `manualTransp` applies only from the
+second fold step onward, each one a genuine between-sheet decision. This
+is `WU-35a1`'s own real design contribution, not present in `WU-35a`'s own
+original note, and is itself part of what makes this a `[P]`-tier choice
+(WU-SM-02.md §4.0's formula is written for a two-value compare, not a
+multi-slot fold — extending it to "every step but the first" for `kBufferK`
+up to 4 is this unit's own reasonable, but unconfirmed, generalisation).
+
+**Mechanism.** Between-sheet step for the nearer slot's own colour
+(`nearerColour`) against the already-accumulated farther result
+(`fartherColour`): weighted `(kWeightUnity − manualTransp)` for
+`nearerColour`, `manualTransp` for `fartherColour` (1.15 fixed point, same
+convention as `Weight`/`kWeightUnity` elsewhere in `core/types.hpp`), and
+that whole contribution further scaled by the nearer slot's own coverage
+alpha exactly the way a plain `composite()` call already scales by
+coverage — a partially-covered edge fragment still lets the farther result
+show through its own uncovered portion regardless of `manualTransp`, which
+governs only the fully-covered, genuinely between-sheet case. New helper
+`blendBetweenSheets()` (`core/resolve.cpp`, anonymous namespace, beside
+`nearerThan()`); `compositeKBuffer()`'s own signature gains a fourth,
+trailing, defaulted parameter (`Weight manualTransp = 0`) — additive only,
+every existing call site (three in `tests/test_kbuffer_resolve.cpp`, one
+in `core/pipeline.cpp`) keeps compiling unchanged. `PipelineParams` gains
+`Weight manualTransp = 0`, threaded through the one real call site in
+`core/pipeline.cpp`'s `resolveOneTile()`. `Opaque` mode and same-sheet
+accumulation (`WU-28a`'s own tag-keyed membership test, `core/splat.hpp`/
+`.cpp`) are both untouched, exactly as `WU-35a`'s own note above required.
+
+**Files:** `src/core/resolve.hpp` (declaration + `PipelineParams` field),
+`src/core/resolve.cpp` (implementation), `src/core/pipeline.cpp` (the one
+real call site) — three source files, plus `tests/test_kbuffer_resolve.cpp`
+— matching `SESSION-PROTOCOL.md`'s own work-unit sizing rule exactly.
+
+**Accept, checked directly, all four:** `manualTransp = 0` (the default)
+— `compositeKBuffer()`'s own `Blend` mode is byte-identical to its
+pre-`WU-35a1` behaviour (proved algebraically: the fixed-point rounding
+collapses exactly, no fuzz) and a new test passes `0` explicitly as the
+fourth argument and cross-checks against the same hand-ordered
+`composite()` chain the existing three-slot test already uses as an
+independent reference — reproduces `WU-28d`'s own already-scoped accept
+criterion (self-fold back half fully occluded) for free, as required.
+`manualTransp = kWeightUnity` (`T = 1`) — two fully-covered slots resolve
+to the farther slot's own colour alone, independent of the nearer slot's
+colour (fixture 30's "near hemisphere fully vanishes"). `manualTransp =
+kWeightUnity / 2` (`T = 0.5`) — two fully-covered, equal-weight slots
+resolve to the plain rounded average of their two colours, matching
+fixture 30's "matches an unarbitrated accumulate-then-normalise". A fourth
+test (`T = 0.5`, nearer slot only half covered) confirms the between-sheet
+coefficient is genuinely gated by that slot's own coverage, not applied
+uniformly regardless of it, against an independently hand-derived expected
+value in the same style `test_blend_known_ratio()` already established. A
+fifth, trivial test confirms `PipelineParams::manualTransp`'s own default
+is `0` directly against the struct.
+
+**Build/test matrix — full twelve configurations, cloud sandbox, fresh
+clone of `origin/main` at `147bb51` (the untagged doc-only commit
+`WU-35a`'s own carve-out landed in) with the four files above overlaid:**
+GCC 13.3.0 and Clang 18.1.3, Release and Debug, tile 2^4 and 2^5 (eight),
+plus GCC + ASan alone and GCC + UBSan alone, each at both tile sizes (four
+more) — twelve total, all clean: 28/28 tests pass in every configuration
+(`test_kbuffer_resolve` specifically: 186957 checks, tile-invariant,
+identical across all twelve), zero warnings, zero sanitizer traps (grepped
+every `ctest --output-on-failure` log directly). Sanitizer instrumentation
+confirmed genuinely linked, not merely requested: `nm -D` against
+`test_kbuffer_resolve` finds 28 `asan` symbol hits under the ASan build and
+14 `ubsan` hits under the UBSan build (both counts match `wu-45-green`'s
+own prior session exactly); `ldd` confirms `libasan.so.8`/`libubsan.so.1`
+actually linked in the respective binaries.
+
+**Whole-suite status:** 28/28 in the cloud sandbox, which has no
+Blackmagic SDK and therefore never builds `test_decklink_device` at all —
+the standing ADR-035 duplex-check exception this project's own tag
+convention already treats as non-blocking for a `-green` tag. No other
+file touched, so no other test's own status changes.
+
+### WU-35a2 — wire `manualTransp` into the live sphere demo (letter-key control) `todo`
+Live-demo half of `WU-35a`'s own split, this session — depends on
+`WU-35a1` (above, `green`) landing first for its own `PipelineParams::
+manualTransp` field to control. Deliberately kept separate from `WU-35a1`
+for the same reason `WU-28d` was kept separate from `WU-28c`: this unit
+touches a Blackmagic-SDK-linked test file and therefore can only be
+reasoned through and handed off via the device bridge, never built or run
+in the cloud sandbox — the same DeckLink/Cocoa split every other unit in
+this project already respects. `[P]`-tier, same standing as `WU-35a1` and
+`WU-35a` above — this unit does not add to or narrow that flag, only gives
+it an operator control.
+
+**Files:** `tests/test_decklink_live_sphere.cpp` only, expected — no other
+file should need touching, `WU-35a1`'s own `PipelineParams::manualTransp`
+field being additive.
+
+**Design direction, not yet scoped in full — re-read the real, current
+file before committing to exact keys, the same discipline every unit in
+this project uses:** two new letter keys, the same increment/decrement
+scheme `WU-21i` already established. Checked this session, directly
+against the real file: `X`/`x`/`Y`/`y`/`Z`/`z` are already `WU-21i`'s own
+sphere-control letters, and `A`/`B`/`C`/`D` are already bound to
+`Up`/`Down`/`Right`/`Left`; no other letter-key `case` arm exists in the
+file as of this session. The next free pair is this unit's own first real
+scoping decision, not picked here — confirm against the file's actual
+state at the time this unit is picked up, not against this note, in case
+another unit has claimed letters in between.
+
+**Accept:** provisional, pending a real key assignment — expected to be a
+by-eye criterion (Steve's own real-hardware run, since no automated test
+can observe an SDI monitor): at the control's default/rest position
+(`manualTransp = 0`), the folding sphere's back half is fully occluded,
+`WU-28d`'s own original criterion, now reproduced via `WU-35a1` instead of
+`WU-28d`'s own never-built binary toggle. Sweeping the control toward its
+other end should visibly show the far hemisphere increasingly show
+through, reaching full reversal (near hemisphere invisible) at the
+control's other extreme — `docs/sources/WU-SM-02.md` fixture 30's own
+sweep, `WU-35a1`'s own `Accept:` line already confirms the underlying
+arithmetic produces this numerically; this unit's own job is solely making
+it operator-controllable and visible on a real SDI monitor.
 
 ### WU-37 — Specular model LUTs, stubbed pending the real Starlight patent `todo`
 **New WU-36 (this sweep, `docs/wu-audit-2026-08.md`), proposed numbering —
