@@ -40,6 +40,7 @@
 #pragma once
 
 #include "core/binner.hpp"
+#include "core/coarse_shading.hpp"
 #include "core/types.hpp"
 #include "video/deinterlace.hpp"
 #include "video/raster.hpp"
@@ -62,6 +63,17 @@ namespace scatter {
 // PipelineParams::pool, below) must already #include "core/pipeline.hpp"
 // itself to do so.
 class ThreadPool;
+
+// core/coarse_shading.hpp above (not forward-declared): PipelineParams
+// below holds a CoarseShadingConfig by value (WU-34c), which needs the
+// complete type, unlike ThreadPool above, which is only ever held by
+// pointer. That #include transitively pulls in core/lighting.hpp's own
+// complete LightingScene as well (coarse_shading.hpp's own #include), so
+// PipelineParams::lightingScene below -- a `const LightingScene*`, which on
+// its own would only need a forward declaration the same way
+// PipelineParams::pool's `ThreadPool*` does -- needs no forward declaration
+// of its own: the complete type is already in scope by the time it is
+// declared.
 
 // ---------------------------------------------------------------------------
 // Normalise -- architecture.md 4.8's divide, in isolation.
@@ -563,6 +575,63 @@ struct PipelineParams {
     // by whatever that interface's own parameterisation turns out to be,
     // not extended in place.
     Weight manualTransp = 0;
+
+    // WU-34c (DECISIONS.md ADR-091): an optional, caller-owned per-frame
+    // lighting scene (core/lighting.hpp) -- the missing piece WU-34b
+    // (ADR-084) deferred: core/binner.hpp's five (now six, WU-46/47)
+    // generateFragments*() entry points can already take a caller-supplied
+    // `const CoarseShadingGrid*`, but until this unit nothing outside
+    // tests/test_binner.cpp ever built one for a real frame. Default
+    // nullptr: every existing caller keeps compiling and behaving exactly
+    // as before, byte for byte -- the same "optional, caller-owned,
+    // default-off, zero-cost-when-absent" shape pool (ADR-044), weightOut
+    // (ADR-056) and kBufferMode (ADR-059) above already established. When
+    // non-null, runFrame()/runFrameField() each build exactly one
+    // core/coarse_shading.hpp CoarseShadingGrid per call -- from
+    // `*lightingScene`, the call's own `lattice`, and shadingConfig below
+    // -- and pass the same `const CoarseShadingGrid*` to whichever
+    // generateFragments*()/generateFragmentsRowRange*()/
+    // generateFragmentsFieldRows*() call that entry point (and, for
+    // runFrame(), its own threaded row-band workers) already makes. One
+    // grid per call, not one per tile or worker: WU-34b's own threading
+    // finding (ADR-084) already established that a CoarseShadingGrid is
+    // read concurrently by every PASS-1 row-band worker with no extra
+    // synchronisation, exactly the way `lattice` itself already is, since
+    // CoarseShadingGrid::build() is not noexcept and allocates (a
+    // kLatticeSize*kLatticeSize std::vector<double>) -- building it once
+    // per frame instead of once per tile/worker is what makes that cost
+    // negligible rather than repeated.
+    //
+    // runFrameBytes()/runFrameBytesDeinterlaced()/runFrameFile() need no
+    // wiring of their own for this: all three already call runFrame()
+    // with `params` forwarded unchanged (core/pipeline.cpp), so these two
+    // new fields reach runFrame()'s own construction logic automatically,
+    // the same free propagation frontTag/backTag/kBufferMode/manualTransp
+    // above already get through the identical path.
+    //
+    // Ownership is the caller's own responsibility, the same unchecked
+    // "must outlive this call" convention PipelineParams::pool above
+    // already uses for a different non-owning pointer.
+    const LightingScene* lightingScene = nullptr;
+
+    // Baked into the one CoarseShadingGrid a non-null lightingScene above
+    // causes runFrame()/runFrameField() to build (core/coarse_shading.hpp's
+    // own ShadingFilter/gridShift, ADR-070/083) -- ignored entirely when
+    // lightingScene is left at its default nullptr, the same "config
+    // field with no effect until its own gating field opts in" shape
+    // manualTransp above has with kBufferMode. Default {} is
+    // CoarseShadingConfig's own default (ShadingFilter::Smooth1,
+    // gridShift 0).
+    //
+    // No colour-standard field alongside this one: WU-34b/ADR-084 first
+    // introduced `core::ColourStandard` for applyShading()'s own
+    // RGB<->YCbCr round trip, but WU-41 (ADR-085) made
+    // SourceRaster/sampleBilinear() RGB-native and deleted that enum
+    // outright once nothing needed a coefficient choice there any more
+    // (core/binner.hpp's own file comment above SourceRaster's
+    // definition) -- there is no coefficient left for this unit to
+    // parameterise.
+    CoarseShadingConfig shadingConfig{};
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

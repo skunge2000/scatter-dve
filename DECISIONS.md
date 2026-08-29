@@ -9357,3 +9357,116 @@ safe, is exactly the kind of follow-on `ADR-077` itself anticipated
 ("a future unit's own job," its own text on threaded field mode already
 uses the identical phrase for a different deferred extension).
 
+**ADR-091 — WU-34c scoping and build: `PipelineParams::lightingScene`/
+`shadingConfig` give `core/pipeline.cpp` a real caller for WU-34a/34b's own
+`CoarseShadingGrid`; the note's own stale `ColourStandard` mention
+(CORRECTIONS.md C-040) not carried forward; one grid built per
+`runFrame()`/`runFrameField()` call, threaded through all six
+`core/binner.hpp` entry points via the two functions (`runFrame()`,
+`runFrameField()`) that reach all of them.**
+
+This session opened as a continuation prompt whose own job was scoping
+WU-34c first (its own note, `WORK-UNITS.md`, explicitly marked "not scoped
+past this note... re-read `core/pipeline.cpp`'s real current structure
+directly before writing `Files:`/`Accept:`"), building it second if the
+scope held together within `SESSION-PROTOCOL.md`'s 3-file cap. Confirmed
+real repository state directly (`HEAD`/`origin/main` both `bf4c4f5`, tagged
+`wu-47-green`, clean tree, `wu-46-green`/`wu-35a4-green` further back)
+before reading `SESSION-PROTOCOL.md`, `HANDOFF.md`'s Session-74 entry,
+ADR-084 in full, `WORK-UNITS.md`'s `WU-34a`/`WU-34b`/`WU-34c` entries in
+full, `core/binner.hpp`'s six `generateFragments*()` declarations and its
+own file-header comment on `ColourStandard`'s removal, `core/resolve.hpp`,
+`core/coarse_shading.hpp`, `core/lighting.hpp`, and `core/pipeline.cpp`'s
+`runFrame()`/`runThreaded()`/`runFrameField()`/`runFrameBytes()`/
+`runFrameBytesDeinterlaced()`/`runFrameFile()`, per `SESSION-PROTOCOL.md`
+rule 6.
+
+**1. The `ColourStandard` field named in `WU-34c`'s own note is stale, not
+built -- CORRECTIONS.md C-040.** Confirmed directly:
+`core::ColourStandard` was deleted by `WU-41` (ADR-085); none of
+`core/binner.hpp`'s six `generateFragments*()` entry points takes a
+`shadingStandard` parameter any more. The two real new `PipelineParams`
+fields are `lightingScene` (`const LightingScene* = nullptr`) and
+`shadingConfig` (`CoarseShadingConfig{}`) alone.
+
+**2. One `CoarseShadingGrid` per `runFrame()`/`runFrameField()` call, not
+per call site.** Checked directly against the real current
+`core/pipeline.cpp`, not assumed from `WU-34c`'s own note:
+`runFrameBytes()`, `runFrameBytesDeinterlaced()` and `runFrameFile()` do
+not call any `generateFragments*()` function themselves -- all three call
+`runFrame(lattice, src, params, warped)` internally, so
+`PipelineParams::lightingScene`/`shadingConfig` reach them automatically
+once `runFrame()` itself is wired, with no changes of their own needed.
+That leaves exactly two functions that build their own grid: `runFrame()`
+(whose `threads<=1` branch calls
+`generateFragments()`/`generateFragmentsTagByFacing()` directly, and whose
+two threaded branches -- `params.pool != nullptr`, and the per-call
+`ThreadPool` -- both go through `runThreaded()`, given a new trailing
+`const CoarseShadingGrid*` parameter) and `runFrameField()` (whose
+`resolveOneParity()` closure calls
+`generateFragmentsFieldRows()`/`generateFragmentsFieldRowsTagByFacing()`,
+given the same grid built once before either parity resolves -- the same
+lattice warps both parities, so nothing about the grid differs between
+them). Building once per call, not once per tile/worker, matches
+`WU-34b`'s own threading finding (ADR-084): `CoarseShadingGrid`, like
+`lattice` itself, is read concurrently by every PASS-1 row-band worker
+with no extra synchronisation, and `CoarseShadingGrid::build()` is not
+`noexcept` and allocates, so building it once per frame is what keeps that
+cost negligible.
+
+**3. Six call sites gain the new parameter, not three.** Every one of
+`runFrame()`'s and `runFrameField()`'s three PASS-1 dispatch points
+(`runThreaded()`'s row-band call, `runFrame()`'s own `threads<=1` call,
+`resolveOneParity()`'s field call) already has a plain/TagByFacing branch
+pair (`kBufferMode != Off && frontTag != backTag`, ADR-089/WU-46/WU-47) --
+threading `shadingGrid` through means passing it to both branches at each
+of the three dispatch points, six call sites total, all of which already
+accepted a defaulted, previously-unused trailing
+`const CoarseShadingGrid* shadingGrid = nullptr` parameter before this
+unit (`WU-34b`, ADR-084).
+
+**4. `core/resolve.hpp` needs a real `#include "core/coarse_shading.hpp"`,
+not a forward declaration.** `PipelineParams::shadingConfig` holds a
+`CoarseShadingConfig` by value, which needs the complete type;
+`PipelineParams::lightingScene` is only ever held by pointer and would
+only need a forward declaration on its own, but the `CoarseShadingConfig`
+include already pulls in `core/lighting.hpp`'s own complete `LightingScene`
+transitively (`coarse_shading.hpp`'s own
+`#include "core/lighting.hpp"`), so no separate forward declaration is
+needed for it. No circular-include risk: `core/coarse_shading.hpp` only
+includes `core/lattice.hpp`/`core/lighting.hpp`, neither of which includes
+`core/resolve.hpp` -- confirmed directly by grep before relying on it.
+
+**Built this session, matching the scope above exactly:**
+`src/core/resolve.hpp` (edited: `#include "core/coarse_shading.hpp"`; two
+new `PipelineParams` fields, `lightingScene`/`shadingConfig`, doc comments
+following the established `pool`/`weightOut`/`kBufferMode`
+"optional, caller-owned, default-off, zero-cost-when-absent" pattern).
+`src/core/pipeline.cpp` (edited: `runFrame()`/`runFrameField()` each build
+at most one `CoarseShadingGrid` from `params.lightingScene`/
+`shadingConfig` when non-null; `runThreaded()` gains a new trailing
+`shadingGrid` parameter; all six PASS-1 call sites pass it through;
+file-header comment extended). `CMakeLists.txt` (registers the new test
+executable below). `tests/test_pipeline_shading.cpp` (new, doesn't count
+against the cap).
+
+**Tested in the cloud sandbox, full portable matrix, all green:** GCC
+13.3.0 and Clang 18.1.3, Release and Debug, `SCATTER_TILE_LOG2` 4 and 5,
+plus GCC 13 `-fsanitize=address,undefined -fno-sanitize-recover=all` at
+both tile sizes -- 10 configurations, all 29 registered tests passing in
+every one (up from 28 -- the new `test_pipeline_shading`), no sanitizer
+findings, `nm -D`/`ldd` confirming genuine ASan/UBSan instrumentation
+linkage. The new test file's own accept criteria were verified this
+session to actually catch a regression, not pass vacuously: temporarily
+disabled `runFrame()`'s own `shadingGrid` assignment (grid still built,
+never threaded through) and confirmed `test_pipeline_shading` failed with
+exactly the four expected shading checks, then restored the real wiring
+and confirmed all 29 tests pass again before finalising. Every
+pre-existing test file (`test_binner.cpp`, `test_coarse_shading.cpp`,
+`test_field_pipeline.cpp`, all 26 others) is unmodified and produces the
+identical check count it did at `wu-47-green`, confirming this unit's own
+default-`nullptr` byte-for-byte-unchanged promise holds for every existing
+caller. `core/resolve.hpp`/`core/pipeline.cpp` touch no DeckLink-linked
+file, so this is a real, standard `scatter-core` build/test run -- see
+`HANDOFF.md` for the exact commands and why Steve's own real-terminal run
+is still the final word regardless.

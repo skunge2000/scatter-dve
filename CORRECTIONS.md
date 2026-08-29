@@ -1566,3 +1566,52 @@ before treating a correction's own "Resolution" section as closed -- the
 same discipline `C-021` already established for the underlying
 tag-before-commit failure mode itself, now needed a second time for the
 write-up of a fix to it.
+
+
+### C-040 — `WORK-UNITS.md`'s own `WU-34c` entry (Session 53) named a
+`ColourStandard` field that `WU-41` (a later session) had already deleted;
+carried stale until this session's own scoping pass
+
+**Finding, this session (`WU-34c`'s own scoping pass, done before writing
+any `Files:`/`Accept:` line, per that entry's own explicit instruction not
+to trust it).** `WORK-UNITS.md`'s own `WU-34c` entry, drafted at
+`WU-34b`'s own close-out (`DECISIONS.md` ADR-084), sketched the new
+`PipelineParams` fields this unit would add as "`const LightingScene*
+lightingScene = nullptr` and `CoarseShadingConfig shadingConfig{}` (plus a
+`ColourStandard`, defaulting BT601)". `core::ColourStandard` no longer
+exists: `WU-41` (`DECISIONS.md` ADR-085) made
+`SourceRaster`/`sampleBilinear()` RGB-native and deleted the enum outright
+once nothing needed a coefficient choice at the shading call site any more
+(`core/binner.hpp`'s own file comment above `SourceRaster`'s definition
+documents the removal and the repo-wide grep that preceded it). Confirmed
+directly this session, not assumed: `grep -rn "ColourStandard" src/ tests/`
+finds only comments describing its own removal; `grep -n "^BinStats
+generateFragments" src/core/binner.hpp` and each declaration's own full
+signature confirm none of the six entry points takes a `shadingStandard`
+parameter any more.
+
+**Root cause.** The `WU-34c` note was written at `WU-34b`'s own close-out,
+before `WU-41` existed -- an ordinary case of a forward-looking scoping
+note going stale as later units change the ground it was written against,
+the same general shape `C-031` already found for a different comment
+(`PipelineParams::threads`) and `C-037` found for a different scoping note
+(`WU-35a4`'s "same decision... consistently"). Nobody re-read `WU-34c`'s
+own note against the real, current `core/binner.hpp` before this session
+-- it sat untouched, `todo`, through every session between `WU-34b` and
+this one.
+
+**Resolution, this session.** No `ColourStandard`/colour-standard field is
+added to `PipelineParams` -- the two real new fields are `lightingScene`
+and `shadingConfig` alone, exactly as `core/binner.hpp`'s own current
+six-entry-point signatures (no `shadingStandard` parameter on any of them)
+require. See `DECISIONS.md` ADR-091 for the full account and
+`WORK-UNITS.md`'s own updated `WU-34c` entry.
+
+**General lesson:** carried forward from `C-031`/`C-037` -- a scoping note
+is a snapshot of the codebase at the moment it was written, not a fact
+that stays true while it sits `todo`; the instruction already present in
+`WU-34c`'s own note ("re-read `core/pipeline.cpp`'s real current structure
+directly ... before writing `Files:`/`Accept:`") is the correct standing
+discipline and should be treated as implicit in every `todo` scoping note
+this project carries across sessions, not just the ones that happen to say
+so explicitly.

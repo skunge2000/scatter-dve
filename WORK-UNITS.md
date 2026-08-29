@@ -2840,26 +2840,86 @@ now resolved, not deferred silently:**
 
 Depends on WU-34a (`green`) and WU-27 (`green`, `core/lighting.hpp`).
 
-### WU-34c — Own a per-frame `LightingScene`/`CoarseShadingConfig` in `core/pipeline.cpp`; wire a real `runFrame()` caller `todo`
-**New this session, deferred from WU-34b above by its own file-count
-budget.** `core/binner.hpp`'s five entry points can now take a caller-
-supplied `const CoarseShadingGrid*` (WU-34b, ADR-084), but nothing outside
-`tests/test_binner.cpp` builds one — `PipelineParams` (`core/resolve.hpp`)
-has no shading fields, and `core/pipeline.cpp`'s `runFrame()`/
-`runFrameField()`/`runFrameBytes()`/`runFrameBytesDeinterlaced()`/
-`runFrameFile()` do not construct or thread one through to
-`generateFragmentsRowRange()`. The natural shape, following the same
-"optional, caller-owned, default-off, zero-cost-when-absent" convention
-`PipelineParams::pool`/`weightOut`/`kBufferMode` already established: new
-`const LightingScene* lightingScene = nullptr` and
-`CoarseShadingConfig shadingConfig{}` (plus a `ColourStandard`, defaulting
-BT601) fields on `PipelineParams`, with `runFrame()` building one
-`CoarseShadingGrid` per call (WU-34b's own threading finding above: no
-special treatment needed, same shape as `Lattice`) when `lightingScene` is
-non-null, and passing it through to whichever `generateFragments*()` call
-that entry point already makes. Not scoped past this note — re-read
-`core/pipeline.cpp`'s real current structure directly before writing
-`Files:`/`Accept:`, the same discipline this unit's own predecessor used.
+### WU-34c — Own a per-frame `LightingScene`/`CoarseShadingConfig` in `core/pipeline.cpp`; wire a real `runFrame()` caller `green`
+**Built this session (`DECISIONS.md` ADR-091), the deferred half of
+`WU-34b` above.** `core/binner.hpp`'s six `generateFragments*()` entry
+points could already take a caller-supplied `const CoarseShadingGrid*`
+(WU-34b, ADR-084), but nothing outside `tests/test_binner.cpp` ever built
+one for a real frame. `PipelineParams` (`core/resolve.hpp`) gains two new
+fields -- `const LightingScene* lightingScene = nullptr` and
+`CoarseShadingConfig shadingConfig{}` -- and `core/pipeline.cpp`'s
+`runFrame()`/`runFrameField()` each build at most one `CoarseShadingGrid`
+per call (from `*lightingScene`, the call's own `lattice`, and
+`shadingConfig`) when `lightingScene` is non-null, threading the result
+through to whichever of the six entry points that call already makes.
+
+**This unit's own prior note named a `ColourStandard` field that no
+longer exists -- CORRECTIONS.md C-040, not carried forward.** `WU-41`
+(ADR-085) deleted `core::ColourStandard` after this note was written;
+confirmed directly against `core/binner.hpp`'s real current six
+declarations (none takes a `shadingStandard` parameter) before designing
+anything. The two real new fields are `lightingScene`/`shadingConfig`
+alone.
+
+**Only two functions needed to build their own grid, covering all six
+entry points through delegation.** Checked directly against
+`core/pipeline.cpp`'s real current structure:
+`runFrameBytes()`/`runFrameBytesDeinterlaced()`/`runFrameFile()` all call
+`runFrame(lattice, src, params, warped)` internally rather than any
+`generateFragments*()` function directly, so
+`PipelineParams::lightingScene`/`shadingConfig` reach them for free once
+`runFrame()` itself is wired. `runFrame()`'s own `threads<=1` branch and
+`runFrameField()`'s own `resolveOneParity()` closure are the two real call
+sites; `runFrame()`'s two threaded branches (`params.pool != nullptr`, and
+the per-call `ThreadPool`) both go through `runThreaded()`, given a new
+trailing `const CoarseShadingGrid*` parameter. One grid built per
+`runFrame()`/`runFrameField()` call (not per tile/worker), matching
+`WU-34b`'s own threading finding (ADR-084) that a `CoarseShadingGrid` is
+safe to read concurrently across PASS-1 row-band workers exactly like
+`lattice` already is.
+
+**Files:** `src/core/resolve.hpp` (edited: `#include
+"core/coarse_shading.hpp"`; two new `PipelineParams` fields, doc comments
+following the established `pool`/`weightOut`/`kBufferMode` pattern).
+`src/core/pipeline.cpp` (edited: grid construction in
+`runFrame()`/`runFrameField()`; `runThreaded()` gains a trailing
+`shadingGrid` parameter; all six PASS-1 call sites -- both plain/
+TagByFacing branches at each of the three dispatch points -- pass it
+through; file header extended). `CMakeLists.txt` (registers
+`test_pipeline_shading`). `tests/test_pipeline_shading.cpp` (new, doesn't
+count against the cap).
+
+**Accept:** default (`lightingScene == nullptr`) reproduces every existing
+caller's output byte-for-byte -- every pre-existing test file
+(`test_binner.cpp`, `test_coarse_shading.cpp`, `test_field_pipeline.cpp`
+and all others) unmodified, unchanged check counts, all still green;
+`tests/test_pipeline_shading.cpp`'s own two "default null preserves"
+tests check this directly for `runFrame()`/`runFrameField()` too
+(explicit `nullptr` vs the implicit default, byte-for-byte). A real
+`runFrame()`/`runFrameField()` call with a non-null `lightingScene`
+produces genuinely shaded output, checked against an independent
+hand-mirrored recomputation through the same public primitives
+(`CoarseShadingGrid::build()`,
+`generateFragments()`/`generateFragmentsFieldRows()`, `splatTile()`,
+`sumBanks()`, `composite()`) -- never calling `core/pipeline.cpp`'s own
+private `resolveOneTile()`/`runThreaded()` -- the same discipline
+`tests/test_field_pipeline.cpp`'s own `resolveParityIndependently()`
+already uses; verified this session to actually catch a regression, not
+pass vacuously, by temporarily disabling `runFrame()`'s own `shadingGrid`
+assignment (grid built, never threaded through) and confirming the four
+expected checks fail, then restoring and confirming all 29 tests pass
+again. A threaded call (`threads = 4`) with a non-null `lightingScene`
+reproduces the `threads <= 1` oracle's output byte-for-byte (I6/ADR-015),
+the direct check of this unit's own "one grid per call, read concurrently"
+design. 17 checks, all passing. Full portable matrix green in the cloud
+sandbox (GCC 13.3.0 and Clang 18.1.3, Release and Debug,
+`SCATTER_TILE_LOG2` 4 and 5, plus GCC 13
+`-fsanitize=address,undefined -fno-sanitize-recover=all` at both tile
+sizes -- 10 configurations, 29/29 tests passing in each, no sanitizer
+findings) -- Steve's own real-terminal run is still the final word per
+`SESSION-PROTOCOL.md`.
+
+Depends on WU-34a (`green`) and WU-34b (`green`).
 
 ### WU-35 — Sheet arbitration v2: transparency-coefficient resolve behind a swappable interface `todo`
 **New this session (WU-32, `DECISIONS.md` ADR-072/ADR-074), forward-looking

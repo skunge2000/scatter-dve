@@ -273,6 +273,15 @@ scatter_test(test_scan_order_invariance)
 # test_kbuffer_storage/test_scan_order_invariance above).
 scatter_test(test_field_pipeline)
 
+# WU-34c -- PipelineParams::lightingScene/shadingConfig (DECISIONS.md
+# ADR-091): a real runFrame()/runFrameField() caller for WU-34a/34b's own
+# CoarseShadingGrid. Portable, zero DeckLink dependency, no new
+# scatter-core source file (core/resolve.hpp/core/pipeline.cpp already
+# build into scatter-core above) -- builds its own small affine lattices
+# and lighting scenes directly, no tools/testpat.hpp needed (same pattern
+# as test_field_pipeline/test_scan_order_invariance above).
+scatter_test(test_pipeline_shading)
+
 # WU-23b1 -- Weston 3-field de-interlace filter core, video::Deinterlacer
 # (DECISIONS.md ADR-078/ADR-079, CORRECTIONS.md C-025). Portable, zero
 # DeckLink dependency, no new scatter-core source file beyond

@@ -222,6 +222,39 @@
 // written once per call, would mean across the two per-frame calls field
 // mode makes) that ADR-090 does not resolve and this unit does not either
 // -- still required nullptr, unrelaxed.
+//
+// WU-34c (DECISIONS.md ADR-091) gives PipelineParams::lightingScene
+// (core/resolve.hpp) a real caller: runFrame() and runFrameField() each
+// build at most one core/coarse_shading.hpp CoarseShadingGrid per call
+// (CoarseShadingGrid::build(lattice, *params.lightingScene,
+// params.shadingConfig), skipped entirely when lightingScene is left at
+// its default nullptr) and thread the resulting `const CoarseShadingGrid*`
+// through to whichever of core/binner.hpp's six generateFragments*()
+// entry points that call already makes -- runFrame()'s own threads<=1
+// branch calls generateFragments()/generateFragmentsTagByFacing()
+// directly; its two threaded branches (params.pool != nullptr, and the
+// per-call ThreadPool) both go through runThreaded(), which now takes
+// shadingGrid as a new trailing parameter and passes it into whichever of
+// generateFragmentsRowRange()/generateFragmentsRowRangeTagByFacing() each
+// row-band worker calls; runFrameField()'s own resolveOneParity() closure
+// passes it into whichever of generateFragmentsFieldRows()/
+// generateFragmentsFieldRowsTagByFacing() it calls, for both parities,
+// from the one grid built before either parity resolves (the same lattice
+// warps both parities, so nothing about facing/tagging differs between
+// them). Built once per runFrame()/runFrameField() call, never once per
+// tile or worker: WU-34b's own threading finding (ADR-084) already
+// established that a CoarseShadingGrid, like `lattice` itself, is safe to
+// read concurrently from every PASS-1 row-band worker with no extra
+// synchronisation, and CoarseShadingGrid::build() is not noexcept and
+// allocates, so building it exactly once per call (not per worker) is
+// what keeps that allocation cost negligible. Every other existing
+// caller/branch -- including runFrameBytes()/runFrameBytesDeinterlaced()/
+// runFrameFile() below, none of which needed any change: all three
+// already call runFrame() with `params` forwarded unchanged -- keeps
+// compiling and behaving exactly as before, byte for byte, since
+// lightingScene defaults to nullptr and every generateFragments*() entry
+// point's own shadingGrid parameter already defaulted to nullptr before
+// this unit (WU-34b, ADR-084).
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -468,7 +501,7 @@ void resolveOneTile(std::span<const TileBins* const> sources,
 void runThreaded(const Lattice& lattice, const SourceRaster& src,
                   const PipelineParams& params, video::Raster444& dest,
                   ThreadPool& pool, int tilesX, int totalTiles,
-                  std::size_t tilePixelsN) {
+                  std::size_t tilePixelsN, const CoarseShadingGrid* shadingGrid) {
     const int numWorkers = pool.size();
     // Bound to a named std::size_t first: `std::vector<T> v(std::size_t(
     // numWorkers))` with a plain identifier inside the inner parentheses
@@ -521,15 +554,23 @@ void runThreaded(const Lattice& lattice, const SourceRaster& src,
         // PipelineParams::frontTag/backTag's own doc comment
         // (core/resolve.hpp) for why the gate is both conditions, not
         // kBufferMode alone.
+        // WU-34c (DECISIONS.md ADR-091): shadingGrid, built once by the
+        // caller (runFrame(), below) from PipelineParams::lightingScene
+        // when non-null, threaded through to whichever branch below this
+        // worker takes -- see this file's own header comment and
+        // core/resolve.hpp's own PipelineParams::lightingScene doc
+        // comment for why building it once per runFrame() call, not once
+        // per worker, is what this unit relies on.
         if (params.kBufferMode != KBufferResolveMode::Off &&
             params.frontTag != params.backTag) {
             generateFragmentsRowRangeTagByFacing(
                 lattice, src, params.maxK, params.supersample, params.frontTag,
-                params.backTag, rowStart, rowEnd, workerBins[std::size_t(worker)]);
+                params.backTag, rowStart, rowEnd, workerBins[std::size_t(worker)],
+                shadingGrid);
         } else {
             generateFragmentsRowRange(lattice, src, params.maxK, params.supersample,
                                        params.tag, rowStart, rowEnd,
-                                       workerBins[std::size_t(worker)]);
+                                       workerBins[std::size_t(worker)], shadingGrid);
         }
     });
 
@@ -622,6 +663,24 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     const int totalTiles = tilesX * tilesY;
     const std::size_t tilePixelsN = std::size_t(kTilePixels);
 
+    // WU-34c (DECISIONS.md ADR-091): built at most once per runFrame() call,
+    // shared by every branch below (including every PASS-1 row-band worker
+    // runThreaded() dispatches) -- see core/resolve.hpp's own
+    // PipelineParams::lightingScene doc comment for why once-per-call,
+    // not once-per-tile/worker, is what keeps this cheap. Left at its
+    // default (shadingGridOpt empty, shadingGrid nullptr) whenever
+    // params.lightingScene is left at its own default nullptr, so no
+    // CoarseShadingGrid is even constructed for the overwhelming majority
+    // of existing callers -- exactly the "zero-cost-when-absent" shape
+    // this field's own doc comment promises.
+    std::optional<CoarseShadingGrid> shadingGridOpt;
+    const CoarseShadingGrid* shadingGrid = nullptr;
+    if (params.lightingScene != nullptr) {
+        shadingGridOpt.emplace(
+            CoarseShadingGrid::build(lattice, *params.lightingScene, params.shadingConfig));
+        shadingGrid = &*shadingGridOpt;
+    }
+
     if (params.pool == nullptr && params.threads <= 1) {
         // The determinism oracle (ADR-015, I6): a plain, single-threaded
         // loop with no dependency on ThreadPool, its synchronisation
@@ -645,10 +704,11 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         if (params.kBufferMode != KBufferResolveMode::Off &&
             params.frontTag != params.backTag) {
             generateFragmentsTagByFacing(lattice, src, params.maxK, params.supersample,
-                                          params.frontTag, params.backTag, bins);
+                                          params.frontTag, params.backTag, bins,
+                                          shadingGrid);
         } else {
             generateFragments(lattice, src, params.maxK, params.supersample,
-                               params.tag, bins);
+                               params.tag, bins, shadingGrid);
         }
 
         TileAccum accum;
@@ -690,7 +750,7 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         // `threads` value cannot silently change this branch's own
         // output).
         runThreaded(lattice, src, params, dest, *params.pool, tilesX,
-                    totalTiles, tilePixelsN);
+                    totalTiles, tilePixelsN, shadingGrid);
         return;
     }
 
@@ -702,7 +762,7 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     // (ThreadPool's own destructor) before returning.
     ThreadPool localPool(params.threads);
     runThreaded(lattice, src, params, dest, localPool, tilesX, totalTiles,
-                tilePixelsN);
+                tilePixelsN, shadingGrid);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,6 +774,22 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
     const int tilesX = tileCount(params.destWidth);
     const int tilesY = tileCount(params.destHeight);
     const std::size_t tilePixelsN = std::size_t(kTilePixels);
+
+    // WU-34c (DECISIONS.md ADR-091): built at most once per runFrameField()
+    // call, shared by both resolveOneParity() calls below -- the same
+    // lattice warps both parities (only which of src's own rows are
+    // visited differs), so one CoarseShadingGrid built from it is exactly
+    // as valid for parity 1 as it was for parity 0 already. See
+    // core/resolve.hpp's own PipelineParams::lightingScene doc comment and
+    // this file's own matching comment in runFrame() above -- same
+    // construction, same zero-cost-when-absent default.
+    std::optional<CoarseShadingGrid> shadingGridOpt;
+    const CoarseShadingGrid* shadingGrid = nullptr;
+    if (params.lightingScene != nullptr) {
+        shadingGridOpt.emplace(
+            CoarseShadingGrid::build(lattice, *params.lightingScene, params.shadingConfig));
+        shadingGrid = &*shadingGridOpt;
+    }
 
     // One field parity's own PASS 1 (generateFragmentsFieldRows(),
     // WU-23a2a -- rowOffset 0 selects source rows 0, 2, 4, ..., 1 selects
@@ -752,10 +828,10 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
             params.frontTag != params.backTag) {
             generateFragmentsFieldRowsTagByFacing(
                 lattice, src, params.maxK, params.supersample, params.frontTag,
-                params.backTag, rowOffset, bins);
+                params.backTag, rowOffset, bins, shadingGrid);
         } else {
             generateFragmentsFieldRows(lattice, src, params.maxK, params.supersample,
-                                        params.tag, rowOffset, bins);
+                                        params.tag, rowOffset, bins, shadingGrid);
         }
 
         video::Raster444 full(params.destWidth, params.destHeight);
