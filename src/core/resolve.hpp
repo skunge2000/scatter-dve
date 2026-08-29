@@ -632,6 +632,55 @@ struct PipelineParams {
     // definition) -- there is no coefficient left for this unit to
     // parameterise.
     CoarseShadingConfig shadingConfig{};
+
+    // WU-33b (DECISIONS.md ADR-093): an optional, caller-owned second
+    // source raster -- core/binner.hpp's six generateFragments*() entry
+    // points can already take a trailing `const SourceRaster* backSrc`
+    // (WU-33a, ADR-092), selecting it in place of `src` for any
+    // back-facing sample (surfaceNormal(rawJ).z >= 0.0 -- ADR-073's own
+    // per-sample facing signal given a second job, not a duplicated one),
+    // but until this unit nothing outside tests/test_binner.cpp ever
+    // supplied one to a real runFrame()/runFrameField() caller. Default
+    // nullptr: every existing caller keeps compiling and behaving exactly
+    // as before, byte for byte -- the same "optional, caller-owned,
+    // default-off, zero-cost-when-absent" shape pool (ADR-044), weightOut
+    // (ADR-056), kBufferMode (ADR-059) and lightingScene (ADR-091) above
+    // already established.
+    //
+    // Unlike lightingScene above, this field needs no per-call
+    // construction step of its own: `backSrc` is already the exact
+    // pointer type core/binner.hpp's six entry points take, so
+    // runFrame()/runFrameField() (core/pipeline.cpp) only ever forward the
+    // same pointer straight through to whichever
+    // generateFragments*()/generateFragmentsRowRange*()/
+    // generateFragmentsFieldRows*() call that call site already makes --
+    // there is nothing here to build, only to pass along.
+    //
+    // runFrameBytes()/runFrameBytesDeinterlaced()/runFrameFile() need no
+    // wiring of their own for this: all three already call runFrame()
+    // with `params` forwarded unchanged (core/pipeline.cpp), so this field
+    // reaches runFrame()'s own PASS-1 call sites automatically, the same
+    // free propagation frontTag/backTag/kBufferMode/manualTransp/
+    // lightingScene above already get through the identical path.
+    //
+    // Raster selection (this field) and tag selection (frontTag/backTag
+    // above) are independent gates, exactly as ADR-092 designed at the
+    // core/binner.hpp level: a caller can set one without the other, and
+    // this field is threaded through to a call site's plain
+    // generateFragments()/generateFragmentsRowRange()/
+    // generateFragmentsFieldRows() branch exactly as readily as its
+    // TagByFacing sibling -- never itself gated on kBufferMode or
+    // frontTag != backTag the way generateFragments*TagByFacing()'s own
+    // selection is.
+    //
+    // Ownership is the caller's own responsibility, the same unchecked
+    // "must outlive this call" convention PipelineParams::pool/
+    // lightingScene above already use for a different non-owning pointer.
+    // *backSrc must have the same width and height as src* (unchecked,
+    // documented on core/binner.hpp's own generateFragmentsRowRange()):
+    // the per-sample (subPx, subPy) coordinate this codebase computes is
+    // always in src's own pixel space, never backSrc's.
+    const SourceRaster* backSrc = nullptr;
 };
 
 // Pass 1 (WU-06/07/08) plus pass 2 (WU-09 and this unit) over an

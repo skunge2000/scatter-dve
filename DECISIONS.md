@@ -9578,3 +9578,166 @@ changed files written back to the real repository via the device bridge,
 then re-staged and diffed byte-for-byte against the cloud sandbox's own
 working copy — identical. See `HANDOFF.md` for the exact commands and why
 Steve's own real-terminal run is still the final word regardless.
+
+**ADR-093 — WU-33b scoping, design and build: `PipelineParams::backSrc`
+wired into `runFrame()`/`runFrameField()`, completing the pair WU-33a
+(ADR-092) left half-wired.**
+
+This session (Session 77) opened by verifying the real repository state
+directly rather than trusting the incoming prompt's account of it: `HEAD`
+and `origin/main` both `4e4a5ac` (WU-33a's own commit), two commits ahead
+of `bf4c4f5`/`wu-47-green`, matching expectations; neither `d5569a3`
+(WU-34c) nor `4e4a5ac` (WU-33a) tagged yet, also matching expectations
+(flagged again below, now two units deep, per this session's own
+instruction to do so if still true at close). `HANDOFF.md` was the only
+dirty file (Session 76's own uncommitted draft) — per `SESSION-PROTOCOL.md`
+this is never itself an anomaly, and every file this unit's own job
+touches (`src/core/resolve.hpp`, `src/core/pipeline.cpp`, `CMakeLists.txt`,
+`WORK-UNITS.md`, `DECISIONS.md`) was clean and already committed.
+
+Per `WORK-UNITS.md`'s own WU-33b note (Session 76's own explicit
+instruction: "whoever picks this up should re-derive the exact call-site
+diffs against the real current `pipeline.cpp` rather than assume this
+paragraph's account still matches"), the real current `core/pipeline.cpp`
+was re-read in full before writing any diff. The note's own account held
+up exactly: three PASS-1 dispatch points (`runThreaded()`'s row-band
+call, `runFrame()`'s own `threads <= 1` branch, `resolveOneParity()`'s
+field call inside `runFrameField()`), six call sites once each dispatch
+point's plain/TagByFacing branch pair is counted separately — the same
+"six, not three" shape ADR-091 already established for WU-34c's own
+`shadingGrid`, confirmed to still hold for this field by direct re-grep
+(`generateFragments`/`runThreaded(` occurrence count in `pipeline.cpp`),
+not assumed to carry over unchanged from that ADR's own account.
+
+**Design.** `const SourceRaster* backSrc = nullptr`, a new field on
+`PipelineParams` (`core/resolve.hpp`), doc comment following the
+established `pool`/`weightOut`/`kBufferMode`/`lightingScene`
+"optional, caller-owned, default-off, zero-cost-when-absent" pattern
+those four fields already use. Unlike `lightingScene` (ADR-091), this
+field needs no per-call construction step: it is already the exact
+`const SourceRaster*` type every one of WU-33a's six `core/binner.hpp`
+entry points takes (ADR-092), so `runFrame()`/`runFrameField()`
+(`core/pipeline.cpp`) only ever forward `params.backSrc` straight
+through, unconditionally, to whichever entry point each dispatch point's
+own plain/TagByFacing branch already calls — never gated on
+`kBufferMode`/`frontTag != backTag` the way *which sibling function gets
+called* already is, since raster selection (`backSrc`) and tag selection
+(`frontTag`/`backTag`) are independent gates at the `core/binner.hpp`
+level (ADR-092's own design). `runThreaded()` gains one new trailing
+parameter, `const SourceRaster* backSrc`, positioned after its existing
+`shadingGrid` parameter (mirroring `core/binner.hpp`'s own six entry
+points, each of which also takes `backSrc` immediately after
+`shadingGrid`) — both of its two `runFrame()` call sites (the
+`params.pool != nullptr` branch, and the per-call `ThreadPool` branch)
+pass `params.backSrc` as the new final argument.
+
+`runFrameBytes()`/`runFrameBytesDeinterlaced()`/`runFrameFile()` needed
+no changes of their own: all three already call `runFrame()` with
+`params` forwarded unchanged, so `backSrc` reaches them automatically,
+the same free propagation every other additive `PipelineParams` field
+already gets through that path.
+
+**Test file choice.** `WORK-UNITS.md`'s own WU-33b note flagged this as
+open (`test_binner.cpp`/`test_field_pipeline.cpp`/a new file, "the
+precedent to weigh against" being WU-34c's own choice). Weighed directly
+this session: `test_binner.cpp` is `core/binner.hpp`/`.cpp`'s own file
+(WU-33a's job); `test_field_pipeline.cpp` is field-mode-*specific*
+correctness (interlace extract/interleave) with no independent-
+recomputation helper this unit's own tests could reuse without
+reshaping that file's own scope; `test_pipeline_shading.cpp` was
+considered and rejected specifically because its own
+`resolveFrameIndependently()`/`resolveParityIndependently()` helpers are
+`shadingGrid`-shaped, and bolting a second, unrelated optional parameter
+onto helpers written for a different field risks exactly the "quietly
+drift apart" failure mode `core/pipeline.cpp`'s own file header already
+names for a different pair of hand-duplicated functions (its own account
+of why `runFrameFile()` was written independently of `runFrameBytes()`
+rather than sharing a helper). A new file, `tests/test_pipeline_backsrc.cpp`,
+mirroring WU-34c's own precedent ("one new `PipelineParams` field, one
+new sibling test file") exactly, was judged the cleaner choice —
+consistent with `SESSION-PROTOCOL.md`'s own file-budget accounting (a new
+test file does not count against the 3-file cap).
+
+**A real, non-obvious finding this session.** `tests/test_binner.cpp`'s
+own self-folding `buildSphereLattice()` fixture (angleSpanH == 2*pi,
+centerX/centerY == 300, radius default 200) paired with its own 3x3
+source raster is enough to prove `backSrc` selection correct at the
+*fragment* level (WU-33a's own test decodes individual `Frag` colours
+directly) but is **not** enough to produce any visible difference at the
+*pipeline* level: checked directly this session with a standalone
+scratch program before trusting the first draft of this unit's own test,
+that exact 3x3-source/2*pi-sphere combination produces **zero** differing
+destination pixels between `backSrc` set and unset, end to end through
+`runFrame()`. The reason, also checked directly rather than assumed: the
+3x3 source's only back-facing sample (the antipodal fold-boundary point
+ADR-063/WU-33a's own test already hand-derives) lands essentially at the
+fold's own silhouette boundary, where the Jacobian is close to singular
+and density-compensation weight collapses toward zero — the fragment
+exists, carries the correct (back) colour, and is placed at the correct
+destination position, but contributes negligible weight to any
+destination cell's weighted average, so swapping which raster it reads
+from is invisible after normalise/composite. A denser, 20x20 uniform
+source raster (paired with the same sphere lattice) puts enough
+back-facing samples away from the razor's-edge boundary alone that their
+combined splat weight is not negligible — confirmed directly (a
+standalone scratch program showed 4790 of 490000 destination pixels
+differing at that density, versus 0 at 3x3) before committing to it as
+this unit's own test fixture. Not logged as a `CORRECTIONS.md` entry:
+nothing built or documented by a prior session was wrong — WU-33a's own
+fragment-level test remains entirely correct for what it checks — this is
+a fixture-density finding specific to this unit's own new,
+composited-output-level test, discovered and resolved within this same
+session before any file was finalised.
+
+**Built this session, matching the scope above exactly:**
+`src/core/resolve.hpp` (`PipelineParams` gains `backSrc`, doc comment).
+`src/core/pipeline.cpp` (`runThreaded()` gains the new trailing `backSrc`
+parameter; all six PASS-1 call sites, plus `runThreaded()`'s own two call
+sites inside `runFrame()`, pass `params.backSrc`/`backSrc` through;
+file-header comment extended with this unit's own paragraph, mirroring
+ADR-091's own). `CMakeLists.txt` (registers the new test executable,
+doesn't count against the cap). `tests/test_pipeline_backsrc.cpp` (new,
+doesn't count against the cap): two "default nullptr preserves output"
+tests (`runFrame()`/`runFrameField()`, flat affine lattice, no facing
+split needed); two "real backSrc, self-folding sphere, matches
+independent recomputation and differs from the `backSrc == nullptr`
+case" tests (`runFrame()`/`runFrameField()`, 20x20 uniform front/back
+source rasters, the density fixture finding above); one
+threaded-vs-single-threaded determinism test (I6/ADR-015, `threads = 4`
+against the same self-fold fixture, the direct check of `runThreaded()`'s
+own new parameter reaching every row-band worker).
+
+**Tested in the cloud sandbox, all green:** GCC 13.3.0 Release and Debug,
+Clang 18.1.3 Release and Debug, plus GCC Debug
+`-fsanitize=address,undefined -fno-sanitize-recover=all` — five
+configurations (broader than ADR-092's own four, since this unit's own
+risk surface spans three separate call sites across two entry points
+plus the threaded dispatch path, not one selection expression in one
+shared function; narrower than ADR-091's own ten, since this unit adds no
+new tile-size-sensitive computation of its own — a judgement call, not a
+project-wide change to the standing practice), all clean, zero warnings,
+full 30/30 `ctest` suite green in every configuration (up from 29/29 —
+the new `test_pipeline_backsrc`), `test_binner` itself unchanged at 40439
+checks in every configuration, confirming this unit's own two files left
+`core/binner.hpp`/`.cpp` untouched. The new test file's own accept
+criteria were verified this session to actually catch a regression, not
+pass vacuously: temporarily forced `runFrame()`'s own `threads <= 1`
+branch to pass `nullptr` in place of `params.backSrc` at both its
+PASS-1 calls (the field still declared and read everywhere else) and
+confirmed exactly six checks failed — the self-fold `runFrame()` test's
+own two checks, and all three threaded-vs-single-threaded checks (since
+`runThreaded()`'s own separate wiring was untouched by this one-branch
+mutation, the two paths now legitimately disagreed) — with every other
+check, including both `runFrameField()` checks and both "default
+nullptr" checks, unaffected, exactly as expected. Reverted, confirmed the
+restored file byte-for-byte identical to its pre-mutation state, and
+rebuilt to 30/30 green again before finalising. All four changed/added
+files (`src/core/resolve.hpp`, `src/core/pipeline.cpp`,
+`tests/test_pipeline_backsrc.cpp`, `CMakeLists.txt`) written back to the
+real repository via the device bridge, then re-staged and diffed
+byte-for-byte against the cloud sandbox's own working copy — identical;
+the real repository's own just-written copy was then independently
+re-staged and rebuilt from scratch a second time (fresh configure, fresh
+`ninja`, GCC Release), confirming the write-back itself introduced no
+corruption. See `HANDOFF.md` for the exact commands and why Steve's own
+real-terminal run is still the final word regardless.

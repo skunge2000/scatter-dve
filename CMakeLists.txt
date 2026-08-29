@@ -282,6 +282,16 @@ scatter_test(test_field_pipeline)
 # as test_field_pipeline/test_scan_order_invariance above).
 scatter_test(test_pipeline_shading)
 
+# WU-33b -- PipelineParams::backSrc (DECISIONS.md ADR-093): a real
+# runFrame()/runFrameField() caller for WU-33a's own core/binner.hpp
+# six-entry-point backSrc parameter (ADR-092). Portable, zero DeckLink
+# dependency, no new scatter-core source file (core/resolve.hpp/
+# core/pipeline.cpp already build into scatter-core above) -- builds its
+# own small flat/self-folding-sphere lattices and uniform source rasters
+# directly, no tools/testpat.hpp needed (same pattern as
+# test_pipeline_shading/test_field_pipeline above).
+scatter_test(test_pipeline_backsrc)
+
 # WU-23b1 -- Weston 3-field de-interlace filter core, video::Deinterlacer
 # (DECISIONS.md ADR-078/ADR-079, CORRECTIONS.md C-025). Portable, zero
 # DeckLink dependency, no new scatter-core source file beyond

@@ -255,6 +255,41 @@
 // lightingScene defaults to nullptr and every generateFragments*() entry
 // point's own shadingGrid parameter already defaulted to nullptr before
 // this unit (WU-34b, ADR-084).
+//
+// WU-33b (DECISIONS.md ADR-093) gives PipelineParams::backSrc
+// (core/resolve.hpp) a real caller, completing the pair WU-33a
+// (core/binner.hpp/.cpp, ADR-092) left half-wired: every PASS-1 call site
+// below now passes params.backSrc straight through, unchanged, as the new
+// trailing argument each of core/binner.hpp's six generateFragments*()
+// entry points already accepts. Unlike shadingGrid above, backSrc needs no
+// per-call construction step of its own -- it is already the exact
+// `const SourceRaster*` those six entry points take, so there is nothing
+// to build, only to forward: runFrame()'s own threads<=1 branch passes
+// params.backSrc directly to generateFragments()/
+// generateFragmentsTagByFacing(); its two threaded branches (params.pool
+// != nullptr, and the per-call ThreadPool) both go through runThreaded(),
+// which now takes backSrc as a new trailing parameter (after shadingGrid)
+// and passes it into whichever of generateFragmentsRowRange()/
+// generateFragmentsRowRangeTagByFacing() each row-band worker calls;
+// runFrameField()'s own resolveOneParity() closure passes params.backSrc
+// into whichever of generateFragmentsFieldRows()/
+// generateFragmentsFieldRowsTagByFacing() it calls, for both parities --
+// the same lattice/src/backSrc triple warps both, so nothing about which
+// raster a given facing sign selects differs between them. Threaded
+// through unconditionally at every one of these six call sites, plain and
+// TagByFacing alike: raster selection (backSrc) and tag selection
+// (frontTag/backTag) are independent gates at the core/binner.hpp level
+// (ADR-092), so this file does not gate backSrc's propagation on
+// kBufferMode or frontTag != backTag the way it gates *which* of the two
+// sibling functions at each call site gets called in the first place --
+// backSrc reaches either sibling equally. Every other existing
+// caller/branch -- including runFrameBytes()/runFrameBytesDeinterlaced()/
+// runFrameFile() below, none of which needed any change: all three
+// already call runFrame() with `params` forwarded unchanged -- keeps
+// compiling and behaving exactly as before, byte for byte, since backSrc
+// defaults to nullptr and every generateFragments*() entry point's own
+// backSrc parameter already defaulted to nullptr before this unit
+// (WU-33a, ADR-092).
 #include "core/resolve.hpp"
 
 #include "core/pipeline.hpp"
@@ -501,7 +536,8 @@ void resolveOneTile(std::span<const TileBins* const> sources,
 void runThreaded(const Lattice& lattice, const SourceRaster& src,
                   const PipelineParams& params, video::Raster444& dest,
                   ThreadPool& pool, int tilesX, int totalTiles,
-                  std::size_t tilePixelsN, const CoarseShadingGrid* shadingGrid) {
+                  std::size_t tilePixelsN, const CoarseShadingGrid* shadingGrid,
+                  const SourceRaster* backSrc) {
     const int numWorkers = pool.size();
     // Bound to a named std::size_t first: `std::vector<T> v(std::size_t(
     // numWorkers))` with a plain identifier inside the inner parentheses
@@ -561,16 +597,20 @@ void runThreaded(const Lattice& lattice, const SourceRaster& src,
         // core/resolve.hpp's own PipelineParams::lightingScene doc
         // comment for why building it once per runFrame() call, not once
         // per worker, is what this unit relies on.
+        // WU-33b (DECISIONS.md ADR-093): backSrc, forwarded unchanged from
+        // PipelineParams::backSrc by the caller (runFrame(), below) --
+        // see this file's own header comment.
         if (params.kBufferMode != KBufferResolveMode::Off &&
             params.frontTag != params.backTag) {
             generateFragmentsRowRangeTagByFacing(
                 lattice, src, params.maxK, params.supersample, params.frontTag,
                 params.backTag, rowStart, rowEnd, workerBins[std::size_t(worker)],
-                shadingGrid);
+                shadingGrid, backSrc);
         } else {
             generateFragmentsRowRange(lattice, src, params.maxK, params.supersample,
                                        params.tag, rowStart, rowEnd,
-                                       workerBins[std::size_t(worker)], shadingGrid);
+                                       workerBins[std::size_t(worker)], shadingGrid,
+                                       backSrc);
         }
     });
 
@@ -701,14 +741,16 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         TileBins bins(params.destWidth, params.destHeight);
         // WU-35a4 (DECISIONS.md ADR-089): same gate as runThreaded() above
         // -- see this file's own header comment.
+        // WU-33b (DECISIONS.md ADR-093): params.backSrc forwarded straight
+        // through, unconditionally -- see this file's own header comment.
         if (params.kBufferMode != KBufferResolveMode::Off &&
             params.frontTag != params.backTag) {
             generateFragmentsTagByFacing(lattice, src, params.maxK, params.supersample,
                                           params.frontTag, params.backTag, bins,
-                                          shadingGrid);
+                                          shadingGrid, params.backSrc);
         } else {
             generateFragments(lattice, src, params.maxK, params.supersample,
-                               params.tag, bins, shadingGrid);
+                               params.tag, bins, shadingGrid, params.backSrc);
         }
 
         TileAccum accum;
@@ -750,7 +792,7 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
         // `threads` value cannot silently change this branch's own
         // output).
         runThreaded(lattice, src, params, dest, *params.pool, tilesX,
-                    totalTiles, tilePixelsN, shadingGrid);
+                    totalTiles, tilePixelsN, shadingGrid, params.backSrc);
         return;
     }
 
@@ -762,7 +804,7 @@ void runFrame(const Lattice& lattice, const SourceRaster& src,
     // (ThreadPool's own destructor) before returning.
     ThreadPool localPool(params.threads);
     runThreaded(lattice, src, params, dest, localPool, tilesX, totalTiles,
-                tilePixelsN, shadingGrid);
+                tilePixelsN, shadingGrid, params.backSrc);
 }
 
 // ---------------------------------------------------------------------------
@@ -824,14 +866,18 @@ void runFrameField(const Lattice& lattice, const SourceRaster& src,
         // WU-47 (DECISIONS.md ADR-090): same gate as runThreaded()'s and
         // runFrame()'s own PASS-1 call sites above (WU-35a4/ADR-089) --
         // see this file's own header comment.
+        // WU-33b (DECISIONS.md ADR-093): params.backSrc forwarded straight
+        // through, unconditionally, same as runFrame()'s own two PASS-1
+        // call sites above -- see this file's own header comment.
         if (params.kBufferMode != KBufferResolveMode::Off &&
             params.frontTag != params.backTag) {
             generateFragmentsFieldRowsTagByFacing(
                 lattice, src, params.maxK, params.supersample, params.frontTag,
-                params.backTag, rowOffset, bins, shadingGrid);
+                params.backTag, rowOffset, bins, shadingGrid, params.backSrc);
         } else {
             generateFragmentsFieldRows(lattice, src, params.maxK, params.supersample,
-                                        params.tag, rowOffset, bins, shadingGrid);
+                                        params.tag, rowOffset, bins, shadingGrid,
+                                        params.backSrc);
         }
 
         video::Raster444 full(params.destWidth, params.destHeight);

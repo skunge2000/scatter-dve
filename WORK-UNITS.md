@@ -2707,7 +2707,7 @@ repository via the device bridge, re-staged and diffed byte-for-byte
 against the cloud sandbox's own copy — identical. Not yet built, run,
 tagged or pushed at Steve's own real terminal.
 
-### WU-33b — wire `PipelineParams::backSrc` into `runFrame()`/`runFrameField()` `todo`
+### WU-33b — wire `PipelineParams::backSrc` into `runFrame()`/`runFrameField()` `green`
 **Split from WU-33 this session (Session 76) — see WU-33a above and
 `DECISIONS.md` ADR-092.** The pipeline-wiring half: `core/resolve.hpp`'s
 `PipelineParams` gains a `const SourceRaster* backSrc = nullptr` field,
@@ -2721,17 +2721,126 @@ makes — the same free propagation `frontTag`/`backTag`/`kBufferMode`/
 `runFrame()` with `params` forwarded unchanged). Mirrors WU-34c's own
 shape (a `PipelineParams` field plus `pipeline.cpp` call-site wiring)
 closely enough that WU-34c's own `resolve.hpp`/`pipeline.cpp` diff is the
-concrete template to work from. Not scoped past this note — whoever picks
-this up should re-derive the exact call-site diffs against the real
-current `pipeline.cpp` rather than assume this paragraph's account still
-matches once WU-33a's own files have had any further change. Depends on
-WU-33a (done, `green`).
+concrete template to work from. Depends on WU-33a (done, `green`).
 
-**Files (provisional):** `src/core/resolve.hpp`, `src/core/pipeline.cpp`,
-a new test file or an extension of an existing pipeline test file (WU-34c's
-own choice among `test_binner.cpp`/`test_field_pipeline.cpp`/a new file is
-the precedent to weigh against). Two source files plus a test — within
-cap.
+Re-derived directly against the real current `core/pipeline.cpp` this
+session (Session 77), not assumed from this note's own account or from
+ADR-091's WU-34c precedent (per `DECISIONS.md` ADR-093): six call sites
+total, not three — plain and TagByFacing sibling at each of the three
+dispatch points named above, exactly WU-34c's own "six call sites, not
+three" finding (ADR-091) repeated for this field. `runThreaded()` itself
+gains one new trailing parameter (`const SourceRaster* backSrc`, after
+`shadingGrid`) so its own two `generateFragmentsRowRange()`/
+`generateFragmentsRowRangeTagByFacing()` calls can pass it through;
+`runFrame()`'s two `runThreaded()` call sites (the `params.pool !=
+nullptr` branch and the per-call `ThreadPool` branch) both pass
+`params.backSrc` as the new trailing argument.
+
+Unlike WU-34c's `shadingGrid`, `backSrc` needs no per-call construction
+step: `params.backSrc` is already the exact `const SourceRaster*` type
+every one of WU-33a's six entry points takes, so this unit's own job is
+pure forwarding, not building-then-forwarding — `runFrame()`'s and
+`runFrameField()`'s own PASS-1 call sites pass `params.backSrc` straight
+through, unconditionally, at both the plain and TagByFacing branch of
+each dispatch point (raster selection and tag selection are independent
+gates at the `core/binner.hpp` level, ADR-092 — this file does not gate
+`backSrc`'s propagation on `kBufferMode`/`frontTag != backTag` the way it
+gates which of the two sibling functions gets called in the first place).
+
+**Files:** `src/core/resolve.hpp` (`PipelineParams` gains `backSrc`, doc
+comment following the established `pool`/`weightOut`/`kBufferMode`/
+`lightingScene` "optional, caller-owned, default-off, zero-cost-when-
+absent" pattern); `src/core/pipeline.cpp` (`runThreaded()` gains the new
+trailing `backSrc` parameter; all six PASS-1 call sites, plus its own two
+`runThreaded()` call sites, pass `params.backSrc`/`backSrc` through;
+file-header comment extended); `tests/test_pipeline_backsrc.cpp` (new —
+see below for why a new file, not an extension of `test_binner.cpp` or
+`test_field_pipeline.cpp`). Two source files plus its test — within the
+3-file cap. (`CMakeLists.txt` also edited, to register the new test
+executable — does not count against the cap, same convention WU-34c's own
+entry already used.)
+
+New test file, not an extension of an existing one — the choice this
+entry's own prior-session note flagged as needing to be weighed, weighed
+directly this session: `test_binner.cpp` is `core/binner.hpp`/`.cpp`'s
+own file (WU-33a's job, not this one's); `test_field_pipeline.cpp` is
+field-mode-*specific* correctness (interlace extract/interleave), not a
+natural home for a `PipelineParams` field's own wiring question, and its
+own existing tests build no independent-recomputation helper this unit's
+tests could reuse. `test_pipeline_shading.cpp` itself was considered and
+rejected: its own `resolveFrameIndependently()`/
+`resolveParityIndependently()` helpers are `shadingGrid`-shaped, not
+`backSrc`-shaped, and bolting a second, unrelated optional parameter onto
+helpers written for a different field risks exactly the "quietly drift
+apart" failure mode `core/pipeline.cpp`'s own file header already flags
+for a different pair of hand-duplicated functions — a new file, mirroring
+WU-34c's own precedent of "one new `PipelineParams` field, one new
+sibling test file" exactly, was judged the cleaner choice.
+
+**Accept:** `backSrc == nullptr` (explicit or implicit) produces
+`runFrame()`/`runFrameField()` output byte-for-byte identical to its
+absence entirely, for both entry points
+(`test_pipeline_backsrc_default_null_preserves_runframe_output()`,
+`...runframefield_output()`). Against a self-folding `buildSphereLattice()`
+lattice (the same fixture `tests/test_binner.cpp` uses for its own
+`backSrc` test, WU-33a) paired with a denser, 20x20 uniform source raster
+(found necessary this session, not assumed — the 3x3 source
+`test_binner.cpp` uses is dense enough for a fragment-level check but not
+for a *composited*, post-splat/resolve difference to be visible, since
+its one back-facing sample lands right at the fold's own silhouette
+boundary where density-compensation weight collapses toward zero; see
+`tests/test_pipeline_backsrc.cpp`'s own comment): `runFrame()`'s and
+`runFrameField()`'s own output each match an independent recomputation
+through `generateFragments()`/`generateFragmentsFieldRows()` (never
+calling `core/pipeline.cpp`'s own private `resolveOneTile()`/
+`runThreaded()`) built with the same `backSrc`, and each differs from the
+same recomputation with `backSrc` forced to `nullptr` — ruling out a
+wiring bug that silently drops `params.backSrc` on the floor and still
+happens to pass the first check
+(`test_pipeline_backsrc_runframe_selects_back_raster_on_self_fold()`,
+`...runframefield_selects_back_raster_on_self_fold()`). Threaded path
+(`params.threads = 4`) byte-identical to the `threads <= 1` oracle with
+the same non-null `backSrc` (I6/ADR-015) —
+`test_pipeline_backsrc_threaded_matches_single_threaded()`, the direct
+check of `runThreaded()`'s own new parameter actually reaching every
+row-band worker.
+
+Verified non-vacuous directly: temporarily forced `runFrame()`'s own
+`threads <= 1` branch to pass `nullptr` in place of `params.backSrc` at
+both its `generateFragments()`/`generateFragmentsTagByFacing()` calls
+(the parameter still declared, its job disabled for that one branch) and
+confirmed exactly six checks failed — the self-fold `runFrame()` test's
+own two checks (matches independent recomputation; differs from the
+`backSrc == nullptr` recomputation) and all three of the
+threaded-vs-single-threaded checks (`runThreaded()`'s own separate
+`backSrc` wiring was untouched by this mutation, so the two branches now
+legitimately disagreed) — with every other check, including both
+`runFrameField()` checks and both "default nullptr" checks, still
+passing, exactly as expected since neither is reachable through the one
+mutated branch. Reverted, confirmed the restored file byte-for-byte
+identical to its pre-mutation state, and reconfirmed 30/30 `ctest`
+targets and 17/17 `test_pipeline_backsrc` checks green before finalising.
+
+*Status:* `green` — built and cloud-sandbox-tested this session (Session
+77): fresh copy of `origin/main` at `4e4a5ac` (WU-33a's own commit, tip
+of `main` at this session's start) with these files overlaid. GCC 13.3.0
+Release and Debug, Clang 18.1.3 Release and Debug, plus GCC Debug
+`-fsanitize=address,undefined -fno-sanitize-recover=all` (`nm -D`/`ldd`
+confirm genuine ASan instrumentation linkage) — five configurations, all
+clean, zero warnings, full 30/30 `ctest` suite green in every
+configuration (up from 29/29 — the new `test_pipeline_backsrc`),
+`test_binner` itself unchanged at 40439 checks in every configuration,
+confirming this unit's own files (`core/resolve.hpp`/`core/pipeline.cpp`)
+left `core/binner.hpp`/`.cpp` untouched. All four changed/added files
+(`src/core/resolve.hpp`, `src/core/pipeline.cpp`,
+`tests/test_pipeline_backsrc.cpp`, `CMakeLists.txt`) written back to the
+real repository via the device bridge, re-staged and diffed byte-for-byte
+against the cloud sandbox's own copy — identical; the real repository's
+own just-written copy was then independently re-staged and rebuilt from
+scratch in the cloud sandbox a second time (fresh configure, fresh
+`ninja`, GCC Release), confirming the write-back itself introduced no
+corruption: 30/30 green again. Not yet built, run, tagged or pushed at
+Steve's own real terminal.
 
 ### WU-33c — DeckLink live capture: a second, independent capture-source-and-consumer pair `todo`
 **Split from WU-33 this session (Session 76) — see WU-33a/WU-33b above and
