@@ -127,6 +127,16 @@ endif()
 # level processing on Raster444 planes, the same kind of thing
 # video/interlace.cpp and video/chroma.cpp already are, so scatter-core
 # again, not scatter-decklink.
+#
+# WU-33c2a adds src/io/file_back_source.cpp (DECISIONS.md ADR-095, amending
+# WU-33c2's original hard-wired-second-live-device scope to a pluggable back
+# source): a static v210 file read once via a short, independent duplicate
+# of file_source.cpp's own file-read half, then unpacked via WU-33c1's
+# unpackSourceRaster() (core/resolve.hpp/core/pipeline.cpp, already in this
+# library below). Portable, zero DeckLink dependency, same reasoning as
+# WU-05's file_source.cpp/file_sink.cpp above -- lives under src/io/ but has
+# no platform dependency of its own, so it belongs in scatter-core, not
+# scatter-decklink.
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 
@@ -137,6 +147,7 @@ add_library(scatter-core STATIC
     src/video/deinterlace.cpp
     src/io/file_source.cpp
     src/io/file_sink.cpp
+    src/io/file_back_source.cpp
     src/core/lattice.cpp
     src/core/binner.cpp
     src/core/splat.cpp
@@ -304,6 +315,15 @@ scatter_test(test_pipeline_backsrc)
 # test_pipeline_bytes.cpp above.
 scatter_test(test_unpack_source_raster)
 target_include_directories(test_unpack_source_raster PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
+# WU-33c2a -- FileBackSource (DECISIONS.md ADR-095): a static v210 file as
+# one pluggable back-source producer, built on WU-33c1's own
+# unpackSourceRaster() above. Portable, zero DeckLink dependency, one new
+# scatter-core source file (src/io/file_back_source.cpp, added above) --
+# uses tools/testpat.hpp's own zone plate to build a real scratch v210 file,
+# same pattern as test_unpack_source_raster.cpp above.
+scatter_test(test_file_back_source)
+target_include_directories(test_file_back_source PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
 
 # WU-23b1 -- Weston 3-field de-interlace filter core, video::Deinterlacer
 # (DECISIONS.md ADR-078/ADR-079, CORRECTIONS.md C-025). Portable, zero

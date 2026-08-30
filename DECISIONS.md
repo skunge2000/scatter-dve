@@ -9911,3 +9911,272 @@ logged as C-020/ADR-062 before this sweep, and closed by WU-28c," still
 incorrect for the same reason already found (the real-content gap wasn't
 actually closed until WU-35a4/WU-47). Left unfixed, outside this session's
 own scope — now six sessions running.
+
+**ADR-095 — WU-33c2 scope amended: a pluggable back source (config-selectable
+among at least two concrete producers), not a single hard-wired second live
+DeckLink device. Split into WU-33c2a (a static v210 file, portable, built and
+tested this session) and WU-33c2b (a Blackmagic capture-sub-device producer,
+re-scoped, device-bridge hand-off only, not built this session).**
+
+This session (Session 79) opened by verifying the real repository state
+directly rather than trusting the incoming prompt's account of it: `HEAD` and
+`origin/main` both `1237415` (WU-33c1's own commit), matching the incoming
+prompt's primary expectation exactly. Checked directly, not assumed: contrary
+to the incoming prompt's own account of a three-units-deep untagged-commit
+backlog, `wu-33a-green` (`4e4a5ac`), `wu-33b-green` (`7f6f4cb`) and
+`wu-34c-green` (`d5569a3`) are now all three tagged — Steve evidently ran
+Session 78's own "what's next" step 3 already. `wu-33c1-green` itself is not
+yet tagged on `1237415` — a new, one-unit-deep instance of the same pattern,
+flagged again below, not the three-units-deep one the incoming prompt
+described. `HANDOFF.md` was the only dirty file at session start (Session
+78's own draft) — never itself a blocker per `SESSION-PROTOCOL.md`. One
+session-start anomaly, resolved directly: `.git/index.lock` existed again as
+a stale file from a prior device-bridge session (the same recurring quirk
+Sessions 77/78 already hit); resolved the same way, via
+`device_request_delete_permission` on the repo folder (approved) then
+removed — no git command failed because of this.
+
+**The amendment itself, from Steve.** WU-33c2's own note (`WORK-UNITS.md`,
+Session 78) sketched a single new DeckLink-linked back-consumer class built
+against a second, independently-obtained `IDeckLinkInput`, implicitly a
+second physical device. Steve confirmed the specific point that motivated
+that assumption — his own UltraStudio 4K Mini exposes only one capture
+path — but named that as a property of *that device*, not of the Blackmagic
+SDK in general: some DeckLink cards expose multiple independent capture
+paths on one physical card, and a system can also have multiple separate
+capture-capable devices attached at once (the UltraStudio plus a DeckLink
+card, say). He asked for a design that handles both shapes the same way —
+enumerate whatever Blackmagic capture-capable sub-devices are actually
+present and let config pick by index or a stable identifier, not by "device
+1 vs device 2" as physically distinct concepts — plus a second, wholly
+different kind of back source: a v210 file standing in for live capture, so
+the back side of a self-fold demo can be exercised without a second SDI
+signal at all. Both must sit behind one config-selectable choice. This is a
+real scope change from WU-33c2's own already-written note, not a
+clarification of it, and is logged here as a plan amendment before any new
+`Files:`/`Accept:` was written — the same "plan amended" verdict
+`docs/wu-audit-2026-08.md`'s own table already uses elsewhere in this
+project (see e.g. its WU-25/WU-27/WU-29/WU-33/WU-35 rows).
+
+**Re-reading the real current code before designing anything, per this
+project's own standing instruction.** `io/decklink_input.hpp`/`.cpp`'s own
+`CaptureSource` (WU-20b) confirmed, by direct re-read, still exactly as
+ADR-094 already found it: source-agnostic and reusable as-is, constructed
+from a caller-supplied `ComPtr<IDeckLinkInput>` with no static state blocking
+a second instance. The real question this amendment raises is not about
+`CaptureSource` itself but about *where that `IDeckLinkInput` comes from* —
+checked directly (grep, not assumed): every real caller in this repository
+(`tests/test_decklink_input.cpp`, `test_decklink_capture_consumer.cpp`,
+`test_decklink_live_output.cpp`, `test_decklink_live_sphere.cpp`) obtains it
+via one small free function, `firstFormatDetectionCapableInput()`,
+independently duplicated in all four files (each test's own file-local
+`namespace {}`, per `SESSION-PROTOCOL.md` rule 2 — no shared fixture across
+test translation units), which linearly scans `io/decklink_device.hpp`'s own
+`enumerateDeckLinkDevices()` output (`io/decklink_device.cpp`, WU-14,
+ADR-031 — `CreateDeckLinkIteratorInstance()`/`IDeckLinkIterator::Next()`) and
+returns the *first* `DeviceInfo` whose `IDeckLink` supports both capture and
+input format detection. This is exactly the "device 1 vs device 2" framing
+Steve asked to move away from — and it already generalises for free: the SDK
+iterator this codebase already drives (`enumerateDeckLinkDevices()`) returns
+one `IDeckLink` entry per independent capture-capable sub-device *and* per
+physically distinct card/device, indistinguishably — a card with two capture
+paths and a system with two separate capture-capable devices both show up as
+two entries in the same `std::vector<DeviceInfo>`, with no code change needed
+to `decklink_device.hpp`/`.cpp` to support either shape. What is missing is
+purely a selection question: "first that matches" needs to become
+"caller-selects-which, by index or stable identifier, among however many
+match" — a change at the *call site*, not a new enumeration mechanism, and
+not a change to `CaptureSource`/`io/decklink_device.cpp` at all. `DeviceInfo`
+already carries `modelName`/`displayName` (`io/decklink_device.hpp`) as the
+stable identifier a name-based selection would key on; no new field is
+needed there either.
+
+**Design decision: pluggability is a plain callable, not a virtual
+interface.** This codebase has no precedent of its own for runtime
+polymorphic dispatch as an internal seam — `IDeckLinkInputCallback` and
+friends are COM interfaces the Blackmagic SDK itself mandates, not a pattern
+this project chose. The one place this codebase already solved an
+structurally identical "pluggable, caller-supplied behaviour, at most one of
+several possible producers, decided by the caller" problem is
+`CaptureConsumer::CoverageCallback` (`io/decklink_capture_consumer.hpp`,
+WU-22c, ADR-058): a `std::function` with a fixed signature, defaulted to
+nullptr, invoked from inside the class's own per-frame loop. WU-33c3's
+future front-consumer wiring (not built this session, see below) is expected
+to follow the identical shape: an optional
+`std::function<OwnedSourceRaster()>` — a zero-argument callable returning a
+real, owned `SourceRaster` (WU-33c1's own `OwnedSourceRaster`,
+`core/resolve.hpp`) — rather than a `BackSourceProvider` abstract base class
+with two subclasses. This is a real, non-obvious design call, made and
+recorded now precisely because it constrains both WU-33c2a (this session)
+and WU-33c2b (not built) to expose the same shape, and constrains WU-33c3 to
+depend on neither concrete producer's own header.
+
+**Why a real copy (`OwnedSourceRaster`), not a cheap view
+(`SourceRaster`).** `OwnedSourceRaster::view()` (WU-33c1) already
+demonstrates the cheap-view idiom this codebase prefers wherever safe. It is
+not safe here for both producers uniformly: WU-33c2b's own future live-
+capture producer must hand back a genuine snapshot copy, guarded by its own
+mutex the same way `CaptureConsumer::copyLatestFrame()`/`m_latestFrame`
+already are (WU-21b) — a bare view into a buffer its own consumer thread is
+concurrently overwriting would be a real data race, not a theoretical one.
+Rather than give the two producers different, incompatible return
+conventions (a safe copy for one, an unsafe-without-care view for the
+other) and push that distinction onto every future caller of the shared
+`std::function<...>` signature, this ADR fixes the signature's own contract
+at "always a real copy" — `OwnedSourceRaster`, not `SourceRaster` — for
+every producer, including WU-33c2a's own always-static one, where a fresh
+copy of an unchanging buffer is a small, deliberately accepted inefficiency
+(one buffer copy per query) rather than an oversight. `PipelineParams::backSrc`
+itself (WU-33b, ADR-093) is still the narrow `const SourceRaster*` it always
+was; WU-33c3's own future wiring is expected to call the stored
+`std::function`, keep the returned `OwnedSourceRaster` alive as a per-frame
+local (mirroring `CaptureConsumer::processOne()`'s own existing
+`latticeSnapshot` local, WU-21f), and point `callParams.backSrc` at that
+local's own `.view()` before calling `runFrameBytesDeinterlaced()` — not
+built this session, sketched here only so WU-33c2a's own signature is not
+invented in a vacuum.
+
+**Split decision: WU-33c2a (this session, file-based, portable) and
+WU-33c2b (Blackmagic-sub-device-based, device-bridge hand-off only), rather
+than one enlarged WU-33c2.** Weighed directly against this project's own
+repeated precedent for exactly this kind of seam (WU-28's a/b/c/d split,
+WU-35a's a1/a2/a3/a4 split, WU-33c's own c1/c2/c3/c4 split last session): a
+file-based back source needs no `BLACKMAGIC_SDK_DIR`/Cocoa at all — it is
+`core`/`io` file-reading plus WU-33c1's own already-green
+`unpackSourceRaster()` plus a small, self-contained new class — which means
+it can be sandbox-built-and-tested the same way WU-33c1 itself was, rather
+than device-bridge hand-off only. Splitting lets that genuinely
+hardware-independent piece actually be verified before hand-off, instead of
+bundling it with the Blackmagic-linked enumeration/selection work that
+cannot be. This is the same judgement call ADR-094 already named as "a real
+design call... not a mandate" when it split WU-33c1 out of the original
+WU-33c — made the same way again here, one level down. `WU-33c2`'s own name
+and note (`WORK-UNITS.md`) are retired in favour of the two sibling entries
+below; `WU-33c3`/`WU-33c4`'s own dependency lines are updated to name both
+(see `WORK-UNITS.md`).
+
+**WU-33c2a — design, build and test, this session (see `WORK-UNITS.md`'s own
+WU-33c2a entry for the full `Files:`/`Accept:`, not repeated in full here).**
+`io/file_back_source.hpp`/`.cpp`: `FileBackSource`, a small class that reads
+one static v210 frame from a caller-given path (raw packed bytes, tight
+stride, no header) once at construction (`FileBackSource::create()`, a
+factory returning `std::optional<FileBackSource>` since `OwnedSourceRaster`
+has no default constructor for a "not yet loaded" state to leave the object
+in on failure), and returns a copy of that same frame's own
+`OwnedSourceRaster` from `currentSourceRaster()` on every call thereafter —
+matching the `std::function<OwnedSourceRaster()>` shape decided above
+directly. The raw-byte file read is a short, independent duplication of
+`io/file_source.cpp`'s own `readV210File()` file-read half (WU-05) —
+deliberately not a call to that function, and not a refactor of it: reading
+it in full this session confirmed it unpacks straight into caller-supplied
+4:2:2 planes via `v210::unpackImage`, with no way to hand the raw packed
+bytes back to a caller, and `unpackSourceRaster()`'s own precondition
+(WU-33c1) is exactly those raw bytes, not already-unpacked planes — so
+`readV210File()` cannot feed `unpackSourceRaster()` directly, confirming
+directly (not assumed) the exact question the incoming prompt asked to have
+settled. The duplication is under fifteen lines, and
+`SESSION-PROTOCOL.md`'s anti-drift rule 2 is read the same way ADR-092's
+WU-33a session and ADR-094's WU-33c1 session already read it for a
+structurally identical choice: an addition next to tested, already-green
+code, not a change to it, carries this unit's own risk alone, verified by
+this unit's own test rather than by trusting the duplication is faithful.
+
+**Explicitly scoped out of WU-33c2a, per Steve's own choice this session:** a
+looped or advancing multi-frame sequence. Asked directly whether "video file
+as back source" should mean a single static frame or genuine looped
+playback, Steve chose both — the static case now, as WU-33c2a, and looped
+playback as an explicit, separate follow-on unit later (not scheduled or
+numbered this session; whoever picks it up should weigh whether it is a new
+sibling, e.g. `WU-33c2a2`, or a revision of `FileBackSource` itself, against
+the real code by then). This mirrors the split reasoning above one level
+further down: the static case is smaller, independently useful (a real, if
+unmoving, backdrop is already meaningfully different from no back source at
+all), and fully sandbox-verifiable now; a looped sequence needs its own
+frame-count/advance/wrap design and its own tests, and does not block this
+unit's own usefulness.
+
+**Tested in the cloud sandbox, all green.** This session confirmed a genuine
+`git clone` of `origin` (`skunge2000/scatter-dve`) now succeeds directly from
+this session's own cloud sandbox — `git ls-remote` and a full clone both
+worked, at `1237415`, matching `origin/main` exactly — resolving the
+"no working git-clone credentials" limitation Sessions 77/78 both flagged;
+used directly this session in place of the tar/stage workaround, faster and
+with no `_to_delete/` scratch artifact needed inside the repo tree. Baseline
+(a fresh clone at `1237415`, before any change) confirmed 31/31 `ctest`
+green, GCC 13.3.0 Release, `test_binner` 40439 checks — matching
+`HANDOFF.md`'s own prior claim exactly, not merely assumed. After this
+unit's three new/changed files: GCC 13.3.0 and Clang 18.1.3, Release and
+Debug, plus GCC 13 Debug `-fsanitize=address,undefined
+-fno-sanitize-recover=all` — five configurations (matching ADR-093's/
+ADR-094's own five, not ADR-092's four — a genuinely new class and a new
+file-read code path, not one selection expression in an existing function),
+all clean, zero warnings, full 32/32 `ctest` suite green in every
+configuration (up from 31/31 — the new `test_file_back_source`, 8 checks),
+`test_binner` unchanged at 40439 checks in every configuration (confirming
+`core/binner.hpp`/`.cpp` untouched), `nm -D`/`ldd` on the sanitizer build
+confirming genuine ASan/UBSan instrumentation linkage. The new test's own
+checks were verified this session to actually catch a regression, not pass
+vacuously: temporarily mutated `FileBackSource::create()` to unpack a
+zeroed buffer instead of the real bytes just read from disk, and confirmed
+exactly one check failed — check 1's own byte-equality comparison against
+`unpackSourceRaster()` run directly on the real in-memory bytes — with
+check 2 (repeated-call stability, which compares the mutated provider
+against itself and so cannot detect a content bug) and all four
+failure-path checks correctly unaffected; reverted, confirmed the restored
+file byte-for-byte identical to its pre-mutation state via `diff`, rebuilt
+to 8/8 green again.
+
+All new/changed files (`src/io/file_back_source.hpp`, `.cpp`,
+`tests/test_file_back_source.cpp`, `CMakeLists.txt`) written back to the
+real repository via the device bridge, then re-staged and diffed
+byte-for-byte against the cloud sandbox's own working copy — identical. See
+`HANDOFF.md` for the exact commands and why Steve's own real-terminal run
+is still the final word regardless.
+
+**WU-33c2b — re-scoped, not built this session (device-bridge hand-off
+only).** WU-33c2's own original note (Session 78) sketched a DeckLink-linked
+back-consumer class mirroring `CaptureConsumer`'s own consumer-
+thread/ring-drain/`StartAccess`-`GetBytes`-`EndAccess` shape, but calling
+`unpackSourceRaster()` (WU-33c1) in place of
+`runFrameBytesDeinterlaced()`. That shape is unchanged by this amendment —
+what changes is only how its own `IDeckLinkInput` is obtained: not the first
+capture-and-format-detection-capable device `firstFormatDetectionCapableInput()`
+finds (today's four-file-duplicated convention, confirmed by direct grep
+this session, unchanged since ADR-094), but whichever one a caller-supplied
+selector names. `WORK-UNITS.md`'s own WU-33c2b entry sketches, non-bindingly,
+a small selector taking either a zero-based index into
+`enumerateDeckLinkDevices()`'s own filtered (capture + format-detection
+capable) results, or a `modelName`/`displayName` substring match against
+`DeviceInfo` — the exact choice, and whether both are supported or only one,
+is left for whoever builds this to decide against the real code then,
+per this project's own "re-derive, do not assume this note's own sketch
+still matches" convention (WU-33b's own note already used this phrasing;
+WU-33c1 followed it for the files it touched). Its own exposed accessor is
+expected to match the same `std::function<OwnedSourceRaster()>` shape
+WU-33c2a establishes above, so WU-33c3 can hold either kind of producer
+identically. Not built, run, or confirmed against real multi-sub-device or
+multi-device hardware this session, or any prior one — do not claim this
+works against Steve's own UltraStudio/DeckLink hardware until he has run it
+and said so.
+
+**Untouched, deliberately.** `io/decklink_device.hpp`/`.cpp` (WU-14,
+ADR-031): read in full this session, confirmed to already support the
+amendment's own enumeration needs with no change (see above) — not edited.
+`io/decklink_input.hpp`/`.cpp` (WU-20b): read in full, confirmed unaffected
+by this amendment — the selection question lives at the call site
+(`firstFormatDetectionCapableInput()`-equivalent), not inside `CaptureSource`
+itself — not edited. `io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b): read
+in full again this session (also WU-33c3's own future job, unchanged from
+ADR-094's account) — not edited. `core/binner.hpp`/`.cpp`, `core/resolve.hpp`,
+`core/pipeline.cpp` beyond what WU-33c1 already added: not touched — this
+unit's whole footprint is two new files plus one new test plus `CMakeLists.txt`.
+`INVARIANTS.md`: not touched. `ADR-059/062/065/069/070/072/073/074/077/082/
+083/084/085/086/087/088/089/090/091/092/093/094`: not reopened.
+
+**`docs/wu-audit-2026-08.md` line 113 re-checked directly this session, not
+fixed, same standing instruction Sessions 72-78 already followed** — still
+reads "The real-content gap (single tag per call) was already found and
+logged as C-020/ADR-062 before this sweep, and closed by WU-28c," still
+incorrect for the same reason already found (the real-content gap wasn't
+actually closed until WU-35a4/WU-47). Left unfixed, outside this session's
+own scope — **now seven sessions running** (72 through 79).
