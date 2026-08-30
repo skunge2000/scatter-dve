@@ -2842,19 +2842,237 @@ scratch in the cloud sandbox a second time (fresh configure, fresh
 corruption: 30/30 green again. Not yet built, run, tagged or pushed at
 Steve's own real terminal.
 
-### WU-33c — DeckLink live capture: a second, independent capture-source-and-consumer pair `todo`
-**Split from WU-33 this session (Session 76) — see WU-33a/WU-33b above and
-`DECISIONS.md` ADR-092.** ADR-073's own "two independently freezable"
-requirement needs a second, independent capture-source-and-consumer pair
-on the live side: `io/decklink_input.hpp`/`.cpp` (WU-20b) and
-`io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b), both green, both built
-around exactly one video feed — `CaptureConsumer` holds exactly one
-`Lattice` by value (WU-21f's `setLattice()`) with no notion of a second.
-Not scoped past this note; likely needs its own further split once picked
-up — four files (two headers, two `.cpp`) already exceeds the 3-file cap
-on its own, before a test file. Device-bridge hand-off only, the same
-treatment WU-28d already established — cannot be built or tested in the
-cloud sandbox (Blackmagic SDK, Cocoa). Depends on WU-33a and WU-33b.
+### WU-33c1 — unpackSourceRaster()/OwnedSourceRaster: the v210-unpack-to-SourceRaster prefix runFrameBytes()/runFrameBytesDeinterlaced() already run, factored into a reusable, caller-owned form `green`
+**Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094 for
+the full re-derived scope.** WU-33c's own note above (Session 76) named WU-28d
+as "the same treatment" this unit should follow; re-checked directly this
+session, not assumed: WU-28d's own status is *superseded by WU-35a before
+ever being built, run, committed or tagged* (this file's own WU-28d entry) —
+it never actually established a device-bridge/real-terminal build pattern to
+follow. The real precedent is WU-35a2/WU-35a3/WU-35a4 (folded into one
+commit/tag, `wu-35a4-green`): sandbox-verify whatever is genuinely
+hardware-independent, hand the DeckLink-linked remainder to Steve's own
+real-terminal build with exact commands. Re-reading
+`io/decklink_capture_consumer.hpp`/`.cpp` and `io/decklink_input.hpp`/`.cpp`
+directly (not assumed from WU-36's own sweep) confirmed WU-33c's own
+footprint finding still holds: `CaptureConsumer` holds exactly one `Lattice`
+by value, one `PipelineParams` by value, one owned `Deinterlacer` — no notion
+of a second feed anywhere in either file.
+
+A second, independent capture-source-and-consumer pair genuinely needs new
+production code, not just a second instance of the existing classes:
+`CaptureConsumer` runs the *whole* front-side pipeline (unpack, deinterlace,
+warp via `runFrame()`, pack) and produces output v210 bytes — the wrong shape
+for a "back" source, which only ever needs to become a
+`PipelineParams::backSrc` (WU-33a/WU-33b, ADR-092/093), i.e. stop at an owned
+`SourceRaster`. Reading `core/pipeline.cpp`'s own
+`runFrameBytes()`/`runFrameBytesDeinterlaced()` directly found that the exact
+prefix a second consumer would need — v210 unpack, chroma upsample, the
+WU-40/WU-41 (ADR-085) RGB boundary conversion that builds `SourceRaster` —
+already exists in both functions, but only as unreachable locals (the same
+kind of gap CORRECTIONS.md C-027 already found blocking
+`runFrameBytesDeinterlaced()` from reusing `runFrameBytes()` directly for a
+different reason), and is exactly the "candidate for consolidation if a third
+caller ever needs the same sequence" `runFrameFile()`'s own header comment
+(`core/resolve.hpp`) already named speculatively without committing to it.
+
+This unit is that third caller's own dependency, split out on its own because
+it is the one genuinely hardware-independent, sandbox-buildable-and-testable
+piece of WU-33c's real footprint — everything else (the second
+`CaptureSource`/new back-consumer class, and wiring it into the front
+`CaptureConsumer`) needs `BLACKMAGIC_SDK_DIR`/Cocoa and is scoped separately
+below (WU-33c2/WU-33c3), device-bridge hand-off only, following WU-33c's own
+original four-plus-file-cap finding, still correct.
+
+**Design, decided and built this session:** `OwnedSourceRaster`
+(`core/resolve.hpp`) — owns a `video::RasterRGB`, exposes `view()` returning a
+fresh `SourceRaster` recomputed from that storage's own current `.data()`
+addresses each call, rather than a cached raw-pointer member — the same
+technique `tests/test_pipeline_backsrc.cpp`'s own `UniformSource::view()`
+already uses, for the same reason: a cached member would go stale across a
+copy (`RasterRGB`'s `std::vector` members reallocate at a new address on
+copy), and `view()` recomputing from `rgb` needs no hand-written copy or move
+constructor to stay correct under either — checked directly this session
+(test 2, below). `unpackSourceRaster()` (`core/pipeline.cpp`) reproduces
+`runFrameBytes()`'s own first three steps (v210 unpack, chroma upsample, RGB
+boundary conversion) exactly, stopping where that function goes on to call
+`runFrame()`.
+
+Deliberately built as a new, additive function rather than a refactor of
+`runFrameBytes()`/`runFrameBytesDeinterlaced()` to share it: both are
+already-green, already-tested call sites, and `SESSION-PROTOCOL.md`'s
+anti-drift rule 2 is read the same way ADR-092's own WU-33a session already
+read it for a structurally identical choice — an addition next to tested
+code, not a change to it, carries this unit's own risk alone. This unit's own
+test (below) verifies the duplication stays honest instead.
+
+**Files:** `src/core/resolve.hpp` (`OwnedSourceRaster` + `unpackSourceRaster()`
+declaration), `src/core/pipeline.cpp` (`unpackSourceRaster()` definition).
+`tests/test_unpack_source_raster.cpp` (new, doesn't count against the cap).
+`CMakeLists.txt` (registers the new test executable, doesn't count against
+the cap).
+
+**Accept — verified this session:**
+1. `unpackSourceRaster()`'s own output, fed by hand into `runFrame()` and the
+   same RGB->YCbCr/chroma-downsample/v210-pack tail `runFrameBytes()` already
+   runs, reproduces `runFrameBytes()`'s own output bit-for-bit for a genuine,
+   off-centre-warp zone plate (`tools/testpat.hpp`, the same content
+   `tests/test_pipeline_bytes.cpp`'s own check 1 already uses for the same
+   reason — the identity map's degenerate case would not exercise real
+   fragment generation) — never calling `runFrameBytes()` itself, only its
+   own already-independently-tested building blocks.
+2. `OwnedSourceRaster::view()` stays correct after a copy: copied, the
+   original heap-allocated and explicitly destroyed, the copy's own `view()`
+   still reads back the exact values it was built with.
+
+7 checks, both passing. Verified this session to actually catch a
+regression, not pass vacuously: temporarily mutated `unpackSourceRaster()` to
+feed the luma plane into all three `ycbcrToRgbImage()` input channels (a
+wrong-but-plausible copy-paste mistake) and confirmed exactly one check
+failed (check 1's own byte-equality) — check 2 (copy-safety) correctly
+unaffected, since it does not depend on the RGB conversion being correct,
+only reproducible. Reverted, confirmed the restored file byte-for-byte
+identical to its pre-mutation state, rebuilt to 7/7 green again.
+
+Full portable matrix green in the cloud sandbox: GCC 13.3.0 and Clang 18.1.3,
+Release and Debug, plus GCC 13 Debug
+`-fsanitize=address,undefined -fno-sanitize-recover=all` — five
+configurations (matching ADR-093's own five, not ADR-092's own four — this
+unit's own risk surface is a genuinely new function, not one selection
+expression in an existing one), all clean, zero warnings, full 31/31 `ctest`
+suite green in every configuration (up from 30/30 — the new
+`test_unpack_source_raster`), `nm -D`/`ldd` confirming genuine ASan/UBSan
+instrumentation linkage, `test_binner` unchanged at 40439 checks in every
+configuration (confirming `core/binner.hpp`/`.cpp` untouched).
+`core/resolve.hpp`/`core/pipeline.cpp` touch no DeckLink-linked file, so this
+is a real, standard `scatter-core` build/test run.
+
+All four changed/added files written back to the real repository via the
+device bridge, then re-staged and diffed byte-for-byte against the cloud
+sandbox's own working copy — identical. Additionally (this session's own
+device bridge reaches a real Linux VM on Steve's own Mac, not only a cloud
+sandbox, but that VM has no `cmake`/`ninja`/`clang` — only a third,
+independent GCC, 11.4.0): the real repository's own just-written files were
+compiled and run directly with that VM's own `g++ 11.4.0`, by hand (no
+CMake), against the exact same compile flags CMake itself uses — 7/7 green,
+zero warnings, plus `test_binner` (40439, unchanged), `test_pipeline_backsrc`
+(17, unchanged) and `test_smoke` (2076, unchanged) rebuilt and passing
+against the same just-written files, from the real repository directly, not
+the sandbox copy. Not equivalent to a fifth configuration in `close.sh`'s own
+sense (no `ctest`, no `-Werror` cross-checked against CMake's own flag set
+beyond copying them by hand) but a genuine, independent confirmation that the
+just-written files build and pass on the real machine, in a different GCC
+version than either sandbox configuration used — Steve's own real-terminal
+`close.sh` run is still the final word regardless. Scratch object files this
+check produced were written outside the mounted repository folder and
+removed before session end; none were ever committed.
+
+### WU-33c2 — a second, independent DeckLink capture-source-and-consumer pair: a new, lighter-weight back-side consumer built on `unpackSourceRaster()` (WU-33c1) `todo`
+**Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094.**
+`io/decklink_input.hpp`/`.cpp`'s own `CaptureSource` (WU-20b) is already
+source-agnostic and reusable as-is — nothing instance-specific or static
+blocks constructing a second one against a second
+`IDeckLinkInput`/`CaptureFrameRing` pair; re-confirmed by direct re-read this
+session, not assumed. What does not already exist is a *consumer* shaped for
+a "back" source: unlike `io/decklink_capture_consumer.hpp`'s own
+`CaptureConsumer` (WU-21b), which runs the whole front-side pipeline (unpack,
+deinterlace, warp via `runFrame()`, v210 pack) to produce its own output
+bytes, a back-side consumer only ever needs to become a
+`PipelineParams::backSrc` for the *front* consumer — it should stop at
+producing an owned `SourceRaster` per captured frame, via WU-33c1's own
+`unpackSourceRaster()`, never calling `runFrame()`/`runFrameBytes()` at all.
+
+Whoever picks this up should re-derive the exact shape against the real
+current `io/decklink_capture_consumer.hpp`/`.cpp` (WU-33c1's own files, by
+then possibly further changed) rather than assume this note's own sketch
+still matches, the same instruction WU-33b's own note already gave and
+WU-33c1 followed for the files it touched. A reasonable first sketch, not
+binding: mirror `CaptureConsumer`'s own consumer-thread/ring-drain/
+StartAccess-GetBytes-EndAccess shape (`processOne()`) but call
+`unpackSourceRaster()` in place of `runFrameBytesDeinterlaced()`, storing the
+result behind its own dedicated mutex (mirroring
+`CaptureConsumer::m_latticeMutex`/`m_manualTranspMutex`'s own "each piece of
+cross-thread state gets its own lock" convention), with a
+`copyLatestSourceRaster()`-style accessor mirroring `copyLatestFrame()`.
+Whether this back consumer also owns a `video::Deinterlacer` (for
+consistency with the front side) or skips deinterlace entirely is an open
+question this note does not resolve — a real design decision for whoever
+picks this up, not a default to assume.
+
+**Files (estimate, to be re-derived, not binding):** two new,
+`src/io/decklink_back_capture_consumer.hpp`/`.cpp` — DeckLink-linked
+(includes `DeckLinkAPI.h`), cannot be built or tested in the cloud sandbox
+(`BLACKMAGIC_SDK_DIR`/Cocoa). Depends on WU-33c1.
+
+**Accept:** provisional — a new test file
+(`tests/test_decklink_back_capture_consumer.cpp`, real hardware required,
+same as `tests/test_decklink_capture_consumer.cpp`) exercising this class in
+isolation (captures real frames, produces owned `SourceRaster`s, does not by
+itself change what any existing demo displays) — no automated check possible
+without the real UltraStudio hardware attached, same limitation every
+DeckLink-linked unit in this project already has. Device-bridge hand-off
+only.
+
+### WU-33c3 — wire the front `CaptureConsumer` to an optional back consumer (WU-33c2), setting a real `PipelineParams::backSrc` per frame `todo`
+**Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094.**
+Gives the front `CaptureConsumer` (WU-21b) an optional, non-owning pointer to
+a WU-33c2 back consumer (caller-owned, must outlive the front consumer — the
+same convention `ring` already documents on `CaptureConsumer`'s own
+constructor), and at the top of each `processOne()`, when set, snapshots its
+current `SourceRaster` under WU-33c2's own mutex into a local
+`OwnedSourceRaster` and sets `callParams.backSrc` to point at it before
+calling `runFrameBytesDeinterlaced()` — mirroring the existing
+`m_lattice`/`m_manualTransp` snapshot-under-dedicated-mutex pattern already
+in that function exactly, not a new shape.
+
+**A real risk this note names explicitly, not to be missed the way
+CORRECTIONS.md C-028 already found once for this exact class:**
+`CaptureConsumer` is constructed directly at three real call sites, not only
+in `tests/test_decklink_capture_consumer.cpp` —
+`tests/test_decklink_live_output.cpp` and `tests/test_decklink_live_sphere.cpp`
+also construct it directly (grepped directly this session, not assumed) — a
+constructor-signature change here must account for all three, the same miss
+C-028 already logged once for a different `CaptureConsumer` constructor
+change (WU-23b2b). Whoever picks this up should re-grep for
+`CaptureConsumer consumer(` (not just `CaptureConsumer(` — the space before
+the variable name defeats a naive grep, also confirmed directly this
+session) against the real current tree before writing a `Files:` line,
+rather than trust this note's own three-site count to still be complete.
+
+**Files (estimate, to be re-derived):** `src/io/decklink_capture_consumer.hpp`/
+`.cpp` (2, already at WU-33c1's own untouched state) plus whichever of the
+three call sites above actually need a change once the real constructor
+shape is decided (likely at least
+`tests/test_decklink_capture_consumer.cpp`) — already at or past the 3-file
+cap before a dedicated test; whoever picks this up should check whether this
+needs its own further split (WU-33c3a/WU-33c3b) the same way this note's own
+parent, WU-33c, was split this session. Depends on WU-33c2.
+
+**Accept:** provisional — real-hardware, by-eye/log-based (no automated test
+can observe two independent SDI feeds without the hardware attached): with
+both a front and a back UltraStudio input connected, `CaptureConsumerStats`
+or a similar counter confirms both consumers are processing frames, and a
+rotating self-folding lattice (mirroring
+`tests/test_decklink_live_sphere.cpp`'s own sphere) visibly shows different
+content on its front and back faces. Device-bridge hand-off only.
+
+### WU-33c4 — wire WU-33c2/WU-33c3 into a real, observable demo `todo`
+**Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094,
+mirroring WU-28d/WU-35a2's own precedent of a separate unit for "wire the
+already-built mechanism into something Steve can actually see."** Likely
+extends `tests/test_decklink_live_sphere.cpp` (already the project's own
+live-hardware demo/smoke-test entry point for k-buffer-adjacent features,
+WU-21i/WU-22c/WU-35a2) with a second capture input and a visible front/back
+distinction, rather than a new demo file — not scoped past this note;
+whoever picks this up should re-derive against the real current
+`tests/test_decklink_live_sphere.cpp` (by then possibly further changed by
+WU-33c2/WU-33c3's own work) before writing a `Files:` line. Depends on
+WU-33c3.
+
+**Accept:** provisional, by-eye (Steve's own real-hardware run, the same
+"no automated test can observe an SDI monitor" limitation WU-28d's own
+original `Accept:` line already named for a structurally similar question).
+Device-bridge hand-off only.
 
 ### WU-34a — Coarse-grid shading field: facet normals, filtering ladder, grid shift `green`
 **Split from the single WU-34 line this replaces (`DECISIONS.md` ADR-083),

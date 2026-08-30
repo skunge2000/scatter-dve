@@ -292,6 +292,19 @@ scatter_test(test_pipeline_shading)
 # test_pipeline_shading/test_field_pipeline above).
 scatter_test(test_pipeline_backsrc)
 
+# WU-33c1 -- unpackSourceRaster()/OwnedSourceRaster (DECISIONS.md ADR-094):
+# the v210 unpack -> chroma upsample -> RGB boundary conversion prefix
+# runFrameBytes()/runFrameBytesDeinterlaced() already run as unreachable
+# locals, factored out into a reusable, caller-owned form for WU-33c2's own
+# second (DeckLink) capture consumer to build a real backSrc from -- that
+# unit itself is device-bridge/real-terminal hand-off only, but this
+# prefix is portable, zero DeckLink dependency, no new scatter-core source
+# file (core/resolve.hpp/core/pipeline.cpp already build into scatter-core
+# above) -- uses tools/testpat.hpp's own zone plate, same pattern as
+# test_pipeline_bytes.cpp above.
+scatter_test(test_unpack_source_raster)
+target_include_directories(test_unpack_source_raster PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+
 # WU-23b1 -- Weston 3-field de-interlace filter core, video::Deinterlacer
 # (DECISIONS.md ADR-078/ADR-079, CORRECTIONS.md C-025). Portable, zero
 # DeckLink dependency, no new scatter-core source file beyond

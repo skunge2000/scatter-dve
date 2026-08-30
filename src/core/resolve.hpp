@@ -915,4 +915,77 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                    int srcWidth, int srcHeight, const PipelineParams& params,
                    const std::string& dstPath);
 
+// ---------------------------------------------------------------------------
+// WU-33c1 (DECISIONS.md ADR-094): a caller-owned SourceRaster -- unlike
+// SourceRaster itself (core/binner.hpp), which only ever borrows its r/g/b
+// pointers from storage some other object owns, this owns the pixel storage
+// too. view() recomputes the SourceRaster from this object's own current
+// rgb each call, rather than caching r/g/b as members alongside rgb the way
+// a straightforward port of the constructor-time computation might --
+// exactly the shape tests/test_pipeline_backsrc.cpp's own UniformSource
+// already uses for the identical reason: a cached raw-pointer member would
+// go stale across a copy (RasterRGB's std::vector members reallocate on
+// copy, at a new address; a member SourceRaster copied alongside them would
+// still point at the *source* object's old buffers, not the copy's own) --
+// recomputing from rgb.R/G/B.data() every call needs no hand-written copy
+// constructor, no hand-written move constructor, and is correct under both,
+// for free, from the compiler-generated defaults.
+struct OwnedSourceRaster {
+    video::RasterRGB rgb;
+
+    // RasterRGB (video/raster.hpp) has no default constructor -- its own
+    // std::vector members are sized from width/height at construction, so
+    // this object needs the same up front, the same reason SourceRaster's
+    // own caller-supplied width/height exist at all (core/binner.hpp).
+    OwnedSourceRaster(int width, int height) : rgb(width, height) {}
+
+    SourceRaster view() const noexcept {
+        SourceRaster s;
+        s.width = rgb.width;
+        s.height = rgb.height;
+        s.r = rgb.R.data();
+        s.g = rgb.G.data();
+        s.b = rgb.B.data();
+        return s;
+    }
+};
+
+// Factored out of runFrameBytes()/runFrameBytesDeinterlaced() above
+// (core/pipeline.cpp): those two functions' own shared first step -- v210
+// unpack, chroma upsample 4:2:2 -> 4:4:4, then the WU-40/WU-41 (ADR-085) RGB
+// boundary conversion that feeds SourceRaster -- built each time as locals
+// neither function exposes to any caller (the same "local variable... never
+// exposed" shape CORRECTIONS.md C-027 already found blocking
+// runFrameBytesDeinterlaced() from reusing runFrameBytes() directly, not
+// this exact prefix but the identical kind of problem), and exactly the gap
+// runFrameFile()'s own comment above already named speculatively ("a
+// candidate for consolidation if a third caller ever needs the same
+// sequence") without committing to it, since no such caller existed yet.
+//
+// WU-33c2 (DeckLink-linked, not this unit -- device-bridge/real-terminal
+// hand-off only, DECISIONS.md ADR-094) is that third caller: a second,
+// independent capture consumer that needs a real, owned SourceRaster built
+// from its own captured v210 bytes to hand it to the *first* consumer as
+// PipelineParams::backSrc (WU-33a/WU-33b, ADR-092/ADR-093) -- not a
+// runFrame() call of its own. This function stops exactly where
+// SourceRaster construction already stopped in both existing callers,
+// doing no PASS 1/2 work of its own.
+//
+// Deliberately NOT built by refactoring runFrameBytes()/
+// runFrameBytesDeinterlaced() to call this instead of their own inlined
+// copy: both are already-green, already-tested call sites, and
+// SESSION-PROTOCOL.md's anti-drift rule 2 ("never rename or refactor across
+// module boundaries") is read the same way ADR-092's own WU-33a session
+// already read it for a structurally identical choice -- an addition next
+// to tested code, not a change to it, carries this unit's own risk alone.
+// This unit's own test verifies the duplication stays honest: this
+// function's own output, fed into runFrame(), reproduces runFrameBytes()'s
+// own output bit-for-bit for the same input.
+//
+// Preconditions, unchecked -- the same convention runFrameBytes() above
+// already uses: srcBytes holds at least srcRowBytes * srcHeight bytes of
+// packed v210.
+OwnedSourceRaster unpackSourceRaster(const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                                      int srcWidth, int srcHeight);
+
 }  // namespace scatter

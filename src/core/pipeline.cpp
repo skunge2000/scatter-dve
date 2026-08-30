@@ -1190,4 +1190,42 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
                                  out.planeY(), out.planeCb(), out.planeCr());
 }
 
+// unpackSourceRaster() -- WU-33c1 (DECISIONS.md ADR-094). See core/resolve.hpp
+// for the full design account. Reproduces runFrameBytes()'s own first three
+// steps above (v210 unpack, chroma upsample, RGB boundary conversion) exactly,
+// stopping where that function goes on to call runFrame() -- this one returns
+// the built SourceRaster's own owning storage instead.
+OwnedSourceRaster unpackSourceRaster(const std::uint8_t* srcBytes, std::ptrdiff_t srcRowBytes,
+                                      int srcWidth, int srcHeight) {
+    // v210 unpack (WU-02) straight out of the caller's own buffer -- exactly
+    // runFrameBytes()'s own first step above.
+    video::Raster422 in(srcWidth, srcHeight);
+    v210::unpackImage(srcBytes, srcRowBytes, srcWidth, srcHeight,
+                              in.Y.data(), in.planeY().strideSamples,
+                              in.Cb.data(), in.Cr.data(), in.planeCb().strideSamples);
+
+    // Chroma upsample 4:2:2 -> 4:4:4 (ADR-005); luma passes straight
+    // through -- exactly runFrameBytes()'s own second step above.
+    video::Raster444 full(srcWidth, srcHeight);
+    std::copy(in.Y.begin(), in.Y.end(), full.Y.begin());
+    chroma::upsampleImage(in.Cb.data(), in.planeCb().strideSamples,
+                           srcWidth, srcHeight,
+                           full.Cb.data(), full.planeCb().strideSamples);
+    chroma::upsampleImage(in.Cr.data(), in.planeCr().strideSamples,
+                           srcWidth, srcHeight,
+                           full.Cr.data(), full.planeCr().strideSamples);
+
+    // RGB boundary conversion (WU-40, ADR-085; WU-41: feeds SourceRaster
+    // directly, core/resolve.hpp's own OwnedSourceRaster here rather than a
+    // local runFrameBytes() never exposes) -- exactly runFrameBytes()'s own
+    // third step above, writing into this object's own owned storage instead
+    // of a local that goes out of scope at the end of this function.
+    OwnedSourceRaster out(srcWidth, srcHeight);
+    chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
+                             full.planeY().strideSamples, srcWidth, srcHeight,
+                             out.rgb.R.data(), out.rgb.G.data(), out.rgb.B.data(),
+                             out.rgb.planeR().strideSamples);
+    return out;
+}
+
 }  // namespace scatter
