@@ -25,13 +25,15 @@ namespace scatter::io {
 
 CaptureConsumer::CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
                                   video::DeinterlaceCoefficients coeffs,
-                                  CoverageCallback coverageCallback)
+                                  CoverageCallback coverageCallback,
+                                  BackSourceCallback backSource)
     : m_ring(ring),
       m_lattice(std::move(lattice)),
       m_manualTransp(params.manualTransp),  // WU-35a3 (CORRECTIONS.md C-035)
       m_params(params),
       m_dstRowBytes(scatter::v210::rowBytesMin(m_params.destWidth)),
       m_coverageCallback(std::move(coverageCallback)),
+      m_backSource(std::move(backSource)),  // WU-33c3 (DECISIONS.md ADR-097)
       m_deinterlacer(video::FieldParity::Top, coeffs) {}
 
 CaptureConsumer::~CaptureConsumer() { stop(); }
@@ -127,6 +129,26 @@ CaptureConsumer::ProcessResult CaptureConsumer::processOne(ComPtr<IDeckLinkVideo
         latticeSnapshot = m_lattice;
     }
 
+    // WU-33c3 (DECISIONS.md ADR-097): a snapshot from whatever back-source
+    // producer the caller has wired in, taken here -- before touching the
+    // capture frame's own buffer at all, mirroring the lattice snapshot
+    // just above for the same reason: this is a caller-owned external read
+    // (m_backSource() may itself copy a real OwnedSourceRaster's own
+    // RasterRGB storage, e.g. DeckLinkBackSource::currentSourceRaster()'s
+    // own mutex-guarded copy), not something that needs the
+    // StartAccess/EndAccess bracket below held open around it.
+    // std::nullopt -- no callback configured at all, or a configured
+    // callback's own honest "no frame yet" result (ADR-096's own Design
+    // decision 4) -- is handled below, once callParams itself exists: this
+    // frame's own callParams.backSrc is simply left at its existing
+    // default, nullptr, exactly PipelineParams::backSrc's own already-
+    // documented "no back source" state (ADR-092/093), not a new one.
+    std::optional<OwnedSourceRaster> backSnapshot;
+    if (m_backSource) {
+        backSnapshot = m_backSource();
+        ++m_stats.backSourceQueried;  // WU-33c3 (DECISIONS.md ADR-097): fires regardless of nullopt
+    }
+
     // Same interface, same QueryInterface, as io/decklink_output.cpp's own
     // fillFrameBuffer() -- read direction instead of write (ADR-032's own
     // finding, confirmed unchanged for input by ADR-046/047/048's own
@@ -172,6 +194,31 @@ CaptureConsumer::ProcessResult CaptureConsumer::processOne(ComPtr<IDeckLinkVideo
     if (m_coverageCallback) {
         coverageBuf.assign(std::size_t(m_params.destWidth) * std::size_t(m_params.destHeight), WeightAccum(0));
         callParams.weightOut = coverageBuf.data();
+    }
+
+    // WU-33c3 (DECISIONS.md ADR-097): backSourceView must outlive the
+    // runFrameBytesDeinterlaced() call below -- OwnedSourceRaster::view()
+    // (core/resolve.hpp) recomputes its own r/g/b pointers from
+    // backSnapshot's own current storage each call, so backSnapshot itself,
+    // not just the view, must stay alive in this scope for the duration of
+    // that call. Declared here, in processOne()'s own local scope, the same
+    // "local, function-scoped, never a member" shape latticeSnapshot above
+    // already uses for the identical reason. callParams.backSrc stays at
+    // its existing default, nullptr, whenever backSnapshot is empty --
+    // no callback configured, or this frame's own std::nullopt result.
+    // Unchecked, inherited unchanged from core/resolve.hpp's own
+    // PipelineParams::backSrc precondition, not newly introduced here:
+    // backSourceView must have the same width/height as the front frame's
+    // own src raster this call is about to build internally, or this call
+    // is undefined behaviour -- a caller wiring a back-source producer
+    // whose own captured geometry can differ from the front side's is
+    // responsible for that match, the same "caller's bug, not checked
+    // here" convention this codebase already applies to every other
+    // unchecked precondition of this shape.
+    SourceRaster backSourceView;
+    if (backSnapshot) {
+        backSourceView = backSnapshot->view();
+        callParams.backSrc = &backSourceView;
     }
 
     // The mapped buffer is only guaranteed valid between StartAccess and

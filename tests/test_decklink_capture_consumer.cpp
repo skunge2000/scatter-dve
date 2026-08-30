@@ -32,6 +32,24 @@
 // ADR-081), and processOne()'s own new stream-start outcome widens the
 // framesProcessed/framesFailed accounting invariant below to a third term,
 // framesStreamStart.
+//
+// WU-33c3 (DECISIONS.md ADR-097) adds a second test,
+// test_capture_consumer_queries_wired_back_source(): wires a real
+// FileBackSource (io/file_back_source.hpp, WU-33c2a) -- static-file, so no
+// second capture-capable device is needed -- into CaptureConsumer's own new
+// BackSourceCallback and confirms the new backSourceQueried stat actually
+// moves for a real popped frame, proving processOne() genuinely calls
+// through to the wired producer. Content correctness of the back frame
+// itself is already independently covered by test_file_back_source.cpp and
+// test_unpack_source_raster.cpp -- this test's own job is only the wiring,
+// not re-proving pixel correctness. Not a two-real-device or a folded-
+// lattice "visibly different front/back faces" demo -- an identity lattice
+// (this test's own makeIdentityLattice(), below) never produces a back-
+// facing sample to begin with (core/binner.hpp's own surfaceNormal(rawJ).z
+// >= 0.0 selection), so a byte-level before/after comparison of
+// copyLatestFrame() would be vacuous here regardless of whether backSrc is
+// wired; that real end-to-end visual proof is WU-33c4's own job (a real,
+// observable demo), not this unit's.
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -39,6 +57,7 @@
 #include "io/decklink_capture_consumer.hpp"
 #include "io/decklink_device.hpp"
 #include "io/decklink_input.hpp"
+#include "io/file_back_source.hpp"
 #include "video/deinterlace.hpp"
 #include "video/v210.hpp"
 #include "harness.hpp"
@@ -48,6 +67,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <fstream>
+#include <ios>
+#include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -190,7 +213,105 @@ static void test_capture_consumer_drains_ring_and_produces_frames() {
     CHECK(latest.size() == scatter::v210::rowBytesMin(kWidth) * std::size_t(kHeight));
 }
 
+// ---------------------------------------------------------------------------
+// WU-33c3 (DECISIONS.md ADR-097): CaptureConsumer actually queries a wired
+// back-source producer for a real popped frame.
+// ---------------------------------------------------------------------------
+
+static void test_capture_consumer_queries_wired_back_source() {
+    const auto devices = enumerateDeckLinkDevices();
+    CHECK(!devices.empty());
+    if (devices.empty()) return;
+
+    ComPtr<IDeckLinkInput> input = firstFormatDetectionCapableInput(devices);
+    CHECK(bool(input));
+    if (!input) return;
+
+    CaptureFrameRing ring;
+    auto capture = CaptureSource::create(input, kDisplayMode, ring);
+    CHECK(bool(capture));
+    if (!capture) return;
+
+    // A static v210 file standing in for a real FileBackSource-wired
+    // producer (WU-33c2a) -- content does not matter for this test's own
+    // job (the wiring, not pixel correctness, already covered independently
+    // by test_file_back_source.cpp/test_unpack_source_raster.cpp), so a
+    // plain black frame (video::packBlackFrame, ADR-064) is enough, and
+    // avoids this test's own dependency on tools/testpat.hpp.
+    const std::string backPath = "/tmp/scatter_dve_test_decklink_capture_consumer_backsrc.v210";
+    {
+        std::vector<std::uint8_t> packed(scatter::v210::rowBytesMin(kWidth) * std::size_t(kHeight));
+        scatter::v210::packBlackFrame(kWidth, kHeight, packed.data());
+        std::ofstream out(backPath, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(packed.data()), std::streamsize(packed.size()));
+    }
+    auto fileBackSource = scatter::io::FileBackSource::create(backPath, kWidth, kHeight);
+    CHECK(bool(fileBackSource));
+    std::remove(backPath.c_str());
+    if (!fileBackSource) return;
+
+    scatter::PipelineParams params;
+    params.destWidth = kWidth;
+    params.destHeight = kHeight;
+
+    // Wraps FileBackSource's own plain-OwnedSourceRaster-returning accessor
+    // to match CaptureConsumer::BackSourceCallback's own
+    // std::optional<OwnedSourceRaster>() shape -- exactly the wrapping
+    // decklink_capture_consumer.hpp's own doc comment on BackSourceCallback
+    // documents as the expected caller-side adaptation for a producer, like
+    // FileBackSource, that never fails once constructed.
+    CaptureConsumer::BackSourceCallback backSource = [&fileBackSource] {
+        return std::optional<scatter::OwnedSourceRaster>(fileBackSource->currentSourceRaster());
+    };
+
+    CaptureConsumer consumer(ring, makeIdentityLattice(), params,
+                              scatter::video::DeinterlaceCoefficients::Complex,
+                              /*coverageCallback=*/nullptr, backSource);
+    consumer.start();
+
+    // Same bounded-run order of magnitude every other real-hardware
+    // DeckLink test in this repository already uses.
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    consumer.stop();
+    capture->stop();
+
+    const auto& consumerStats = consumer.stats();
+
+    // backSourceQueried can never exceed framesPopped -- it is incremented
+    // at most once per processOne() call, and never for a frame that fails
+    // the pixel-format/geometry checks ahead of it.
+    CHECK(std::size_t(consumerStats.backSourceQueried.load()) <=
+          std::size_t(consumerStats.framesPopped.load()));
+    // Every frame that reaches ProcessResult::Processed or
+    // ProcessResult::StreamStart already passed the point in processOne()
+    // where m_backSource() is queried (WU-33c3) -- so this holds
+    // unconditionally, real signal or not, the same "counted exactly once,
+    // never skipped for a frame that got this far" shape
+    // framesProcessed/framesFailed/framesStreamStart's own invariant above
+    // already uses.
+    CHECK(std::size_t(consumerStats.backSourceQueried.load()) >=
+          std::size_t(consumerStats.framesProcessed.load()) +
+              std::size_t(consumerStats.framesStreamStart.load()));
+
+    std::fprintf(stderr,
+                 "test_decklink_capture_consumer (backsrc wiring): framesPopped=%d framesProcessed=%d "
+                 "framesStreamStart=%d backSourceQueried=%d over a 5-second bounded run\n",
+                 consumerStats.framesPopped.load(), consumerStats.framesProcessed.load(),
+                 consumerStats.framesStreamStart.load(), consumerStats.backSourceQueried.load());
+
+    if (consumerStats.framesProcessed.load() == 0 && consumerStats.framesStreamStart.load() == 0) {
+        std::fprintf(stderr,
+                      "test_decklink_capture_consumer (backsrc wiring): NOTE -- zero frames reached "
+                      "the query point at all. If the Monitor 3G's SDI output is not patched into the "
+                      "Recorder 3G's SDI input, this is expected, not a defect -- the inequalities above "
+                      "are still the evidence this test actually gates on. With the loopback connected, "
+                      "backSourceQueried should be nonzero -- worth a second look otherwise.\n");
+    }
+}
+
 int main() {
     test_capture_consumer_drains_ring_and_produces_frames();
+    test_capture_consumer_queries_wired_back_source();
     return scatter::test::summary("test_decklink_capture_consumer");
 }

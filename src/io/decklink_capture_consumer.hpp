@@ -91,6 +91,29 @@
 // both success and failure -- see ProcessResult below and ADR-081 for why an
 // enum return was picked over the other shapes ADR-080 left open, and the
 // new framesStreamStart counter on CaptureConsumerStats.
+//
+// WU-33c3 (DECISIONS.md ADR-097) adds the optional BackSourceCallback below:
+// invoked at most once per processOne(), before this consumer's own
+// captured frame buffer is touched, to obtain a snapshot from whichever
+// back-source producer the caller has wired in (io/file_back_source.hpp's
+// own FileBackSource, WU-33c2a, or io/decklink_back_source.hpp's own
+// DeckLinkBackSource, WU-33c2b) and set a real PipelineParams::backSrc for
+// that one frame. Mirrors CoverageCallback's own established shape above --
+// non-owning std::function member, default nullptr, zero cost and zero
+// behaviour change when the caller does not opt in -- widened here to
+// return std::optional<OwnedSourceRaster>, not the plain OwnedSourceRaster
+// DECISIONS.md ADR-095 fixed for every back-source producer's own accessor,
+// specifically to carry DeckLinkBackSource's own honest "no frame captured
+// yet" case (ADR-096's own Design decision 4, resolved here): a
+// std::nullopt result for a given frame leaves that frame's own
+// callParams.backSrc at its existing default, nullptr -- the exact
+// "no back source configured" state every existing PipelineParams::backSrc
+// caller already exercises today (ADR-092/093), not a new code path. See
+// DECISIONS.md ADR-097 for the full account, including why this shape was
+// chosen over holding a fallback frame at the wiring site instead, and the
+// unchecked "backSrc must have the same width/height as src"
+// precondition (core/resolve.hpp's own PipelineParams::backSrc comment)
+// this wiring inherits unchanged, not newly introduced.
 
 #pragma once
 
@@ -107,6 +130,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -130,6 +154,21 @@ struct CaptureConsumerStats {
     // untouched for this one frame -- see processOne()'s own
     // ProcessResult::StreamStart, below.
     std::atomic<int> framesStreamStart{0};
+    // WU-33c3 (DECISIONS.md ADR-097): incremented once per processOne()
+    // call in which m_backSource is set and actually invoked -- i.e. for
+    // every popped frame that reaches that point in processOne() (after
+    // the pixel-format/geometry checks, same gating latticeSnapshot itself
+    // already has), regardless of whether m_backSource's own result was a
+    // real OwnedSourceRaster or std::nullopt. Stays at zero for the whole
+    // object lifetime when the caller never passes a backSource at all
+    // (the default nullptr) -- a caller not opting into this unit's own
+    // wiring sees no new counter activity, mirroring framesStreamStart's
+    // own "real for the feature that exists, silent otherwise" shape. Not
+    // itself proof that callParams.backSrc was actually set for a given
+    // frame (a std::nullopt result also increments this) -- only proof the
+    // hook fired; see this file's own header comment for why nullopt
+    // itself is not a failure.
+    std::atomic<int> backSourceQueried{0};
 };
 
 class CaptureConsumer {
@@ -149,6 +188,16 @@ public:
     // on every callback it invokes from inside a tight per-frame loop
     // (ThreadPool::runOnAll(), core/pipeline.hpp).
     using CoverageCallback = std::function<void(std::vector<WeightAccum>)>;
+
+    // WU-33c3 (DECISIONS.md ADR-097): see this file's own header comment
+    // above for the full account. Must not throw, the same precondition
+    // this project already places on CoverageCallback immediately above. A
+    // caller wrapping FileBackSource's own plain-OwnedSourceRaster-
+    // returning accessor need only wrap it in
+    // `[&file]{ return std::optional<OwnedSourceRaster>(file.currentSourceRaster()); }`
+    // to match this signature -- DeckLinkBackSource's own accessor already
+    // matches it exactly, no wrapping needed.
+    using BackSourceCallback = std::function<std::optional<OwnedSourceRaster>()>;
 
     // ring is caller-owned and must outlive this object -- the same
     // convention CaptureSource::create() already documents for its own ring
@@ -178,9 +227,24 @@ public:
     // (normally left at its own nullptr default, per ADR-056), so a caller
     // that does not pass this parameter sees zero cost and zero behaviour
     // change versus this unit's own pre-WU-22c shape.
+    //
+    // backSource defaults to nullptr (WU-33c3, DECISIONS.md ADR-097): the
+    // opt-in back-source hook described above this class. When null,
+    // callParams.backSrc stays exactly nullptr for every frame, exactly
+    // this unit's own pre-WU-33c3 behaviour -- zero cost, zero behaviour
+    // change for a caller that does not pass this parameter. Appended as a
+    // new trailing defaulted parameter, after coverageCallback, the same
+    // "new optional capability, new trailing default parameter, existing
+    // call sites keep compiling unchanged" shape coverageCallback itself
+    // was added with (WU-22c) -- confirmed this session, not assumed: this
+    // repository's own three existing CaptureConsumer construction call
+    // sites (tests/test_decklink_capture_consumer.cpp,
+    // tests/test_decklink_live_output.cpp,
+    // tests/test_decklink_live_sphere.cpp) need no change for this unit.
     CaptureConsumer(CaptureFrameRing& ring, Lattice lattice, PipelineParams params,
                      video::DeinterlaceCoefficients coeffs,
-                     CoverageCallback coverageCallback = nullptr);
+                     CoverageCallback coverageCallback = nullptr,
+                     BackSourceCallback backSource = nullptr);
     ~CaptureConsumer();
 
     CaptureConsumer(const CaptureConsumer&) = delete;
@@ -276,6 +340,7 @@ private:
     const PipelineParams m_params;
     const std::size_t m_dstRowBytes;
     const CoverageCallback m_coverageCallback;  // WU-22c; null unless caller opts in
+    const BackSourceCallback m_backSource;      // WU-33c3; null unless caller opts in
 
     // WU-23b2b (ADR-080): this consumer's own owned Deinterlacer -- one
     // instance for this object's whole lifetime, not two (ADR-080's own

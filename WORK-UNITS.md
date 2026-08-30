@@ -3188,52 +3188,21 @@ compiling, any check passing, any real capture happening — has been
 confirmed by this or any prior session. Device-bridge hand-off only; do not
 claim any of this works until Steve has built, run, and confirmed it at his
 own real terminal.**
-### WU-33c3 — wire the front `CaptureConsumer` to an optional back-source producer (WU-33c2a/WU-33c2b), setting a real `PipelineParams::backSrc` per frame `todo`
-**Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094; WU-33c2's own dependency amended and split into WU-33c2a/WU-33c2b this session (Session 79), see ADR-095 -- the `std::function<OwnedSourceRaster()>` callable shape this unit's own wiring is expected to take is decided there, not here.**
-Gives the front `CaptureConsumer` (WU-21b) an optional, non-owning pointer to
-a WU-33c2 back consumer (caller-owned, must outlive the front consumer — the
-same convention `ring` already documents on `CaptureConsumer`'s own
-constructor), and at the top of each `processOne()`, when set, snapshots its
-current `SourceRaster` under WU-33c2's own mutex into a local
-`OwnedSourceRaster` and sets `callParams.backSrc` to point at it before
-calling `runFrameBytesDeinterlaced()` — mirroring the existing
-`m_lattice`/`m_manualTransp` snapshot-under-dedicated-mutex pattern already
-in that function exactly, not a new shape.
+### WU-33c3 — wire the front `CaptureConsumer` to an optional back-source producer (WU-33c2a/WU-33c2b), setting a real `PipelineParams::backSrc` per frame `todo` — written this session, not built
 
-**A real risk this note names explicitly, not to be missed the way
-CORRECTIONS.md C-028 already found once for this exact class:**
-`CaptureConsumer` is constructed directly at three real call sites, not only
-in `tests/test_decklink_capture_consumer.cpp` —
-`tests/test_decklink_live_output.cpp` and `tests/test_decklink_live_sphere.cpp`
-also construct it directly (grepped directly this session, not assumed) — a
-constructor-signature change here must account for all three, the same miss
-C-028 already logged once for a different `CaptureConsumer` constructor
-change (WU-23b2b). Whoever picks this up should re-grep for
-`CaptureConsumer consumer(` (not just `CaptureConsumer(` — the space before
-the variable name defeats a naive grep, also confirmed directly this
-session) against the real current tree before writing a `Files:` line,
-rather than trust this note's own three-site count to still be complete.
+**Re-derived against the real current code this session (Session 81) — this note's own prior sketch (Session 78, before the WU-33c2a/WU-33c2b split) named a non-owning pointer to a single WU-33c2 back consumer; not trusted, per this note's own explicit instruction. See `DECISIONS.md` ADR-097 for the full account, not repeated in full here.** Confirmed by direct grep this session, not assumed: still exactly three `CaptureConsumer consumer(` construction call sites (`tests/test_decklink_capture_consumer.cpp`, `tests/test_decklink_live_output.cpp`, `tests/test_decklink_live_sphere.cpp`) — the same three `CORRECTIONS.md` C-028 already flagged once for a different `CaptureConsumer` constructor change (WU-23b2b). None of the three needed to change for this unit (see Files, below) — a deliberate design choice this session made, not a coincidence.
 
-**Files (estimate, to be re-derived):** `src/io/decklink_capture_consumer.hpp`/
-`.cpp` (2, already at WU-33c1's own untouched state) plus whichever of the
-three call sites above actually need a change once the real constructor
-shape is decided (likely at least
-`tests/test_decklink_capture_consumer.cpp`) — already at or past the 3-file
-cap before a dedicated test; whoever picks this up should check whether this
-needs its own further split (WU-33c3a/WU-33c3b) the same way this note's own
-parent, WU-33c, was split this session. Depends on WU-33c2a and/or WU-33c2b
-(DECISIONS.md ADR-095 split the single WU-33c2 this note originally
-depended on into two sibling producers behind one
-`std::function<OwnedSourceRaster()>` shape — see that ADR for the exact
-signature).
+**Written this session: `CaptureConsumer::BackSourceCallback`, a new optional constructor parameter and member, plus `processOne()`'s own new per-frame snapshot logic.** Two real design questions this session's own re-derivation resolved, both logged in full in `DECISIONS.md` ADR-097:
 
-**Accept:** provisional — real-hardware, by-eye/log-based (no automated test
-can observe two independent SDI feeds without the hardware attached): with
-both a front and a back UltraStudio input connected, `CaptureConsumerStats`
-or a similar counter confirms both consumers are processing frames, and a
-rotating self-folding lattice (mirroring
-`tests/test_decklink_live_sphere.cpp`'s own sphere) visibly shows different
-content on its front and back faces. Device-bridge hand-off only.
+- **Callable shape widened to `std::function<std::optional<OwnedSourceRaster>()>`, not the plain `std::function<OwnedSourceRaster()>` DECISIONS.md ADR-095 fixed.** Reconciles `FileBackSource::currentSourceRaster()` (WU-33c2a, always populated) and `DeckLinkBackSource::currentSourceRaster()` (WU-33c2b, `std::optional`, possibly empty before the first captured frame) behind one member: a `std::nullopt` result for a given frame leaves that frame's own `callParams.backSrc` at its existing default, `nullptr` — the same "no back source configured" state every existing `PipelineParams::backSrc` caller already exercises today (ADR-092/093), not a new code path. `FileBackSource`'s own never-fails accessor is trivially wrapped at the call site (`[&file]{ return std::optional<OwnedSourceRaster>(file.currentSourceRaster()); }`); the reverse direction was considered and rejected — see ADR-097.
+- **Constructor parameter: a `BackSourceCallback` member (a `std::function`), not a non-owning pointer or reference to a WU-33c2 producer.** Mirrors `CoverageCallback`'s own already-established shape (WU-22c, ADR-058) exactly: appended as a new trailing defaulted parameter (`= nullptr`), after `coverageCallback` — the same "new optional capability, new trailing default parameter" shape `coverageCallback` itself was added with, so none of this repository's own three existing `CaptureConsumer` construction call sites need to change for this unit. See ADR-097 for the rejected pointer/reference alternatives.
+
+A new `backSourceQueried` counter (`CaptureConsumerStats`) was added alongside — incremented once per `processOne()` call in which `m_backSource` is set and invoked, regardless of the result — giving this unit's own new test (below) a real, automatable signal that the wiring fired for a real popped frame, without needing a second physical/logical capture device or a self-folding lattice (an identity lattice never produces a back-facing sample at all, so a pixel-level before/after comparison would be vacuous here — see the test's own header comment).
+
+**Files:** `src/io/decklink_capture_consumer.hpp`/`.cpp` (2 — modified, not new; `BackSourceCallback`, the new constructor parameter/member, `backSourceQueried`, and `processOne()`'s own new snapshot logic). `tests/test_decklink_capture_consumer.cpp` (modified, doesn't count against the cap — new `test_capture_consumer_queries_wired_back_source()`). No `CMakeLists.txt` change: confirmed by direct re-read this session, not assumed — `test_decklink_capture_consumer` already links both `scatter-decklink` and `scatter-core`, and `src/io/file_back_source.cpp` (WU-33c2a) already builds into `scatter-core`, so this unit's own new test needs no new registration. Comfortably inside the 3-source-file cap (2 of 3 used) — **no split into WU-33c3a/WU-33c3b needed**; the file-cap check this note's own prior session flagged as open is answered: no.
+
+**Accept — written this session, NONE of it run or confirmed (DeckLink-linked, device-bridge hand-off only, same limitation as WU-33c2b):** two checks added to `tests/test_decklink_capture_consumer.cpp`'s own existing real-hardware test executable — (1) `backSourceQueried <= framesPopped`, unconditionally; (2) `backSourceQueried >= framesProcessed + framesStreamStart`, unconditionally (both hold trivially at zero on a no-signal run, and become a real assertion once a frame is actually processed). Wires a real `FileBackSource` (WU-33c2a, a static black frame — content doesn't matter, only that the callback fires) into a real `CaptureConsumer` against the front UltraStudio input alone — **no second capture-capable device needed for this unit's own Accept**, deliberately, unlike the demo-shaped criterion this note's own prior sketch (Session 78) carried before the WU-33c2a/WU-33c2b split. **Explicitly NOT covered, left to WU-33c4 (its own already-scoped job):** a real, observable, two-live-feed demo — a rotating self-folding lattice showing genuinely different content on its front and back faces, which needs a folded lattice (an identity lattice never selects a back-facing sample) and, for the `DeckLinkBackSource` half specifically, a second real capture-capable input Steve's own hardware may or may not currently enumerate (`HANDOFF.md`'s own Session 79/80 entries — still unanswered as of this session). **No part of this — the code compiling, either check passing, any real capture happening — has been confirmed by this or any prior session. Do not claim any of this works until Steve has built, run, and confirmed it at his own real terminal.**
+
 
 ### WU-33c4 — wire WU-33c2a/WU-33c2b/WU-33c3 into a real, observable demo `todo`
 **Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094,
