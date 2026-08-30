@@ -10180,3 +10180,246 @@ logged as C-020/ADR-062 before this sweep, and closed by WU-28c," still
 incorrect for the same reason already found (the real-content gap wasn't
 actually closed until WU-35a4/WU-47). Left unfixed, outside this session's
 own scope — **now seven sessions running** (72 through 79).
+
+**ADR-096 — WU-33c2b re-derived and written: `DeckLinkBackSource`/
+`selectFormatDetectionCapableInput()` (`io/decklink_back_source.hpp`/`.cpp`),
+the Blackmagic capture-sub-device sibling of WU-33c2a's own `FileBackSource`.
+Selection mechanism decided (index and name, both supported). Deinterlace
+scoped out, named, not silently dropped. A real gap in ADR-095's own
+uniform-accessor contract found and left for WU-33c3. Written this session,
+not built, run, or confirmed against real hardware.**
+
+This session (Session 80) opened by verifying the real repository state
+directly rather than trusting the incoming prompt's account of it: `HEAD`
+and `origin/main` both `e1060ac` (WU-33c2a's own commit), matching the
+incoming prompt's primary expectation exactly — WU-33c2a is committed and
+pushed. Checked directly, not assumed: `wu-33c1-green` is now tagged on
+`1237415` (Steve ran the incoming prompt's own "what's next" step 1 from
+Session 79's `HANDOFF.md`); `wu-33c2a-green` itself is **not** yet tagged on
+`e1060ac` — a new instance of the same recurring pattern this project's own
+`HANDOFF.md` lineage keeps finding (Sessions 77/78/79 each found one to
+three units deep; this session finds one, on a different unit). No stale
+`.git/index.lock` this session — checked directly, none found.
+`HANDOFF.md` was the only dirty file at session start (Session 79's own
+draft), never itself a blocker per `SESSION-PROTOCOL.md`. `docs/wu-audit-
+2026-08.md` line 113 re-checked directly this session, still stale, same
+standing instruction Sessions 72-79 already followed — **now eight sessions
+running** (72 through 80) — named again below, not fixed, still outside this
+session's own scope.
+
+**Job: `WU-33c2b`, re-derived against the real current code before writing
+any `Files:`/`Accept:`, per `WORK-UNITS.md`'s own WU-33c2b note's explicit
+instruction not to trust its own sketch.** Read in full this session, not
+assumed from any prior session's own account: `src/io/decklink_device.hpp`/
+`.cpp` (WU-14, ADR-031), `src/io/decklink_input.hpp`/`.cpp` (WU-20b),
+`src/io/decklink_capture_consumer.hpp`/`.cpp` (WU-21b), `src/io/
+file_back_source.hpp`/`.cpp` (WU-33c2a, this unit's own sibling shape to
+match), `src/core/resolve.hpp`'s own `OwnedSourceRaster`/
+`unpackSourceRaster()` declarations, and all four test files that duplicate
+`firstFormatDetectionCapableInput()`. Confirmed by direct grep this
+session, not assumed: still exactly those four call sites
+(`tests/test_decklink_input.cpp`, `test_decklink_capture_consumer.cpp`,
+`test_decklink_live_output.cpp`, `test_decklink_live_sphere.cpp`) — grepped
+for the real pattern (`CaptureConsumer consumer(`, not the naive
+`CaptureConsumer(` CORRECTIONS.md C-028 already logged missing once) as
+well, confirming no fifth site exists yet. `io/decklink_device.hpp`/`.cpp`
+and `io/decklink_input.hpp`/`.cpp` both confirmed, by direct re-read, to
+need no change for this unit — reused exactly as Session 79's own ADR-095
+already found, re-confirmed rather than assumed stale.
+
+**Design decision 1: the selector supports both index and name, in one
+small struct, living in production code, not duplicated per test file.**
+`WORK-UNITS.md`'s own WU-33c2b note explicitly left "index, name, or both;
+where the selector itself lives" for whoever built this to decide. Decided
+this session: both. A caller who knows a stable ordering (or has only ever
+seen one device attached) can use `index`; a caller who wants a
+human-legible, driver-order-independent selection (a config file naming
+"UltraStudio 4K Mini" rather than "device 0") can use `nameSubstring`;
+`index`, when set, takes priority — an explicit numeric choice should never
+be silently overridden by a coincidental name match. A default-constructed
+selector (neither field set) reproduces today's `firstFormatDetectionCapable
+Input()` "first match" behaviour exactly, so this is a strict generalization,
+not a breaking change to any existing convention, even though this session
+does not migrate the four existing test files to call it (out of scope,
+not requested, and each of those four files' own local
+`firstFormatDetectionCapableInput()` continues to work unmodified).
+
+Placement: `io/decklink_back_source.hpp`/`.cpp`, not a `namespace {}` inside
+some future test or demo file the way `firstFormatDetectionCapableInput()`
+itself is duplicated per test translation unit. The reasoning for *that*
+existing duplication (`SESSION-PROTOCOL.md`'s own per-test-file isolation,
+cited throughout the WU-33c2 lineage) is specifically about tests not
+sharing fixtures with each other — it says nothing about production
+selection logic, and this new function has at least two genuine, non-test
+future callers already named in this project's own `WORK-UNITS.md`
+(WU-33c2b's own new test below, and WU-33c4's future command-line `--back-
+device` flag) — writing it once, in `io/`, where a real production call site
+can find and link it directly, is the correct reading of
+`SESSION-PROTOCOL.md`'s own anti-drift rule 2 ("never rename or refactor
+across module boundaries") applied to a genuinely new piece of shared
+surface, not an existing one.
+
+`io/decklink_device.hpp`/`.cpp` (WU-14) was considered and rejected as this
+function's own home: Session 79's own ADR-095 already confirmed that file's
+scope stops at enumeration and capability queries, with no
+`EnableVideoInput()`/stream-opening call anywhere in it — `QueryInterface`-
+ing for `IDeckLinkInput` to hand back to a caller (this function's own job)
+is arguably still just a capability query, but `HANDOFF.md`'s own incoming-
+prompt briefing for this session explicitly reconfirmed
+`io/decklink_device.hpp`/`.cpp` as untouched, and this project's own
+"untouched, deliberately" convention (every ADR in this lineage names files
+it read but did not edit) is read the same way here: a file already
+confirmed correct and complete for its own stated scope is left alone
+rather than grown to host a second, related-but-distinct concern.
+
+**Design decision 2: `DeckLinkBackSource` mirrors `CaptureConsumer`'s own
+shape exactly — caller-owned `CaptureFrameRing&`, not an internally-owned
+ring bundling `CaptureSource` inside it.** Considered and rejected: a single
+class internally constructing and owning both the `CaptureSource` and the
+consumer thread, exposing only `currentSourceRaster()` — closer to
+`FileBackSource`'s own fully self-contained shape (nothing external to
+construct or wire together). Rejected because the front side's own
+existing `CaptureSource`/`CaptureConsumer` split is deliberate, documented
+precedent (`io/decklink_capture_consumer.hpp`'s own file comment: "Consumer-
+thread ownership/lifetime is entirely independent of CaptureSource's own...
+The two objects share only the CaptureFrameRing between them") — bundling
+would diverge from that precedent for no functional benefit this unit's own
+job needs, and would require either wrapping `CaptureSource::create()`'s own
+already-tested construction logic a second time or changing its own
+signature, neither of which this unit's re-derivation found any reason to
+do. Mirroring the existing split exactly means `io/decklink_input.hpp`
+needs zero changes and every existing caller's own two-object construction
+pattern (seen in all four existing DeckLink test files) extends naturally:
+construct `CaptureSource` and `DeckLinkBackSource` against the same ring,
+exactly the way a caller already constructs `CaptureSource` and
+`CaptureConsumer` against the same ring today.
+
+**Design decision 3: deinterlace is out of scope for this unit, named
+explicitly, not silently dropped.** `WORK-UNITS.md`'s own WU-33c2b note left
+this "an open question this note does not resolve." Re-derived directly
+against `core/resolve.hpp`/`core/pipeline.cpp` this session (read in full,
+not assumed): `unpackSourceRaster()` (WU-33c1) reproduces only
+`runFrameBytes()`'s own first three steps (v210 unpack, chroma upsample, RGB
+boundary conversion) — the deinterlace step `runFrameBytesDeinterlaced()`
+has is a fourth step, inserted between chroma upsample and RGB conversion,
+that `unpackSourceRaster()` simply does not have. Giving `DeckLinkBackSource`
+deinterlaced output would need a new core-level function (something like
+`unpackSourceRasterDeinterlaced(Deinterlacer&, ...)`, mirroring
+`runFrameBytesDeinterlaced()`'s own false-on-stream-start contract) — a real
+`core/resolve.hpp`/`core/pipeline.cpp` change, itself sandbox-buildable-and-
+testable (unlike this unit's own `io/` files), but genuinely separate scope:
+`SESSION-PROTOCOL.md`'s own work-unit-sizing rule ("at most 3 source files
+plus its test") is already spent by this unit's own two new `io/` files:
+adding a `core/` change on top would mean touching a third and fourth file
+for one unit, plus its own dedicated core-level test, well past a single
+session's own sizing discipline. Decided: named here as a real, visible
+limitation (genuinely interlaced back content will show real comb artifacts
+through this producer) rather than silently built without it — the same
+"named, split out, not silently expanded" resolution `WU-33c2a`'s own
+looped-playback question already received one level up (ADR-095). A future
+sibling unit (not numbered this session) is the right place for a
+deinterlaced back source, once core-level appetite for a second
+`Deinterlacer`-driven unpack function is actually decided against the real
+code then.
+
+**Design decision 4 — a real gap found, not resolved here, in ADR-095's own
+signature contract.** ADR-095 fixed every back-source producer's accessor
+at a uniform `std::function<OwnedSourceRaster()>` — no `std::optional`, no
+"not ready yet" case — reasoned from `FileBackSource`'s own always-ready-
+after-construction shape (its `create()` factory itself fails, returning
+`std::nullopt`, if the static file can't be read, so a live `FileBackSource`
+instance is *never* in a "constructed but no frame yet" state). Designing
+`DeckLinkBackSource` this session surfaced a genuine gap that shape hid: a
+live capture producer's `start()` returns immediately, before any frame has
+necessarily arrived over the wire (format detection, cable state — this
+project's own existing capture tests already document "stats().
+framesProcessed may legitimately stay at zero" as an honest, non-error
+state, `test_decklink_input.cpp`'s own header comment), and
+`OwnedSourceRaster` has no default constructor (`core/resolve.hpp`'s own
+comment on why: its `RasterRGB` member is sized from width/height at
+construction, with no "empty" state to default to) — so there is no value
+`DeckLinkBackSource::currentSourceRaster()` could return, before the first
+frame, that would honestly satisfy the plain `OwnedSourceRaster` return type
+ADR-095 fixed. Resolved for this unit's own header by returning
+`std::optional<OwnedSourceRaster>` instead — an honest, logged divergence
+from both `FileBackSource`'s own signature and the literal
+`std::function<OwnedSourceRaster()>` shape ADR-095 named — deliberately
+**not** reconciled with that shape here: WU-33c3 is the unit that actually
+holds a `std::function<OwnedSourceRaster()>` member and calls it once per
+front frame (`WORK-UNITS.md`'s own WU-33c3 note), and is correctly
+positioned to decide what "the back source is not ready yet" should mean
+for the front pipeline (skip back-compositing that frame entirely? hold the
+last successfully captured frame indefinitely, the same "stale but real"
+choice `DeckLinkBackSource::currentSourceRaster()` itself already makes
+after the first frame? something else?) — a decision this single-producer
+unit should not make unilaterally on `DeckLinkBackSource`'s own behalf, the
+same "re-derive, do not assume this note's own sketch still matches"
+discipline this whole `WU-33c2`-descended lineage already follows for every
+other open question along the way.
+
+**Written this session, confirmed byte-for-byte identical after the write:**
+`src/io/decklink_back_source.hpp` (new), `src/io/decklink_back_source.cpp`
+(new), `tests/test_decklink_back_source.cpp` (new), `CMakeLists.txt`
+(modified — registers the new `scatter-decklink` source file and the new
+`test_decklink_back_source` executable inside the existing
+`BLACKMAGIC_SDK_DIR` guard, each replacement asserted unique via a Python
+read-modify-write script before being applied, the same discipline WU-33c2a's
+own session already used for its own doc edits). All four files written into
+the real repository via the device bridge, then re-read from there and
+`md5`-compared against this session's own cloud-workspace copies — identical.
+
+**Not built, not run, not confirmed against real hardware, by this or any
+prior session.** DeckLink-linked (`#include "DeckLinkAPI.h"`): cannot be
+built in the cloud sandbox (no `BLACKMAGIC_SDK_DIR`, no Cocoa) or in the
+device bridge's own Linux VM (`device_bash`: bare `g++`, no `cmake`/`ninja`/
+`clang`, not macOS) — reconfirmed directly this session, not assumed, the
+same limitation every DeckLink-linked unit in this project already has.
+This session's own cloud-sandbox `git clone` of `origin` (confirmed working
+for the first time last session, Session 79) was not needed this session —
+nothing this unit produced is sandbox-buildable, so there was nothing to
+verify that way; `HEAD`/`origin/main` state was confirmed via `git fetch`/
+`git log`/`git rev-parse` against the real repository directly instead. Not
+a substitute for a real build: Steve's own real-terminal `close.sh` run
+(after confirming the multi-device question below, if he wants to exercise
+check 4 for real) is the first time any of this session's own C++ will
+actually compile.
+
+**Real multi-device confirmation still outstanding, unchanged from Session
+79's own flag.** `HANDOFF.md`'s own Session 79 entry already asked whether
+Steve's actual hardware setup currently enumerates more than one capture-
+and-format-detection-capable device or sub-device at all; this session could
+not check this either (no hardware access from either the cloud sandbox or
+the device bridge's own Linux VM) and does not answer it here. This unit's
+own test (`tests/test_decklink_back_source.cpp`) checks the selection
+*mechanism* honestly against whatever `enumerateDeckLinkDevices()` reports
+on whatever machine runs it — correctly passing on a single-device machine —
+but a genuine two-real-devices confirmation needs that question answered
+first, and a second check written then, against the real enumeration output
+on that machine, not invented here without hardware to confirm it against.
+
+**`docs/wu-audit-2026-08.md` line 113 re-checked directly this session, not
+fixed, same standing instruction Sessions 72-79 already followed** — still
+reads "The real-content gap (single tag per call) was already found and
+logged as C-020/ADR-062 before this sweep, and closed by WU-28c," still
+incorrect for the same reason already found (the real-content gap wasn't
+actually closed until WU-35a4/WU-47). Left unfixed, outside this session's
+own scope — **now eight sessions running** (72 through 80).
+
+**Untouched, deliberately.** `INVARIANTS.md` (not touched, not read for a
+change — no invariant this session's own work bears on; grepped for
+`DeckLink`/`CaptureSource`/`CaptureConsumer` this session to confirm
+directly, not assumed — no match). `ADR-059/062/065/069/070/072/073/074/
+077/082/083/084/085/086/087/088/089/090/091/092/093/094/095` (not reopened;
+this session's own work is a new ADR, 096, not a revision of any of these).
+`CORRECTIONS.md` (no new entry — nothing wrong was found in the repository
+this session). `io/decklink_device.hpp`/`.cpp`, `io/decklink_input.hpp`/
+`.cpp`, `io/decklink_capture_consumer.hpp`/`.cpp`: read in full this
+session, confirmed to need no change (see design decisions above) — not
+edited. `io/file_back_source.hpp`/`.cpp` (WU-33c2a): read in full as this
+unit's own sibling shape to match — not edited.
+`core/binner.hpp`/`.cpp`, `core/resolve.hpp`, `core/pipeline.cpp`: read in
+part (the `OwnedSourceRaster`/`unpackSourceRaster()` section of
+`core/resolve.hpp`, and `runFrameBytesDeinterlaced()`'s own body in
+`core/pipeline.cpp`, to settle the deinterlace question above) — not
+edited; this unit's whole footprint is two new `io/` files plus one new test
+plus `CMakeLists.txt`.

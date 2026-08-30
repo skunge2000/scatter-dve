@@ -494,6 +494,7 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
         src/io/decklink_input.cpp
         src/io/decklink_capture_consumer.cpp
         src/io/decklink_live_output.cpp
+        src/io/decklink_back_source.cpp
         "${BLACKMAGIC_SDK_DIR}/Mac/include/DeckLinkAPIDispatch.cpp")
     target_include_directories(scatter-decklink PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -573,6 +574,17 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_capture_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_capture_consumer COMMAND test_decklink_capture_consumer)
 
+    # WU-33c2b (DECISIONS.md ADR-096) — test_decklink_back_source.cpp exercises
+    # both scatter-decklink (selectFormatDetectionCapableInput(),
+    # DeckLinkBackSource, CaptureSource, device enumeration) and scatter-core
+    # (unpackSourceRaster()/OwnedSourceRaster, WU-33c1) — the same dual-link
+    # reason test_decklink_capture_consumer immediately above already has.
+    # Real-hardware, device-bridge hand-off only; not built this session.
+    add_executable(test_decklink_back_source tests/test_decklink_back_source.cpp)
+    target_link_libraries(test_decklink_back_source PRIVATE scatter-decklink scatter-core)
+    target_include_directories(test_decklink_back_source PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME test_decklink_back_source COMMAND test_decklink_back_source)
+
     # WU-21c — test_decklink_live_output.cpp exercises both scatter-decklink
     # (CaptureSource, CaptureConsumer, LiveFramePlayback, device enumeration)
     # and scatter-core (Lattice, PipelineParams — building the identity
@@ -601,7 +613,7 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_live_sphere PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_live_sphere COMMAND test_decklink_live_sphere)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_live_output and test_decklink_live_sphere configured")
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_back_source, test_decklink_live_output and test_decklink_live_sphere configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()

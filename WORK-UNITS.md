@@ -3077,82 +3077,117 @@ bridge, then re-staged and diffed byte-for-byte against the cloud sandbox's
 own working copy — identical. See `HANDOFF.md` for the exact commands and
 why Steve's own real-terminal run is still the final word regardless.
 
-### WU-33c2b — a Blackmagic capture-sub-device as another pluggable back-source producer, selected generically (not "device 1 vs device 2") `todo`
-**Split from the amended WU-33c2 this session (Session 79) — see
-`DECISIONS.md` ADR-095.** `io/decklink_input.hpp`/`.cpp`'s own `CaptureSource`
-(WU-20b) is already source-agnostic and reusable as-is — nothing
-instance-specific or static blocks constructing a second one against a
-second `IDeckLinkInput`/`CaptureFrameRing` pair; re-confirmed by direct
-re-read this session, not assumed. What does not already exist is a
-*consumer* shaped for a "back" source: unlike `io/decklink_capture_consumer.hpp`'s
-own `CaptureConsumer` (WU-21b), which runs the whole front-side pipeline
-(unpack, deinterlace, warp via `runFrame()`, v210 pack) to produce its own
-output bytes, a back-side consumer only ever needs to become a
-`PipelineParams::backSrc` for the *front* consumer — it should stop at
-producing an owned `SourceRaster` per captured frame, via WU-33c1's own
-`unpackSourceRaster()`, never calling `runFrame()`/`runFrameBytes()` at all.
-This half of the design is unchanged from WU-33c2's own original note.
+### WU-33c2b — a Blackmagic capture-sub-device as another pluggable back-source producer, selected generically (not "device 1 vs device 2") `todo` — written this session, not built
+**Split from the amended WU-33c2 (Session 79) — see `DECISIONS.md` ADR-095.
+Re-derived against the real current code and written this session (Session
+80) — see `DECISIONS.md` ADR-096 for the full account, not repeated in full
+here.** Confirmed by direct re-read this session, not assumed:
+`io/decklink_device.hpp`/`.cpp` (WU-14, ADR-031) and `io/decklink_input.hpp`/
+`.cpp`'s own `CaptureSource`/`CaptureFrameRing` (WU-20b) needed no change —
+both reused exactly as-is. Confirmed by direct grep this session, not
+assumed: still exactly four existing call sites of the duplicated
+`firstFormatDetectionCapableInput()` convention
+(`tests/test_decklink_input.cpp`, `test_decklink_capture_consumer.cpp`,
+`test_decklink_live_output.cpp`, `test_decklink_live_sphere.cpp`) — this
+unit adds no fifth call site to that list; it generalizes the mechanism
+itself instead (see below).
 
-**What the amendment changes: where this consumer's own `IDeckLinkInput`
-comes from.** Confirmed by direct grep this session, not assumed: every real
-caller in this repository (`tests/test_decklink_input.cpp`,
-`test_decklink_capture_consumer.cpp`, `test_decklink_live_output.cpp`,
-`test_decklink_live_sphere.cpp`) obtains its own `IDeckLinkInput` via one
-small free function, `firstFormatDetectionCapableInput()`, independently
-duplicated in all four files, which linearly scans
-`io/decklink_device.hpp`'s own `enumerateDeckLinkDevices()` output (WU-14,
-ADR-031) and returns the *first* `DeviceInfo` that supports both capture and
-input format detection — exactly the "device 1 vs device 2" framing the
-amendment asks to move past. `enumerateDeckLinkDevices()` itself needs no
-change: the SDK's own `IDeckLinkIterator` already returns one entry per
-independent capture-capable sub-device on a card, and per physically
-distinct device, indistinguishably — a card with two capture paths and a
-system with two separate capture-capable devices both already show up as
-two entries in the same `std::vector<DeviceInfo>`. The change this unit
-needs is a selection mechanism at the *call site*: given
-`enumerateDeckLinkDevices()`'s own filtered results, let a caller pick by
-zero-based index or by a `modelName`/`displayName` substring match
-(`DeviceInfo` already carries both) rather than always taking the first
-match — exact shape (index, name, or both; where the selector itself lives)
-left for whoever picks this up to decide against the real code then, per
-this project's own "re-derive, do not assume this note's own sketch still
-matches" convention.
+**Written this session: `io/decklink_back_source.hpp`/`.cpp`**, containing
+two things:
 
-Whoever picks this up should also re-derive the consumer's own shape against
-the real current `io/decklink_capture_consumer.hpp`/`.cpp` (WU-33c1's own
-files, by then possibly further changed) rather than assume this note's own
-sketch still matches, the same instruction WU-33b's own note already gave
-and WU-33c1 followed for the files it touched. A reasonable first sketch,
-not binding: mirror `CaptureConsumer`'s own consumer-thread/ring-drain/
-StartAccess-GetBytes-EndAccess shape (`processOne()`) but call
-`unpackSourceRaster()` in place of `runFrameBytesDeinterlaced()`, storing the
-result behind its own dedicated mutex (mirroring
-`CaptureConsumer::m_latticeMutex`/`m_manualTranspMutex`'s own "each piece of
-cross-thread state gets its own lock" convention), exposing its own
-`currentSourceRaster()` matching the exact `std::function<OwnedSourceRaster()>`
-shape WU-33c2a above establishes, so WU-33c3 can hold either producer
-identically. Whether this back consumer also owns a `video::Deinterlacer`
-(for consistency with the front side) or skips deinterlace entirely remains
-an open question this note does not resolve.
+1. `selectFormatDetectionCapableInput(devices, selector = {})` — the
+   selection mechanism WU-33c2's own note left open. Re-derived this
+   session's own call to make (not scoped further by ADR-095): supports
+   *both* zero-based index and `modelName`/`displayName` substring, via a
+   small `DeckLinkBackDeviceSelector{ std::optional<std::size_t> index;
+   std::string nameSubstring; }` — index takes priority when set. A
+   default-constructed selector reproduces today's existing "first match"
+   behaviour exactly, so every one of this repository's own four existing
+   call sites could adopt this function unchanged, verbatim-for-verbatim,
+   without changing behaviour (not done this session — out of this unit's
+   own scope, a separate future cleanup, not requested). Placed in
+   production code (`io/decklink_back_source.hpp`/`.cpp`), not duplicated
+   per test file the way `firstFormatDetectionCapableInput()` itself is:
+   unlike that function, this one has at least two real, non-test callers
+   already expected (this unit's own test, and WU-33c4's future
+   command-line flag, per that unit's own `WORK-UNITS.md` note), so it is
+   written once, reusably, where both can find it.
+2. `DeckLinkBackSource` — the back-side consumer, mirroring
+   `CaptureConsumer`'s own consumer-thread/ring-drain/StartAccess-GetBytes-
+   EndAccess shape (`processOne()`) exactly, per this note's own prior
+   sketch, but calling `unpackSourceRaster()` (WU-33c1) in place of
+   `runFrameBytesDeinterlaced()` and needing no `PipelineParams`/`Lattice`/
+   destination geometry at all (unpacking has none of `CaptureConsumer`'s
+   own warp-destination concerns) — takes a caller-owned `CaptureFrameRing&`
+   exactly the way `CaptureConsumer` already does, so a caller constructs
+   `CaptureSource::create(selectedInput, mode, ring)` and
+   `DeckLinkBackSource(ring)` against the same ring, mirroring every
+   existing front-side capture test's own two-object/one-shared-ring shape.
 
-**Files (estimate, to be re-derived, not binding):** two new,
-`src/io/decklink_back_capture_consumer.hpp`/`.cpp` — DeckLink-linked
-(includes `DeckLinkAPI.h`), cannot be built or tested in the cloud sandbox
+**Two real design questions this session's own re-derivation resolved,
+both logged in full in `DECISIONS.md` ADR-096:**
+
+- **Deinterlace: deliberately out of scope, not silently dropped.**
+  `unpackSourceRaster()` (WU-33c1) has no `video::Deinterlacer` hook of its
+  own — confirmed by direct re-read of `core/resolve.hpp`/`core/pipeline.cpp`
+  this session. Adding one would mean a new core-level function
+  (`core/resolve.hpp`/`core/pipeline.cpp`, real scatter-core surface, not a
+  device-bridge-only `io/` addition) well past this unit's own two-new-file
+  budget. `DeckLinkBackSource` therefore produces genuinely interlaced
+  (combed) output on a genuinely interlaced back signal until a follow-on
+  unit exists (not numbered this session) — named here, the same "static
+  frame only, looped playback is a later unit" shape WU-33c2a's own note
+  already used for its own scope limit, not a silent gap.
+- **`currentSourceRaster()` returns `std::optional<OwnedSourceRaster>`, not
+  the plain `OwnedSourceRaster` DECISIONS.md ADR-095 fixed for every
+  back-source producer.** `FileBackSource` (WU-33c2a) can always satisfy the
+  plain shape because `create()` itself fails if the static file can't be
+  read — a live `FileBackSource` always already holds a real frame. A live
+  DeckLink producer has no equivalent guarantee: `start()` returns before
+  any frame has necessarily arrived, and `OwnedSourceRaster` has no default
+  constructor to fabricate a placeholder from. This is a genuine gap in
+  ADR-095's own uniform-signature contract, only visible once a second,
+  live-capture-based producer was actually designed — left for WU-33c3 (the
+  unit that calls this accessor) to reconcile with the fixed
+  `std::function<OwnedSourceRaster()>` shape, not resolved here.
+
+**Files — written this session, not binding on WU-33c3/WU-33c4's own
+future call sites:** `src/io/decklink_back_source.hpp` (new),
+`src/io/decklink_back_source.cpp` (new) — DeckLink-linked (includes
+`DeckLinkAPI.h`), cannot be built or tested in the cloud sandbox
 (`BLACKMAGIC_SDK_DIR`/Cocoa) or in the device bridge's own Linux VM (bare
-`g++`, no Blackmagic SDK, not macOS). Depends on WU-33c1.
+`g++`, no Blackmagic SDK, not macOS) — confirmed again this session.
+`tests/test_decklink_back_source.cpp` (new, doesn't count against the cap).
+`CMakeLists.txt` (registers the new `scatter-decklink` source file and the
+new test executable inside the existing `BLACKMAGIC_SDK_DIR` guard, doesn't
+count against the cap). Depends on WU-33c1 (already `green`).
 
-**Accept:** provisional — a new test file
-(`tests/test_decklink_back_capture_consumer.cpp`, real hardware required,
-same as `tests/test_decklink_capture_consumer.cpp`) exercising this class in
-isolation (captures real frames, produces owned `SourceRaster`s, does not by
-itself change what any existing demo displays); a second, explicit check
-that the selection mechanism actually distinguishes two real sub-devices or
-two real physical devices when both are attached — not confirmed against
-real multi-device/multi-sub-device hardware by this or any prior session; do
-not claim this works until Steve has run it and said so. No automated check
-possible without the real hardware attached, same limitation every
-DeckLink-linked unit in this project already has. Device-bridge hand-off
-only.
+**Accept — written this session, NONE of it run or confirmed:** four checks
+in `tests/test_decklink_back_source.cpp` — (1) a default-constructed
+selector matches this repository's own existing
+`firstFormatDetectionCapableInput()` convention exactly; (2) explicit index
+0 matches the same first match; (3) an out-of-range index returns a null
+`ComPtr`; (4) real-hardware bounded 5-second run — `DeckLinkBackSource`
+starts/stops cleanly and its own `framesPopped`/`framesProcessed`/
+`framesFailed` accounting invariant holds, warning rather than failing if
+zero frames were processed (no signal), the same convention
+`test_decklink_capture_consumer.cpp` already uses. **Explicitly NOT
+covered:** a genuine multi-device/multi-sub-device confirmation that the
+selector actually distinguishes two real capture-capable entries when both
+are attached — this session could not confirm whether Steve's own machine
+currently enumerates more than one such entry at all (`HANDOFF.md`'s own
+Session 79 entry already flagged this as unanswered, still unanswered);
+checks 1-3 exercise the selection mechanism honestly against whatever
+`enumerateDeckLinkDevices()` reports on whatever machine runs them,
+correctly passing on a single-device machine without proving multi-device
+selection specifically. Whoever runs this with two such devices physically
+attached should add that check then, against the real
+`enumerateDeckLinkDevices()` output on that machine — not invented here
+without hardware to confirm it against. **No part of this — the code
+compiling, any check passing, any real capture happening — has been
+confirmed by this or any prior session. Device-bridge hand-off only; do not
+claim any of this works until Steve has built, run, and confirmed it at his
+own real terminal.**
 ### WU-33c3 — wire the front `CaptureConsumer` to an optional back-source producer (WU-33c2a/WU-33c2b), setting a real `PipelineParams::backSrc` per frame `todo`
 **Split from WU-33c this session (Session 78) — see `DECISIONS.md` ADR-094; WU-33c2's own dependency amended and split into WU-33c2a/WU-33c2b this session (Session 79), see ADR-095 -- the `std::function<OwnedSourceRaster()>` callable shape this unit's own wiring is expected to take is decided there, not here.**
 Gives the front `CaptureConsumer` (WU-21b) an optional, non-owning pointer to
