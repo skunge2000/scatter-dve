@@ -4,8 +4,11 @@
 // Monitor 3G output — the same "wire the already-built mechanism into
 // something visible" split WU-28d/WU-35a2 already used once each
 // (DECISIONS.md ADR-094 split this unit out of WU-33c for exactly that
-// reason). See DECISIONS.md ADR-098 for the full design account; the
-// load-bearing points are repeated here, close to the code they explain.
+// reason). See DECISIONS.md ADR-098 for the original design account and
+// ADR-099 for this same-session follow-up (interactive keyboard controls,
+// added at Steve's own request after his first real-terminal run); the
+// load-bearing points from both are repeated here, close to the code they
+// explain.
 //
 // **Scope, decided this session, not assumed from WORK-UNITS.md's own
 // prior sketch (Session 78, written before WU-33c2a/WU-33c2b/WU-33c3 had
@@ -14,68 +17,54 @@
 // front CaptureConsumer, alone. It does **not** wire
 // io/decklink_back_source.hpp's own DeckLinkBackSource (WU-33c2b) — that
 // needs a second, genuinely distinct capture-and-format-detection-capable
-// DeckLink input, which Sessions 79 through 82 have all been unable to
-// confirm Steve's own hardware actually enumerates (no session run so far
-// has had real hardware access to check enumerateDeckLinkDevices()'s own
-// output). That two-device half is real, separate, hardware-gated work,
+// DeckLink input. Steve confirmed this session that more than one such
+// device is enumerated on his own hardware, but which one is actually fed
+// is a separate, parked question (see HANDOFF.md) — this unit still does
+// not depend on it, and DeckLinkBackSource's own two-device demo stays
 // split out to its own sibling unit, WU-33c5 (WORK-UNITS.md), rather than
-// guessed at here or silently folded into this one — the same "named,
-// split out, not silently expanded" move this project's whole WU-33c
-// lineage has used at every prior fork (WU-33c1 off WU-33c, ADR-094;
-// WU-33c2a/WU-33c2b off WU-33c2, ADR-095).
+// guessed at here — the same "named, split out, not silently expanded"
+// move this project's whole WU-33c lineage has used at every prior fork.
 //
 // **Back-side content: a real WU-03 zone plate (tools/testpat.hpp),
 // generated and written to a temp .v210 file at startup, then read back
 // through FileBackSource::create() — not a solid colour.** Mirrors
-// tests/test_decklink_output.cpp's own writeWarpedTestFrame(), which
-// already uses exactly this generate-then-write-then-read-back shape for
-// its own front-side source. A zone plate is unmistakably not whatever
-// the live front feed happens to show, which is the actual point of this
-// unit's own by-eye Accept criterion — a solid colour (e.g.
-// video::packBlackFrame, WU-33c3's own test) risks coincidentally
-// matching a real signal's own average field, and proves nothing about
-// content by eye the way a zone plate's own rings do.
+// tests/test_decklink_output.cpp's own writeWarpedTestFrame(). A zone
+// plate is unmistakably not whatever the live front feed happens to show,
+// which is the actual point of this unit's own by-eye Accept criterion.
 //
-// **No keyboard interactivity, no CoverageWindow, no manualTransp/T-t
-// controls, and no kBufferMode/frontTag/backTag configuration.**
-// tests/test_decklink_live_sphere.cpp already owns the interactive letter-
-// key control surface (WU-21h/21i/22c/35a2/35a3) — duplicating it here
-// would not serve this unit's own job, which is the backSrc wiring proof,
-// not another control surface. And confirmed directly against the real
-// current code this session, not assumed: core/pipeline.cpp's own
-// runFrame()/runFrameField() forward params.backSrc to whichever of
-// core/binner.hpp's six generateFragments*() entry points they call
-// *unconditionally* — the plain, single-scalar-tag, kBufferMode==Off path
-// included (see core/pipeline.cpp's own comment above its PASS-1 call
-// sites, and generateFragments()'s own call at the bottom of runFrame()'s
-// threads<=1 branch: `generateFragments(lattice, src, params.maxK,
-// params.supersample, params.tag, bins, shadingGrid, params.backSrc)`).
-// backSrc substitution and k-buffer facing-tag/blend are two independent
-// mechanisms (core/binner.hpp's own file comment on backSrc says so
-// explicitly) — this unit needs only the former, so default
-// PipelineParams (kBufferMode already Off, tag already 0) is genuinely
-// enough; no special resolve-mode setup is a real finding this session
-// made, not an oversight.
+// **ADR-099 (this session's own follow-up): full interactive keyboard
+// control, ported from tests/test_decklink_live_sphere.cpp's own flag-off
+// (non-CoverageWindow) loop, at Steve's own explicit request after running
+// this demo for the first time.** ADR-098 originally left interactivity
+// out entirely, reasoning that this unit's own job was the backSrc wiring
+// proof, not another control surface, and that test_decklink_live_sphere.cpp
+// already owned that surface. In practice, being able to drive the sphere
+// by hand turned out to matter for actually watching the front/back
+// distinction (an unattended, fixed-speed automatic sweep is a worse way
+// to inspect a live effect than an operator steering it) — so this file
+// now carries its own copy of that control surface: Key/readKey()/
+// applyKey(), duplicated locally per SESSION-PROTOCOL.md rule 2 (one unit,
+// one test, no shared fixture across test translation units), not
+// extracted into a shared header. This file does **not** port
+// test_decklink_live_sphere.cpp's own CoverageWindow/--show-coverage
+// machinery (WU-22c) — that is a materially separate feature (a Cocoa
+// window, GCD dispatch sources) this unit has no need for, and porting it
+// unasked would be exactly the kind of silent scope expansion this
+// project's own conventions warn against. The original automatic sweep is
+// kept, not removed — it is now the non-interactive-terminal fallback (the
+// same "unattended is a real, honestly reportable state" convention
+// WU-21i established), rather than the primary path.
 //
-// **Rotation: automatic, one full 2*pi yaw sweep over kDemoSeconds, not
-// operator-driven.** The sphere lattice itself is
-// tests/test_decklink_live_sphere.cpp's own makeSphereLattice()/
-// rotateLattice(), duplicated locally per SESSION-PROTOCOL.md rule 2 (one
-// unit, one test, no shared fixture across test translation units — the
-// same convention every DeckLink test file in this project already
-// follows) — not a new shape. Confirmed directly this session, not
-// assumed: this sphere is a full pole-to-pole (kAngleSpanV == M_PI),
-// full-360-wrap (kAngleSpanH == 2*M_PI) closed shape, so at any single
-// orientation roughly half its own visible control vertices already
-// satisfy core/binner.hpp's own surfaceNormal(rawJ).z >= 0.0 back-facing
-// selection and roughly half do not — unlike WU-33c3's own test fixture,
-// a flat identity lattice, which never does. An automatic sweep, rather
-// than requiring an operator to drive rotation by hand, is this unit's
-// own explicit choice: it guarantees every region of the sphere's own
-// surface crosses the front/back boundary at least once during any single
-// run, which is what actually exercises this unit's own Accept criterion
-// (front and back showing genuinely different content) without depending
-// on Steve holding a cursor key down for the right duration.
+// **ADR-099 also adds `params.kBufferMode = Blend` and a live
+// `manualTransp`, seeded at 0** — without it, T/t (this file's own newly
+// ported controls) would change a variable with no visible effect
+// whatsoever: core/resolve.hpp's own compositeKBuffer() only runs its
+// Blend fold when kBufferMode != Off, independent of frontTag/backTag
+// (confirmed this session, not assumed — see ADR-099). frontTag/backTag
+// themselves are left at their PipelineParams default (both 0, i.e. no
+// facing-tag differentiation) — this unit's own backSrc-substitution proof
+// does not need it, only the Blend resolve itself, which is gated on
+// kBufferMode alone.
 //
 // Real-hardware setup: the same UltraStudio Recorder 3G SDI input / Monitor
 // 3G SDI output this whole live-demo lineage already uses (WU-21e/ADR-051
@@ -106,12 +95,16 @@
 
 #include "DeckLinkAPI.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <optional>
 #include <string>
 #include <thread>
+
+#include <termios.h>
+#include <unistd.h>
 
 using namespace scatter::io;
 
@@ -123,22 +116,31 @@ constexpr BMDDisplayMode kDisplayMode = bmdModePAL;
 constexpr int kWidth = 720;
 constexpr int kHeight = 576;
 
-// Sphere geometry: identical values to
+// Sphere geometry: identical initial values to
 // tests/test_decklink_live_sphere.cpp's own kInitialRadius/kInitialCenterX/
 // kInitialCenterY (WU-21g/21h) — this unit is not exploring a new shape,
 // only proving backSrc's own wiring against an already-confirmed-working
-// self-folding one.
-constexpr double kRadius  = 260.0;
-constexpr double kCenterX = double(kWidth) / 2.0;
-constexpr double kCenterY = double(kHeight) / 2.0;
+// self-folding one. Full pole-to-pole/360-wrap, unchanged from that file.
+constexpr double kInitialRadius  = 260.0;
+constexpr double kInitialCenterX = double(kWidth) / 2.0;
+constexpr double kInitialCenterY = double(kHeight) / 2.0;
+constexpr double kMinRadius = 20.0;
 constexpr double kAngleSpanH = 2.0 * M_PI;  // full 360 degrees, seamless
 constexpr double kAngleSpanV = M_PI;        // pole to pole, exact fold boundary
 
-// One full yaw sweep over this many seconds, then the demo ends cleanly on
-// its own — no operator input needed. Long enough to watch comfortably at
-// a real monitor; short enough not to overstay an unattended `ctest` run
-// (this project's own "unattended is a real, honestly reportable state"
-// convention, WU-21i) if this binary is ever invoked that way.
+// ADR-099: same step sizes as tests/test_decklink_live_sphere.cpp's own
+// (WU-21g/35a2) — this file's own control surface is a direct port, not a
+// reinterpretation, so the feel should match exactly.
+constexpr double kRotationStep = 0.05;   // radians per cursor keypress
+constexpr double kPositionStep = 10.0;   // output pixels per X/x/Y/y keypress
+constexpr double kRadiusStep   = 10.0;   // output pixels per Z/z keypress
+constexpr int kTranspStep = int(scatter::kWeightUnity) / 16;
+
+// Non-interactive-terminal fallback only (ADR-099 demoted this from the
+// primary path to the fallback) — one full yaw sweep over this many
+// seconds when stdin is not a real terminal (e.g. an unattended `ctest`
+// run), so this binary still does something observable rather than
+// hanging or silently sitting idle.
 constexpr double kDemoSeconds = 30.0;
 
 ComPtr<IDeckLinkInput> firstFormatDetectionCapableInput(const std::vector<DeviceInfo>& devices) {
@@ -168,40 +170,83 @@ ComPtr<IDeckLinkOutput> firstPlaybackCapableOutput(const std::vector<DeviceInfo>
 }
 
 // Duplicated from tests/test_decklink_live_sphere.cpp's own
-// makeSphereLattice() (SESSION-PROTOCOL.md rule 2) — same geometry, fixed
-// constants here instead of runtime-mutable ones, since this unit has no
-// operator controls of its own to change them.
-scatter::Lattice makeSphereLattice() {
+// makeSphereLattice() (SESSION-PROTOCOL.md rule 2) — radius/centerX/centerY
+// are runtime state now (ADR-099), not fixed constants, since this file has
+// its own operator controls to change them.
+scatter::Lattice makeSphereLattice(double radius, double centerX, double centerY) {
     scatter::shapes::SphereParams sp;
-    sp.radius     = kRadius;
+    sp.radius     = radius;
     sp.angleSpanH = kAngleSpanH;
     sp.angleSpanV = kAngleSpanV;
-    sp.centerX    = kCenterX;
-    sp.centerY    = kCenterY;
+    sp.centerX    = centerX;
+    sp.centerY    = centerY;
     return scatter::shapes::buildSphereLattice(sp);
 }
 
 // Duplicated from tests/test_decklink_live_sphere.cpp's own rotateLattice()
-// (SESSION-PROTOCOL.md rule 2) — rigid yaw-only rotation about the
-// sphere's own true 3D centre (pivotZ == kRadius, not 0 — CORRECTIONS.md
-// C-017: a rotation about a sphere's own true centre cannot produce
-// negative depth for any angle, since every control vertex is already
-// exactly kRadius from that centre by construction). base is not
-// modified; a fresh Lattice is returned.
-scatter::Lattice rotateLatticeYaw(const scatter::Lattice& base, double yaw) {
+// (SESSION-PROTOCOL.md rule 2) — rigid yaw-then-pitch rotation about
+// (pivotX, pivotY, pivotZ). base is not modified; a fresh Lattice is
+// returned.
+scatter::Lattice rotateLattice(const scatter::Lattice& base, double yaw, double pitch, double pivotX, double pivotY,
+                                double pivotZ) {
     scatter::Lattice out;
     const double cosYaw = std::cos(yaw), sinYaw = std::sin(yaw);
+    const double cosPitch = std::cos(pitch), sinPitch = std::sin(pitch);
+
     for (int row = 0; row < scatter::kLatticeSize; ++row) {
         for (int col = 0; col < scatter::kLatticeSize; ++col) {
-            scatter::Vec3 p = base.at(row, col);
-            p.x -= kCenterX;
-            p.z -= kRadius;
-            const double x = p.x * cosYaw + p.z * sinYaw;
-            const double z = -p.x * sinYaw + p.z * cosYaw;
-            out.at(row, col) = scatter::Vec3{x + kCenterX, p.y, z + kRadius};
+            const scatter::Vec3& p = base.at(row, col);
+            double x = p.x - pivotX;
+            double y = p.y - pivotY;
+            double z = p.z - pivotZ;
+
+            const double x1 = x * cosYaw + z * sinYaw;
+            const double z1 = -x * sinYaw + z * cosYaw;
+
+            const double y2 = y * cosPitch - z1 * sinPitch;
+            const double z2 = y * sinPitch + z1 * cosPitch;
+
+            scatter::Vec3& q = out.at(row, col);
+            q.x = x1 + pivotX;
+            q.y = y2 + pivotY;
+            q.z = z2 + pivotZ;
         }
     }
     return out;
+}
+
+// ADR-099: ported from tests/test_decklink_live_sphere.cpp's own Key enum,
+// unchanged.
+enum class Key { Up, Down, Left, Right, XInc, XDec, YInc, YDec, ZInc, ZDec, TInc, TDec, Quit, Unknown };
+
+// ADR-099: ported from tests/test_decklink_live_sphere.cpp's own readKey()
+// (its flag-off/non-CoverageWindow variant), unchanged — blocks for exactly
+// one logical keypress (which may be several raw bytes, for an
+// escape-sequence arrow key) and returns what it means. Plain arrows only
+// (no shift+arrow lookahead — that did not work on real hardware,
+// CORRECTIONS.md C-018).
+Key readKey() {
+    const int c = std::getchar();
+    if (c == EOF) return Key::Quit;  // stdin closed under us -- treat as quit, not a spin
+    if (c == 'q' || c == 'Q') return Key::Quit;
+    if (c == 'X') return Key::XInc;
+    if (c == 'x') return Key::XDec;
+    if (c == 'Y') return Key::YInc;
+    if (c == 'y') return Key::YDec;
+    if (c == 'Z') return Key::ZInc;
+    if (c == 'z') return Key::ZDec;
+    if (c == 'T') return Key::TInc;
+    if (c == 't') return Key::TDec;
+    if (c != 27) return Key::Unknown;  // not ESC -- not a sequence this UI understands
+
+    if (std::getchar() != '[') return Key::Unknown;
+    switch (std::getchar()) {
+        case 'A': return Key::Up;
+        case 'B': return Key::Down;
+        case 'C': return Key::Right;
+        case 'D': return Key::Left;
+        default:  return Key::Unknown;
+    }
 }
 
 }  // namespace
@@ -262,20 +307,37 @@ static void test_live_backsrc_demo() {
         return std::optional<scatter::OwnedSourceRaster>(fileBackSource->currentSourceRaster());
     };
 
+    double yaw = 0.0, pitch = 0.0;
+    double centerX = kInitialCenterX;
+    double centerY = kInitialCenterY;
+    double radius  = kInitialRadius;
+
+    // ADR-099: manualTransp is live state now, seeded at 0 (fully opaque,
+    // matching test_decklink_live_sphere.cpp's own T/t rest position) and
+    // pushed to the running consumer via setManualTransp() on every T/t
+    // keypress, below.
+    scatter::Weight manualTransp = 0;
+
     scatter::PipelineParams params;
     params.destWidth = kWidth;
     params.destHeight = kHeight;
-    // Deliberately nothing else set — see this file's own header comment:
-    // backSrc substitution needs no kBufferMode/frontTag/backTag
-    // configuration, confirmed directly against core/pipeline.cpp this
-    // session.
+    // ADR-099: Blend, not Off -- without this, T/t (this file's own newly
+    // ported controls) would change manualTransp with no visible effect at
+    // all (compositeKBuffer()'s own Blend fold never runs otherwise,
+    // core/resolve.hpp). frontTag/backTag are left at their default (both
+    // 0) -- this unit's own backSrc-substitution proof does not need
+    // facing-tag differentiation, only the Blend resolve itself, which is
+    // gated on kBufferMode alone (confirmed against core/pipeline.cpp this
+    // session, ADR-099).
+    params.kBufferMode = scatter::KBufferResolveMode::Blend;
+    params.manualTransp = manualTransp;
 
     // WU-23b2b (ADR-080/081): DeinterlaceCoefficients has no default —
     // Complex, Steve's own explicit choice, same as every other caller in
     // this project. backSource is the new trailing argument WU-33c3 added
     // (DECISIONS.md ADR-097), after coverageCallback, which this unit has
     // no use for and passes as nullptr.
-    CaptureConsumer consumer(ring, makeSphereLattice(), params,
+    CaptureConsumer consumer(ring, makeSphereLattice(radius, centerX, centerY), params,
                               scatter::video::DeinterlaceCoefficients::Complex,
                               /*coverageCallback=*/nullptr, backSource);
     consumer.start();
@@ -283,34 +345,98 @@ static void test_live_backsrc_demo() {
     auto playback = LiveFramePlayback::create(output, kDisplayMode, kWidth, kHeight, consumer);
     CHECK(bool(playback));
     if (playback) {
-        std::fprintf(stderr,
-                     "test_decklink_live_backsrc_demo: running a %.0f-second automatic yaw sweep. "
-                     "Watch the Monitor 3G output -- the near (front-facing) hemisphere should show "
-                     "the live front feed, the far (back-facing) hemisphere should show the static "
-                     "zone plate, and the two should visibly swap as the sphere turns.\n",
-                     kDemoSeconds);
+        // ADR-099: whether stdin is a real terminal is queried up front,
+        // the same "tcgetattr() is a pure query, moving it earlier changes
+        // nothing observable" reasoning
+        // tests/test_decklink_live_sphere.cpp's own WU-22c session already
+        // used for the identical check.
+        struct termios oldAttrs {};
+        const bool interactive = (tcgetattr(STDIN_FILENO, &oldAttrs) == 0);
 
-        const auto base = makeSphereLattice();
-        const auto start = std::chrono::steady_clock::now();
-        double lastReportedSecond = -1.0;
-        for (;;) {
-            const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-            if (elapsed >= kDemoSeconds) break;
+        if (interactive) {
+            struct termios rawAttrs = oldAttrs;
+            rawAttrs.c_lflag &= ~(tcflag_t(ICANON) | tcflag_t(ECHO));
+            tcsetattr(STDIN_FILENO, TCSANOW, &rawAttrs);
 
-            const double yaw = (elapsed / kDemoSeconds) * (2.0 * M_PI);
-            consumer.setLattice(rotateLatticeYaw(base, yaw));
+            std::fprintf(stderr,
+                         "test_decklink_live_backsrc_demo: cursor keys rotate (left/right = yaw, "
+                         "up/down = pitch); X/x = position right/left, Y/y = position down/up, "
+                         "Z/z = bigger/smaller, T/t = more/less transparent. Q quits. Watch the "
+                         "Monitor 3G output -- the near (front-facing) hemisphere shows the live "
+                         "front feed, the far (back-facing) hemisphere shows the static zone plate.\n");
 
-            if (elapsed - lastReportedSecond >= 5.0) {
-                lastReportedSecond = elapsed;
-                std::fprintf(stderr, "test_decklink_live_backsrc_demo: %.0fs / %.0fs (yaw=%.2f rad)\n",
-                             elapsed, kDemoSeconds, yaw);
+            // ADR-099: direct port of tests/test_decklink_live_sphere.cpp's
+            // own flag-off interactive loop (WU-21i/35a2/35a3) -- this file
+            // has no CoverageWindow, so only that simpler branch is ported,
+            // not the CoverageWindow-driven GCD dispatch-source variant
+            // WU-22c added alongside it there.
+            for (;;) {
+                const Key key = readKey();
+                bool changed = true;
+                switch (key) {
+                    case Key::Left:    yaw -= kRotationStep; break;
+                    case Key::Right:   yaw += kRotationStep; break;
+                    case Key::Up:      pitch -= kRotationStep; break;
+                    case Key::Down:    pitch += kRotationStep; break;
+                    case Key::XInc:    centerX += kPositionStep; break;
+                    case Key::XDec:    centerX -= kPositionStep; break;
+                    case Key::YInc:    centerY += kPositionStep; break;
+                    case Key::YDec:    centerY -= kPositionStep; break;
+                    case Key::ZInc:    radius += kRadiusStep; break;
+                    case Key::ZDec:    radius = std::max(kMinRadius, radius - kRadiusStep); break;
+                    case Key::TInc:
+                        manualTransp = scatter::Weight(
+                            std::min(int(scatter::kWeightUnity), int(manualTransp) + kTranspStep));
+                        consumer.setManualTransp(manualTransp);
+                        break;
+                    case Key::TDec:
+                        manualTransp = scatter::Weight(std::max(0, int(manualTransp) - kTranspStep));
+                        consumer.setManualTransp(manualTransp);
+                        break;
+                    case Key::Quit:    changed = false; break;
+                    case Key::Unknown: changed = false; break;
+                }
+                if (key == Key::Quit) break;
+                if (changed)
+                    consumer.setLattice(rotateLattice(makeSphereLattice(radius, centerX, centerY), yaw, pitch,
+                                                        centerX, centerY, radius));
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            tcsetattr(STDIN_FILENO, TCSANOW, &oldAttrs);
+        } else {
+            // ADR-099: demoted from the primary path to the non-interactive
+            // fallback -- still a real, observable run when stdin is not a
+            // real terminal (e.g. an unattended `ctest`), same "unattended
+            // is a real, honestly reportable state" convention WU-21i
+            // established.
+            std::fprintf(stderr,
+                         "test_decklink_live_backsrc_demo: stdin is not a real terminal -- interactive "
+                         "control is unavailable this run; falling back to a %.0f-second automatic yaw "
+                         "sweep instead.\n",
+                         kDemoSeconds);
+
+            const auto base = makeSphereLattice(radius, centerX, centerY);
+            const auto start = std::chrono::steady_clock::now();
+            double lastReportedSecond = -1.0;
+            for (;;) {
+                const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                if (elapsed >= kDemoSeconds) break;
+
+                const double sweepYaw = (elapsed / kDemoSeconds) * (2.0 * M_PI);
+                consumer.setLattice(rotateLattice(base, sweepYaw, 0.0, centerX, centerY, radius));
+
+                if (elapsed - lastReportedSecond >= 5.0) {
+                    lastReportedSecond = elapsed;
+                    std::fprintf(stderr, "test_decklink_live_backsrc_demo: %.0fs / %.0fs (yaw=%.2f rad)\n",
+                                 elapsed, kDemoSeconds, sweepYaw);
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
         }
 
         std::fprintf(stderr,
-                     "test_decklink_live_backsrc_demo: sweep complete. completed=%d displayedLate=%d "
+                     "test_decklink_live_backsrc_demo: run complete. completed=%d displayedLate=%d "
                      "dropped=%d flushed=%d framesRepeated=%d\n",
                      playback->stats().completed.load(), playback->stats().displayedLate.load(),
                      playback->stats().dropped.load(), playback->stats().flushed.load(),
