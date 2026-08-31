@@ -613,7 +613,28 @@ if(APPLE AND BLACKMAGIC_SDK_DIR AND EXISTS "${BLACKMAGIC_SDK_DIR}/Mac/include/De
     target_include_directories(test_decklink_live_sphere PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     add_test(NAME test_decklink_live_sphere COMMAND test_decklink_live_sphere)
 
-    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_back_source, test_decklink_live_output and test_decklink_live_sphere configured")
+    # WU-33c4 (DECISIONS.md ADR-098) — test_decklink_live_backsrc_demo.cpp:
+    # wires WU-33c2a's own FileBackSource into a real front CaptureConsumer
+    # built on the same sphere lattice test_decklink_live_sphere.cpp already
+    # uses, so backSrc (WU-33a/33b/33c3) has a genuinely self-folding shape
+    # to select back-facing samples from. Dual-link, same reason
+    # test_decklink_capture_consumer/test_decklink_live_output/
+    # test_decklink_live_sphere above all need scatter-core (Lattice,
+    # PipelineParams, and now FileBackSource/testpat-generated back content)
+    # alongside scatter-decklink (CaptureSource, CaptureConsumer,
+    # LiveFramePlayback, device enumeration). No scatter-diag needed — this
+    # unit has no CoverageWindow of its own (see the new file's own header
+    # comment for why). tools/ added to its own include path for
+    # testpat.hpp, the same reason test_decklink_output above already adds
+    # it.
+    add_executable(test_decklink_live_backsrc_demo tests/test_decklink_live_backsrc_demo.cpp)
+    target_link_libraries(test_decklink_live_backsrc_demo PRIVATE scatter-decklink scatter-core)
+    target_include_directories(test_decklink_live_backsrc_demo PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+    add_test(NAME test_decklink_live_backsrc_demo COMMAND test_decklink_live_backsrc_demo)
+
+    message(STATUS "scatter-dve: DeckLink SDK found at ${BLACKMAGIC_SDK_DIR} — scatter-decklink, test_decklink_device, test_decklink_output, test_decklink_input, test_decklink_capture_consumer, test_decklink_back_source, test_decklink_live_output, test_decklink_live_sphere and test_decklink_live_backsrc_demo configured")
 else()
     message(STATUS "scatter-dve: BLACKMAGIC_SDK_DIR not set (or not Apple, or SDK not found there) — skipping scatter-decklink and test_decklink_device. WU-14 needs this set to build.")
 endif()
