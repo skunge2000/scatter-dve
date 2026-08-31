@@ -9,7 +9,8 @@
 // beyond core/resolve.hpp/core/pipeline.cpp (both already build into
 // scatter-core) — this file only adds a new test executable.
 //
-// Two checks:
+// Four checks (WU-33c6, DECISIONS.md ADR-100, added checks 3/4 below to the
+// original two):
 //
 //   1. unpackSourceRaster()'s own output, fed by hand into runFrame() and
 //      the same RGB->YCbCr/chroma-downsample/v210-pack tail
@@ -33,7 +34,23 @@
 //      stale in a copy, since RasterRGB's std::vector members reallocate
 //      at a new address on copy. Checked directly: copy an
 //      OwnedSourceRaster, destroy the original, and confirm the copy's own
-//      view() still reads back the values it was built with.
+//      view() still reads back the values it was built with. Since WU-33c6
+//      this is trivially true (the underlying video::RasterRGB is now
+//      reference-counted, so destroying one owner while a copy is alive
+//      frees nothing) but is kept unchanged, in intent, per WU-33c6's own
+//      Accept: line — it still catches a regression to a hand-written,
+//      by-value rgb member.
+//
+//   3. (WU-33c6) A copy's own view().r/.g/.b compare pointer-*equal*, not
+//      merely value-equal, to the original's — the direct, sandbox-
+//      checkable proof that copying an OwnedSourceRaster no longer
+//      duplicates its underlying buffer.
+//
+//   4. (WU-33c6) Two independently-constructed OwnedSourceRasters (two
+//      separate unpackSourceRaster() calls, not copies of each other)
+//      compare pointer-*unequal* — rules out a broken implementation that
+//      shares one static buffer across every instance, which would pass
+//      check 3 vacuously.
 
 #include "core/lattice.hpp"
 #include "core/resolve.hpp"
@@ -174,9 +191,15 @@ static void test_owned_source_raster_view_survives_copy_and_original_destruction
     std::vector<Sample> expectedG(originalView.g, originalView.g + std::size_t(W) * std::size_t(H));
     std::vector<Sample> expectedB(originalView.b, originalView.b + std::size_t(W) * std::size_t(H));
 
-    OwnedSourceRaster copy = *original;  // deep copy: RasterRGB's own std::vector members reallocate
+    // WU-33c6: no longer a deep copy -- copying an OwnedSourceRaster now
+    // increments the shared video::RasterRGB's own refcount, so `copy`
+    // aliases the exact same underlying buffer `original` does.
+    OwnedSourceRaster copy = *original;
 
-    original.reset();  // original's own storage is genuinely freed here
+    original.reset();  // original's own std::shared_ptr reference is dropped
+                        // here; the underlying storage survives because
+                        // `copy` still holds a reference to it (WU-33c6) --
+                        // this call no longer frees anything by itself.
 
     const SourceRaster copyView = copy.view();
     CHECK(copyView.width == W);
@@ -192,9 +215,69 @@ static void test_owned_source_raster_view_survives_copy_and_original_destruction
     CHECK(rgbMatches);
 }
 
+// ---------------------------------------------------------------------------
+// 3. (WU-33c6, DECISIONS.md ADR-100) A copy's own view().r/.g/.b compare
+//    pointer-equal to the original's -- direct, sandbox-checkable proof
+//    that copying an OwnedSourceRaster no longer duplicates its underlying
+//    buffer.
+// ---------------------------------------------------------------------------
+
+static void test_owned_source_raster_copy_shares_storage_pointer_equal() {
+    constexpr int W = 64, H = 48;
+
+    const testpat::Frame src = testpat::makeZonePlate(W, H);
+    const std::size_t srcRowBytes = v210::rowBytesMin(W);
+    std::vector<std::uint8_t> srcBytes(srcRowBytes * std::size_t(H));
+    v210::packImage(src.Y.data(), src.yStride(), src.Cb.data(), src.Cr.data(),
+                     src.cStride(), W, H, srcBytes.data(),
+                     std::ptrdiff_t(srcRowBytes));
+
+    const OwnedSourceRaster original = unpackSourceRaster(
+        srcBytes.data(), std::ptrdiff_t(srcRowBytes), W, H);
+    const OwnedSourceRaster copy = original;  // refcount increment, not a deep copy (WU-33c6)
+
+    const SourceRaster originalView = original.view();
+    const SourceRaster copyView = copy.view();
+    CHECK(copyView.r == originalView.r);
+    CHECK(copyView.g == originalView.g);
+    CHECK(copyView.b == originalView.b);
+}
+
+// ---------------------------------------------------------------------------
+// 4. (WU-33c6, DECISIONS.md ADR-100) Two independently-constructed
+//    OwnedSourceRasters compare pointer-unequal -- rules out a broken
+//    implementation that shares one static buffer across every instance,
+//    which would pass check 3 above vacuously.
+// ---------------------------------------------------------------------------
+
+static void test_owned_source_raster_independent_instances_do_not_share_storage() {
+    constexpr int W = 64, H = 48;
+
+    const testpat::Frame src = testpat::makeZonePlate(W, H);
+    const std::size_t srcRowBytes = v210::rowBytesMin(W);
+    std::vector<std::uint8_t> srcBytes(srcRowBytes * std::size_t(H));
+    v210::packImage(src.Y.data(), src.yStride(), src.Cb.data(), src.Cr.data(),
+                     src.cStride(), W, H, srcBytes.data(),
+                     std::ptrdiff_t(srcRowBytes));
+
+    // Two separate unpackSourceRaster() calls -- not a copy of one another.
+    const OwnedSourceRaster a = unpackSourceRaster(
+        srcBytes.data(), std::ptrdiff_t(srcRowBytes), W, H);
+    const OwnedSourceRaster b = unpackSourceRaster(
+        srcBytes.data(), std::ptrdiff_t(srcRowBytes), W, H);
+
+    const SourceRaster aView = a.view();
+    const SourceRaster bView = b.view();
+    CHECK(aView.r != bView.r);
+    CHECK(aView.g != bView.g);
+    CHECK(aView.b != bView.b);
+}
+
 int main() {
     test_unpack_source_raster_matches_runframebytes_for_a_real_warp();
     test_owned_source_raster_view_survives_copy_and_original_destruction();
+    test_owned_source_raster_copy_shares_storage_pointer_equal();
+    test_owned_source_raster_independent_instances_do_not_share_storage();
 
     return scatter::test::summary("test_unpack_source_raster");
 }

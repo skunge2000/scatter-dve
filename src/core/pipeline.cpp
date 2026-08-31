@@ -1223,8 +1223,8 @@ OwnedSourceRaster unpackSourceRaster(const std::uint8_t* srcBytes, std::ptrdiff_
     OwnedSourceRaster out(srcWidth, srcHeight);
     chroma::ycbcrToRgbImage(full.Y.data(), full.Cb.data(), full.Cr.data(),
                              full.planeY().strideSamples, srcWidth, srcHeight,
-                             out.rgb.R.data(), out.rgb.G.data(), out.rgb.B.data(),
-                             out.rgb.planeR().strideSamples);
+                             out.rgb->R.data(), out.rgb->G.data(), out.rgb->B.data(),
+                             out.rgb->planeR().strideSamples);
     return out;
 }
 

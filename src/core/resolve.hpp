@@ -47,6 +47,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace scatter {
@@ -927,25 +928,40 @@ bool runFrameFile(const Lattice& lattice, const std::string& srcPath,
 // go stale across a copy (RasterRGB's std::vector members reallocate on
 // copy, at a new address; a member SourceRaster copied alongside them would
 // still point at the *source* object's old buffers, not the copy's own) --
-// recomputing from rgb.R/G/B.data() every call needs no hand-written copy
+// recomputing from rgb->R/G/B.data() every call needs no hand-written copy
 // constructor, no hand-written move constructor, and is correct under both,
 // for free, from the compiler-generated defaults.
+//
+// WU-33c6 (DECISIONS.md ADR-100): rgb is a std::shared_ptr<video::RasterRGB>,
+// not an owned-by-value video::RasterRGB -- the first std::shared_ptr
+// anywhere in src/, confirmed by grep before this change. Confirmed by grep
+// at the same time: nothing anywhere mutates an OwnedSourceRaster's own
+// pixel storage after construction -- the one write happens once, inside
+// unpackSourceRaster() (core/pipeline.cpp), before the object is ever
+// copied or shared, and every other reference (view() here included) is
+// read-only. That precondition is what makes aliasing the same storage
+// across copies safe with no copy-on-write branch, mutex, or defensive
+// clone needed: copying this object is now an atomic refcount increment,
+// not a three-vector deep copy. This does not reopen ADR-094 -- the type's
+// existence, purpose and view() contract are all unchanged, only its own
+// internal copy cost, which ADR-094 never settled either way.
 struct OwnedSourceRaster {
-    video::RasterRGB rgb;
+    std::shared_ptr<video::RasterRGB> rgb;
 
     // RasterRGB (video/raster.hpp) has no default constructor -- its own
     // std::vector members are sized from width/height at construction, so
     // this object needs the same up front, the same reason SourceRaster's
     // own caller-supplied width/height exist at all (core/binner.hpp).
-    OwnedSourceRaster(int width, int height) : rgb(width, height) {}
+    OwnedSourceRaster(int width, int height)
+        : rgb(std::make_shared<video::RasterRGB>(width, height)) {}
 
     SourceRaster view() const noexcept {
         SourceRaster s;
-        s.width = rgb.width;
-        s.height = rgb.height;
-        s.r = rgb.R.data();
-        s.g = rgb.G.data();
-        s.b = rgb.B.data();
+        s.width = rgb->width;
+        s.height = rgb->height;
+        s.r = rgb->R.data();
+        s.g = rgb->G.data();
+        s.b = rgb->B.data();
         return s;
     }
 };
